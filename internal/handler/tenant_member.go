@@ -107,7 +107,8 @@ func parseTenantIDFromPath(c *gin.Context) (uint64, bool) {
 
 // ListMembers godoc
 // @Summary      列出空间成员
-// @Description  分页返回当前空间内 active 成员（含每位成员的角色、邮箱、头像）；支持 q 按邮箱/用户名筛选
+// @Description  分页返回当前空间内 active 成员（含每位成员的角色、邮箱、头像）；
+// @Description  支持 q 按邮箱/用户名筛选
 // @Tags         空间成员
 // @Produce      json
 // @Param        id         path   string  true   "空间 ID"
@@ -285,18 +286,18 @@ func (h *TenantMemberHandler) CreateMemberAccount(c *gin.Context) {
 
 	var req createMemberAccountRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
 		return
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	req.Email = strings.TrimSpace(req.Email)
 	// 密码刻意不做 trim：与 Register / AdminCreateUser 一致，按原字节校验并哈希。
 	if n := utf8.RuneCountInString(req.Username); n < 2 || n > 50 {
-		c.Error(apperrors.NewValidationError("username must be 2-50 characters"))
+		_ = c.Error(apperrors.NewValidationError("username must be 2-50 characters"))
 		return
 	}
 	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+		_ = c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
 		return
 	}
 	// 任何人都不能创建 owner；owner 转让/新增走另立需求（A2）。
@@ -337,7 +338,8 @@ func (h *TenantMemberHandler) CreateMemberAccount(c *gin.Context) {
 			// identity conflict。这里按邮箱优先（Register 也先查邮箱）补一句
 			// 具体提示：前端靠消息里的 email/username 关键字选文案，笼统
 			// 消息会被误判成「用户名已占用」（AC-5 要求提示邮箱已注册）。
-			if existing, lookupErr := h.userService.GetUserByEmail(ctx, req.Email); lookupErr == nil && existing != nil {
+			existing, lookupErr := h.userService.GetUserByEmail(ctx, req.Email)
+			if lookupErr == nil && existing != nil {
 				c.Error(apperrors.NewConflictError(
 					"this email is already registered; invite or add the existing user instead"))
 			} else {
@@ -461,7 +463,8 @@ func addMemberAndRespond(
 // ResetMemberPassword godoc
 // @Summary      重置成员密码
 // @Description  工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，
-// @Description  Admin 只能重置 contributor/viewer；不能重置与自己同级或更高级的成员，也不能重置本人。
+// @Description  Admin 只能重置 contributor/viewer；
+// @Description  不能重置与自己同级或更高级的成员，也不能重置本人。
 // @Description  目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。
 // @Description  成功后旧密码立即失效，该用户所有已签发 token 被吊销。
 // @Tags         空间成员
@@ -623,7 +626,8 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 
 // RemoveMember godoc
 // @Summary      移除空间成员
-// @Description  Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；不能移除最后一位 Owner
+// @Description  Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；
+// @Description  不能移除最后一位 Owner
 // @Tags         空间成员
 // @Produce      json
 // @Param        id       path  string  true  "空间 ID"

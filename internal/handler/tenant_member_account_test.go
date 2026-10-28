@@ -29,7 +29,11 @@ import (
 
 type accountTestUserService struct {
 	interfaces.UserService
-	adminCreateUser    func(ctx context.Context, req *types.AdminCreateUserRequest, provisioning types.TenantProvisioningMode) (*types.User, string, error)
+	adminCreateUser func(
+		ctx context.Context,
+		req *types.AdminCreateUserRequest,
+		provisioning types.TenantProvisioningMode,
+	) (*types.User, string, error)
 	adminResetPassword func(ctx context.Context, userID string, newPassword string) error
 	deleteUser         func(ctx context.Context, id string) error
 	getByEmail         func(ctx context.Context, email string) (*types.User, error)
@@ -82,7 +86,13 @@ func (s *accountTestUserService) GetUserByEmail(ctx context.Context, email strin
 
 type accountTestMemberService struct {
 	interfaces.TenantMemberService
-	add           func(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string) (*types.TenantMember, error)
+	add func(
+		ctx context.Context,
+		userID string,
+		tenantID uint64,
+		role types.TenantRole,
+		invitedBy *string,
+	) (*types.TenantMember, error)
 	getMembership func(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error)
 
 	addCalls           int
@@ -341,7 +351,11 @@ func TestCreateMemberAccount_SystemAdminActsAsOwner(t *testing.T) {
 func TestCreateMemberAccount_EmailAlreadyRegisteredMaps409(t *testing.T) {
 	ms := &accountTestMemberService{}
 	us := &accountTestUserService{
-		adminCreateUser: func(context.Context, *types.AdminCreateUserRequest, types.TenantProvisioningMode) (*types.User, string, error) {
+		adminCreateUser: func(
+			context.Context,
+			*types.AdminCreateUserRequest,
+			types.TenantProvisioningMode,
+		) (*types.User, string, error) {
 			return nil, "", service.ErrUserEmailExists
 		},
 	}
@@ -351,7 +365,8 @@ func TestCreateMemberAccount_EmailAlreadyRegisteredMaps409(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("duplicate email must 409, got %d body=%s", w.Code, w.Body.String())
 	}
-	if !strings.Contains(strings.ToLower(w.Body.String()), "email") || !strings.Contains(w.Body.String(), "already registered") {
+	if !strings.Contains(strings.ToLower(w.Body.String()), "email") ||
+		!strings.Contains(w.Body.String(), "already registered") {
 		t.Fatalf("409 must tell the caller the email is registered: %s", w.Body.String())
 	}
 	if ms.addCalls != 0 {
@@ -364,7 +379,11 @@ func TestCreateMemberAccount_IdentityConflictPrefersEmailMessage(t *testing.T) {
 	// handler 回查邮箱后必须给出「邮箱已注册」，避免前端误报「用户名占用」（AC-5）。
 	ms := &accountTestMemberService{}
 	us := &accountTestUserService{
-		adminCreateUser: func(context.Context, *types.AdminCreateUserRequest, types.TenantProvisioningMode) (*types.User, string, error) {
+		adminCreateUser: func(
+			context.Context,
+			*types.AdminCreateUserRequest,
+			types.TenantProvisioningMode,
+		) (*types.User, string, error) {
 			return nil, "", service.ErrUserIdentityConflict
 		},
 		getByEmail: func(_ context.Context, email string) (*types.User, error) {
@@ -385,7 +404,11 @@ func TestCreateMemberAccount_IdentityConflictPrefersEmailMessage(t *testing.T) {
 func TestCreateMemberAccount_IdentityConflictFallsBackToUsernameMessage(t *testing.T) {
 	ms := &accountTestMemberService{}
 	us := &accountTestUserService{
-		adminCreateUser: func(context.Context, *types.AdminCreateUserRequest, types.TenantProvisioningMode) (*types.User, string, error) {
+		adminCreateUser: func(
+			context.Context,
+			*types.AdminCreateUserRequest,
+			types.TenantProvisioningMode,
+		) (*types.User, string, error) {
 			return nil, "", service.ErrUserIdentityConflict
 		},
 		getByEmail: func(context.Context, string) (*types.User, error) {
@@ -406,7 +429,11 @@ func TestCreateMemberAccount_IdentityConflictFallsBackToUsernameMessage(t *testi
 func TestCreateMemberAccount_PasswordPolicyMaps400(t *testing.T) {
 	ms := &accountTestMemberService{}
 	us := &accountTestUserService{
-		adminCreateUser: func(context.Context, *types.AdminCreateUserRequest, types.TenantProvisioningMode) (*types.User, string, error) {
+		adminCreateUser: func(
+			context.Context,
+			*types.AdminCreateUserRequest,
+			types.TenantProvisioningMode,
+		) (*types.User, string, error) {
 			return nil, "", service.ErrPasswordPolicy
 		},
 	}
@@ -441,16 +468,26 @@ func TestCreateMemberAccount_AddMemberFailureRollsBackUser(t *testing.T) {
 }
 
 func TestCreateMemberAccount_InvalidInputRejectedBeforeServices(t *testing.T) {
+	body := func(username, email, password string, role ...string) map[string]any {
+		m := map[string]any{"username": username, "email": email}
+		if password != "" {
+			m["password"] = password
+		}
+		if len(role) > 0 {
+			m["role"] = role[0]
+		}
+		return m
+	}
 	cases := []struct {
 		name string
 		body map[string]any
 	}{
-		{"invalid-role", map[string]any{"username": "New Member", "email": "x@allstar.local", "password": "TestPass123!", "role": "wizard"}},
-		{"short-username", map[string]any{"username": "a", "email": "x@allstar.local", "password": "TestPass123!", "role": "viewer"}},
-		{"long-username", map[string]any{"username": strings.Repeat("a", 51), "email": "x@allstar.local", "password": "TestPass123!", "role": "viewer"}},
-		{"bad-email", map[string]any{"username": "New Member", "email": "not-an-email", "password": "TestPass123!", "role": "viewer"}},
-		{"missing-password", map[string]any{"username": "New Member", "email": "x@allstar.local", "role": "viewer"}},
-		{"missing-role", map[string]any{"username": "New Member", "email": "x@allstar.local", "password": "TestPass123!"}},
+		{"invalid-role", body("New Member", "x@allstar.local", "TestPass123!", "wizard")},
+		{"short-username", body("a", "x@allstar.local", "TestPass123!", "viewer")},
+		{"long-username", body(strings.Repeat("a", 51), "x@allstar.local", "TestPass123!", "viewer")},
+		{"bad-email", body("New Member", "not-an-email", "TestPass123!", "viewer")},
+		{"missing-password", body("New Member", "x@allstar.local", "", "viewer")},
+		{"missing-role", body("New Member", "x@allstar.local", "TestPass123!")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
