@@ -720,7 +720,7 @@ func (s *userService) UpdateUserPreferences(
 		// 整张 map 覆盖：按工作区合并的逻辑在 handler 里做完了
 		// （handler 读出原 map、只替换当前工作区那条、再把整张 map 送进来）。
 		// service 只负责落库，保持「传进来的就是最终值」的 PATCH 语义。
-		merged.BoundAgentIDsByTenant = *patch.BoundAgentIDsByTenant
+		merged.BoundAgentIDsByTenant = patch.BoundAgentIDsByTenant
 	}
 
 	user.Preferences = merged
