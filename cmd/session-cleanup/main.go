@@ -129,13 +129,6 @@ func run(args []string) error {
 	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, currentPlan.Sessions)
 	allErrs := append(append([]string{}, groupErrs...), verifyErrs...)
 
-	// BatchDeleteSessions 的「清聊天历史知识」是 fire-and-forget goroutine，
-	// CLI 立刻退出会截断它；这里留一个可配置宽限期，尽量让异步清理跑完。
-	if opts.drainWait > 0 {
-		printf("等待异步清理 %s ...\n", opts.drainWait)
-		time.Sleep(opts.drainWait)
-	}
-
 	record := auditRecord{
 		TenantID:                opts.tenantID,
 		GeneratedAt:             nowFunc().Format("2006-01-02T15:04:05Z07:00"),
@@ -152,6 +145,13 @@ func run(args []string) error {
 	auditPath, err := writeAudit(opts.auditDir, record)
 	if err != nil {
 		return fmt.Errorf("写审计文件失败: %w（本次已删除 %d 条，请勿直接重跑）", err, len(deletedIDs))
+	}
+
+	// 审计文件已落盘后再等异步清理：BatchDeleteSessions 的「清聊天历史知识」
+	// 是 fire-and-forget goroutine，CLI 立刻退出会截断它。默认 5s best-effort。
+	if opts.drainWait > 0 {
+		printf("等待异步清理 %s ...\n", opts.drainWait)
+		time.Sleep(opts.drainWait)
 	}
 
 	printf("\n实际删除: %d\n失败: %d\n审计文件: %s\n", len(deletedIDs), len(failedIDs), auditPath)
