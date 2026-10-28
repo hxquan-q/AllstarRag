@@ -302,7 +302,7 @@ func (h *TenantMemberHandler) CreateMemberAccount(c *gin.Context) {
 	}
 	// 任何人都不能创建 owner；owner 转让/新增走另立需求（A2）。
 	if req.Role == types.TenantRoleOwner {
-		c.Error(apperrors.NewValidationError("cannot create an owner account"))
+		_ = c.Error(apperrors.NewValidationError("cannot create an owner account"))
 		return
 	}
 
@@ -314,7 +314,7 @@ func (h *TenantMemberHandler) CreateMemberAccount(c *gin.Context) {
 	if !service.CanCreateRole(actorRole, req.Role) {
 		logger.Warnf(ctx, "CreateMemberAccount denied: actor_role=%s target_role=%s tenant=%d",
 			actorRole, req.Role, tenantID)
-		c.Error(apperrors.NewForbiddenError("your role cannot create a member with this role"))
+		_ = c.Error(apperrors.NewForbiddenError("your role cannot create a member with this role"))
 		return
 	}
 
@@ -329,10 +329,10 @@ func (h *TenantMemberHandler) CreateMemberAccount(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrUserEmailExists):
 			// AC-5：已注册邮箱直接冲突，不覆盖现有账号、也不把老账号拉进空间。
-			c.Error(apperrors.NewConflictError(
+			_ = c.Error(apperrors.NewConflictError(
 				"this email is already registered; invite or add the existing user instead"))
 		case errors.Is(err, service.ErrUserUsernameExists):
-			c.Error(apperrors.NewConflictError("this username is already taken"))
+			_ = c.Error(apperrors.NewConflictError("this username is already taken"))
 		case errors.Is(err, service.ErrUserIdentityConflict):
 			// 邮箱和用户名只撞了一个时，AdminCreateUser 返回的是笼统的
 			// identity conflict。这里按邮箱优先（Register 也先查邮箱）补一句
@@ -340,18 +340,18 @@ func (h *TenantMemberHandler) CreateMemberAccount(c *gin.Context) {
 			// 消息会被误判成「用户名已占用」（AC-5 要求提示邮箱已注册）。
 			existing, lookupErr := h.userService.GetUserByEmail(ctx, req.Email)
 			if lookupErr == nil && existing != nil {
-				c.Error(apperrors.NewConflictError(
+				_ = c.Error(apperrors.NewConflictError(
 					"this email is already registered; invite or add the existing user instead"))
 			} else {
-				c.Error(apperrors.NewConflictError("this username is already taken"))
+				_ = c.Error(apperrors.NewConflictError("this username is already taken"))
 			}
 		case service.IsPasswordPolicyError(err):
-			c.Error(apperrors.NewValidationError("password does not meet the password policy"))
+			_ = c.Error(apperrors.NewValidationError("password does not meet the password policy"))
 		default:
 			// 不记录密码；邮箱做脱敏后再进日志。
 			logger.Errorf(ctx, "AdminCreateUser failed: email=%s err=%v",
 				secutils.SanitizeForLog(req.Email), err)
-			c.Error(apperrors.NewInternalServerError("failed to create user account"))
+			_ = c.Error(apperrors.NewInternalServerError("failed to create user account"))
 		}
 		return
 	}
@@ -402,19 +402,19 @@ func writeAddMemberError(
 ) {
 	switch {
 	case errors.Is(err, service.ErrInvalidTenantRole):
-		c.Error(apperrors.NewValidationError(err.Error()))
+		_ = c.Error(apperrors.NewValidationError(err.Error()))
 	case errors.Is(err, service.ErrAPIKeyCannotAssignOwner):
-		c.Error(apperrors.NewForbiddenError(err.Error()))
+		_ = c.Error(apperrors.NewForbiddenError(err.Error()))
 	case errors.Is(err, service.ErrMembershipAlreadyExists):
 		// 409 reads better than 400 here: the request was syntactically
 		// fine, the conflict is semantic ("already a member").
-		c.Error(apperrors.NewConflictError(err.Error()))
+		_ = c.Error(apperrors.NewConflictError(err.Error()))
 	default:
 		// 500 只回笼统信息：err.Error() 可能带出仓储层细节（F6），完整错误
 		// 已在上面记日志。
 		logger.Errorf(ctx, "AddMember failed: user=%s tenant=%d err=%v",
 			user.ID, tenantID, err)
-		c.Error(apperrors.NewInternalServerError("failed to add member"))
+		_ = c.Error(apperrors.NewInternalServerError("failed to add member"))
 	}
 }
 
@@ -488,13 +488,13 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 	}
 	targetUserID := strings.TrimSpace(c.Param("user_id"))
 	if targetUserID == "" {
-		c.Error(apperrors.NewValidationError("user_id is required"))
+		_ = c.Error(apperrors.NewValidationError("user_id is required"))
 		return
 	}
 
 	var req resetMemberPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
 		return
 	}
 	// 密码刻意不做 trim：与 Register / AdminResetPassword 一致，按原字节校验并哈希。
@@ -502,7 +502,7 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 	// 本人走「修改密码」接口（需要旧密码），管理端重置不允许作用于自己。
 	callerID, _ := types.UserIDFromContext(ctx)
 	if callerID != "" && callerID == targetUserID {
-		c.Error(apperrors.NewValidationError(
+		_ = c.Error(apperrors.NewValidationError(
 			"cannot reset your own password; use the change-password endpoint"))
 		return
 	}
@@ -513,11 +513,11 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 		// 500 不带 err.Error()：仓储错误细节不外泄（F6），日志里已有全文。
 		logger.Errorf(ctx, "GetMembership failed: user=%s tenant=%d err=%v",
 			targetUserID, tenantID, err)
-		c.Error(apperrors.NewInternalServerError("failed to look up membership"))
+		_ = c.Error(apperrors.NewInternalServerError("failed to look up membership"))
 		return
 	}
 	if member == nil {
-		c.Error(apperrors.NewNotFoundError("membership not found"))
+		_ = c.Error(apperrors.NewNotFoundError("membership not found"))
 		return
 	}
 
@@ -529,7 +529,7 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 	if !service.CanResetRole(actorRole, member.Role) {
 		logger.Warnf(ctx, "ResetMemberPassword denied: actor_role=%s target_role=%s tenant=%d",
 			actorRole, member.Role, tenantID)
-		c.Error(apperrors.NewForbiddenError("your role cannot reset this member's password"))
+		_ = c.Error(apperrors.NewForbiddenError("your role cannot reset this member's password"))
 		return
 	}
 
@@ -542,16 +542,16 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 		if errors.Is(err, service.ErrCannotResetPrivilegedTarget) {
 			logger.Warnf(ctx, "ResetMemberPassword denied: privileged target user=%s tenant=%d actor_role=%s",
 				targetUserID, tenantID, actorRole)
-			c.Error(apperrors.NewForbiddenError("your role cannot reset this member's password"))
+			_ = c.Error(apperrors.NewForbiddenError("your role cannot reset this member's password"))
 			return
 		}
 		if service.IsPasswordPolicyError(err) {
-			c.Error(apperrors.NewValidationError("password does not meet the password policy"))
+			_ = c.Error(apperrors.NewValidationError("password does not meet the password policy"))
 			return
 		}
 		logger.Errorf(ctx, "AdminResetPassword failed: user=%s tenant=%d err=%v",
 			targetUserID, tenantID, err)
-		c.Error(apperrors.NewInternalServerError("failed to reset member password"))
+		_ = c.Error(apperrors.NewInternalServerError("failed to reset member password"))
 		return
 	}
 
