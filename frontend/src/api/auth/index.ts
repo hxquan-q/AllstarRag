@@ -367,11 +367,20 @@ export async function getCurrentUser(): Promise<{ success: boolean; data?: { use
 }
 
 /**
+ * 偏好写入的 patch：请求体里多一个只写字段 bound_agent_ids。
+ * 它是「覆盖当前活动工作区的绑定」的入参（空数组 = 清空该工作区），
+ * 不回存在 UserPreferences 响应里（响应只有按租户分键的 bound_agent_ids_by_tenant）。
+ */
+export interface UpdateMyPreferencesPatch extends Partial<UserPreferences> {
+  bound_agent_ids?: string[]
+}
+
+/**
  * 更新当前用户的偏好设置（PATCH 语义：只发要改的字段，后端只覆盖发了的 key，
  * 其它 key 保持不变）。后端会返回更新后的完整 preferences 对象。
  */
 export async function updateMyPreferences(
-  patch: Partial<UserPreferences>,
+  patch: UpdateMyPreferencesPatch,
 ): Promise<{ success: boolean; data?: UserPreferences; message?: string }> {
   try {
     const response = await put('/api/v1/auth/me/preferences', patch)
