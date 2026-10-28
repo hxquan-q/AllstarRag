@@ -31,6 +31,13 @@ async function membersFixture(t: TestContext, tenantId = 7, initialRole = 'owner
     '@/stores/auth': { useAuthStore: () => auth },
     '@/utils/clipboard': { copyWithToast: async () => {} },
     '@/utils/docsUrl': { docsUrl: () => '' },
+    // customer-auth：成员页新增的建号/重置权限纯函数。上游的搜索分页用例
+    // 不涉及这两个能力，统一返回无权限即可（真实矩阵在 memberRoles.test.ts 覆盖）。
+    '@/utils/memberRoles': {
+      allowedCreateRoles: () => [],
+      canCreateAccount: () => false,
+      canResetTarget: () => false,
+    },
     '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' } },
     '@/i18n/auditActionLabel': { auditActionLabel: () => '' },
     '@/api/tenant/members': {

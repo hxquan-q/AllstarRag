@@ -12,7 +12,7 @@ import {
 /**
  * 客户个人设置（AC-23 / AC-24）：
  * - 客户只看到 general / userprofile / mymemory 三项（H2 后助手分区也对客户隐藏）；
- * - 管理员 23 个基础分区完全不受影响（另有集成分区，不在本用例）；
+ * - 管理员 24 个基础分区完全不受影响（另有集成分区，不在本用例；上游 #4822 新增 defaults）；
  * - deep-link 非法 section 由路由归一化到 general（customerAccess.test.ts 已覆盖）。
  */
 
@@ -82,8 +82,8 @@ function visibleFor(role: 'viewer' | 'admin' | 'owner', options: { systemAdmin?:
   return baseKeys.filter((key) => fn(key))
 }
 
-test('settings navigation has 23 non-integration sections (28 with integrations)', () => {
-  assert.equal(baseKeys.length, 23, `base settings keys: ${baseKeys.join(', ')}`)
+test('settings navigation has 24 non-integration sections (29 with integrations)', () => {
+  assert.equal(baseKeys.length, 24, `base settings keys: ${baseKeys.join(', ')}`)
   assert.deepEqual(baseKeys.slice(0, 3), ['general', 'ollama', 'weknoracloud'])
   assert.ok(baseKeys.includes('userprofile'))
   assert.ok(baseKeys.includes('assistant'))
@@ -116,11 +116,11 @@ test('customer hidden sections are all filtered out', () => {
 
 test('admin keeps every workspace section; system admin adds the five global ones', () => {
   // 普通 admin / owner 看不到 5 个系统管理分区（requiresSystemAdmin）；演示用的管理员是系统管理员。
-  assert.equal(visibleFor('admin').length, 18)
-  assert.equal(visibleFor('owner').length, 18)
-  assert.equal(visibleFor('admin', { crossTenant: true }).length, 18)
+  assert.equal(visibleFor('admin').length, 19)
+  assert.equal(visibleFor('owner').length, 19)
+  assert.equal(visibleFor('admin', { crossTenant: true }).length, 19)
   const systemAdmin = visibleFor('admin', { systemAdmin: true })
-  assert.equal(systemAdmin.length, 23)
+  assert.equal(systemAdmin.length, 24)
   assert.deepEqual(systemAdmin, baseKeys)
 })
 
