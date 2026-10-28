@@ -9229,6 +9229,17 @@ definitions:
     type: object
   github_com_Tencent_WeKnora_internal_types.UserPreferences:
     properties:
+      bound_agent_ids_by_tenant:
+        additionalProperties:
+          items:
+            type: string
+          type: array
+        description: |-
+          BoundAgentIDsByTenant 是客户版产线的绑定列表，按工作区分键（键 = 工作区 id 的十进制字符串）。
+          每条产线就是一个 agent，数组顺序即展示顺序。
+          按工作区分键，是为了让同一个人加入多个工作区时，各工作区的绑定互不覆盖。
+          写入空数组时删掉该工作区的键，不留空数组；nil 表示该用户从未绑定过。
+        type: object
       browser_search_instructions:
         description: BrowserSearchInstructions customizes browser search for this
           user. Nil/empty uses the platform default.
@@ -14099,6 +14110,16 @@ definitions:
     type: object
   internal_handler.updateMyPreferencesRequest:
     properties:
+      bound_agent_ids:
+        description: |-
+          BoundAgentIDs 是客户版产线的绑定列表，语义只针对**当前活动工作区**：
+            - 传数组 = 覆盖当前工作区的绑定（其他工作区原样保留）；
+            - 传空数组 = 清空当前工作区的绑定（把该工作区的键删掉）；
+            - 不传该键（nil）= 所有工作区都不动。
+          用指针是为了区分「键缺失」与「显式空数组」，两者语义不同。
+        items:
+          type: string
+        type: array
       browser_search_instructions:
         maxLength: 4000
         type: string

@@ -3,12 +3,10 @@ package handler
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
-	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
 // maxBoundAgentIDsPerTenant 是单个工作区能绑定的产线上限。
@@ -29,6 +27,7 @@ var internalAgentIDs = map[string]struct{}{
 //  1. 重复 id 去重，保持首次出现的顺序；空串直接拒绝；
 //  2. 去重后超过 20 个报错；
 //  3. 内部 agent（wiki fixer / skill installer / weknora assistant）报错；
+//     另外 7 个内建 agent 允许绑定；
 //  4. 在当前活动工作区查不到（不存在，或属于别的工作区）报错；
 //  5. 在本工作区的停用列表里报错。
 //
@@ -36,20 +35,16 @@ var internalAgentIDs = map[string]struct{}{
 // 错误消息带上具体 id，但「不存在」与「别的租户的」给同一句话，
 // 不泄露其他工作区是否存在这个 agent。
 //
-// 依赖显式传入（而不是挂在 handler 上），方便单独测；handler 侧用
-// (*AuthHandler).validateBoundAgentIDs 这层薄封装调用。
-func validateBoundAgentIDs(
+// 返回的切片已去重且保序；空输入返回空切片（调用方据此清空当前工作区）。
+func (h *AuthHandler) validateBoundAgentIDs(
 	ctx context.Context,
 	tenantID uint64,
 	ids []string,
-	customAgentService interfaces.CustomAgentService,
-	disabledAgentRepo interfaces.TenantDisabledSharedAgentRepository,
 ) ([]string, error) {
-	// 去重保序。空 batch 直接返回空切片（调用方据此清空当前工作区）。
+	// 去重保序，不 trim：id 按客户端送来的原样校验，避免悄悄改写绑定值。
 	unique := make([]string, 0, len(ids))
 	seen := make(map[string]struct{}, len(ids))
-	for _, raw := range ids {
-		id := strings.TrimSpace(raw)
+	for _, id := range ids {
 		if id == "" {
 			return nil, errors.NewValidationError("agent id cannot be empty")
 		}
@@ -66,7 +61,7 @@ func validateBoundAgentIDs(
 		return nil, errors.NewValidationError(fmt.Sprintf(
 			"cannot bind more than %d agents in one workspace", maxBoundAgentIDsPerTenant))
 	}
-	if customAgentService == nil {
+	if h.customAgentService == nil {
 		return nil, errors.NewInternalServerError("Failed to validate bound agents")
 	}
 
@@ -79,8 +74,8 @@ func validateBoundAgentIDs(
 
 	// 停用列表按工作区取一次。repo 为空（老测试 fixture）时按「没有停用」处理。
 	var disabledIDs map[string]struct{}
-	if disabledAgentRepo != nil {
-		disabled, err := disabledAgentRepo.ListDisabledOwnAgentIDs(ctx, tenantID)
+	if h.disabledAgentRepo != nil {
+		disabled, err := h.disabledAgentRepo.ListDisabledOwnAgentIDs(ctx, tenantID)
 		if err != nil {
 			logger.Errorf(ctx, "Failed to list disabled agent IDs for workspace %d: %v", tenantID, err)
 			return nil, errors.NewInternalServerError("Failed to validate bound agents")
@@ -96,7 +91,7 @@ func validateBoundAgentIDs(
 			return nil, errors.NewValidationError(fmt.Sprintf(
 				"agent %q is internal and cannot be bound", id))
 		}
-		if _, err := customAgentService.GetAgentByID(agentCtx, id); err != nil {
+		if _, err := h.customAgentService.GetAgentByID(agentCtx, id); err != nil {
 			// 不存在与跨工作区给同一句话，不泄露别的租户有没有这个 agent。
 			return nil, errors.NewValidationError(fmt.Sprintf(
 				"agent %q does not exist or cannot be bound in this workspace", id))
@@ -108,13 +103,4 @@ func validateBoundAgentIDs(
 	}
 
 	return unique, nil
-}
-
-// validateBoundAgentIDs 用 handler 上注入的依赖做同一套校验。
-func (h *AuthHandler) validateBoundAgentIDs(
-	ctx context.Context,
-	tenantID uint64,
-	ids []string,
-) ([]string, error) {
-	return validateBoundAgentIDs(ctx, tenantID, ids, h.customAgentService, h.disabledAgentRepo)
 }

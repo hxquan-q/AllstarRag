@@ -35901,6 +35901,16 @@
         "github_com_Tencent_WeKnora_internal_types.UserPreferences": {
             "type": "object",
             "properties": {
+                "bound_agent_ids_by_tenant": {
+                    "description": "BoundAgentIDsByTenant 是客户版产线的绑定列表，按工作区分键（键 = 工作区 id 的十进制字符串）。\n每条产线就是一个 agent，数组顺序即展示顺序。\n按工作区分键，是为了让同一个人加入多个工作区时，各工作区的绑定互不覆盖。\n写入空数组时删掉该工作区的键，不留空数组；nil 表示该用户从未绑定过。",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
                 "browser_search_instructions": {
                     "description": "BrowserSearchInstructions customizes browser search for this user. Nil/empty uses the platform default.",
                     "type": "string"
@@ -42453,6 +42463,13 @@
         "internal_handler.updateMyPreferencesRequest": {
             "type": "object",
             "properties": {
+                "bound_agent_ids": {
+                    "description": "BoundAgentIDs 是客户版产线的绑定列表，语义只针对**当前活动工作区**：\n  - 传数组 = 覆盖当前工作区的绑定（其他工作区原样保留）；\n  - 传空数组 = 清空当前工作区的绑定（把该工作区的键删掉）；\n  - 不传该键（nil）= 所有工作区都不动。\n用指针是为了区分「键缺失」与「显式空数组」，两者语义不同。",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "browser_search_instructions": {
                     "type": "string",
                     "maxLength": 4000
