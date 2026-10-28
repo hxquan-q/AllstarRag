@@ -77,3 +77,27 @@ test('M2 customer avatar menu hides "all settings" but keeps personal settings',
   )
   assert.doesNotMatch(personalBlock, /v-if="!isCustomer"/)
 })
+
+test('AC-11 customer menu exposes a direct agent line settings entry', () => {
+  // 入口在客户分支内：同一 div 上同时挂 v-if="isCustomer" 与 agentlines 快捷导航。
+  assert.match(
+    userMenu,
+    /<div v-if="isCustomer" class="menu-item" @click="handleQuickNav\('agentlines'\)">/,
+  )
+  // 文案复用产线分区标题，不另造 key。
+  const customerEntryBlock = userMenu.match(
+    /<div v-if="isCustomer" class="menu-item" @click="handleQuickNav\('agentlines'\)">[\s\S]*?<\/div>/,
+  )
+  assert.ok(customerEntryBlock, 'customer agentlines menu item block not found')
+  assert.match(customerEntryBlock[0], /\{\{ \$t\('agentLineSettings\.title'\) \}\}/)
+  assert.doesNotMatch(customerEntryBlock[0], /v-if="!isCustomer"/)
+  // 管理员侧看不到：全文只有这一处 agentlines 快捷导航，且它只对客户渲染
+  // （没有任何「不带 v-if 的同类 menu-item」）。
+  assert.equal((userMenu.match(/handleQuickNav\('agentlines'\)/g) ?? []).length, 1)
+  assert.doesNotMatch(userMenu, /<div class="menu-item" @click="handleQuickNav\('agentlines'\)">/)
+  // handleQuickNav 把 section 拼进 query，落到产线分区（实现处）。
+  assert.match(
+    userMenu,
+    /const handleQuickNav = \(section: string\) => \{[\s\S]*?router\.push\(\{ path: '\/platform\/settings', query: \{ section \} \}\)/,
+  )
+})
