@@ -10,10 +10,14 @@ import {
 } from '../../config/settingsAccess.ts'
 
 /**
- * 客户个人设置（AC-23 / AC-24）：
- * - 客户只看到 general / userprofile / mymemory 三项（H2 后助手分区也对客户隐藏）；
- * - 管理员 23 个基础分区完全不受影响（另有集成分区，不在本用例）；
+ * 客户个人设置（AC-11 / AC-23 / AC-24 / C6）：
+ * - 客户只看到 general / userprofile / mymemory / agentlines 四项（H2 后助手分区也对客户隐藏）；
+ * - 管理员 24 个基础分区（含 agentlines）中不出现 agentlines，其余完全不受影响
+ *   （另有集成分区，不在本用例）；
  * - deep-link 非法 section 由路由归一化到 general（customerAccess.test.ts 已覆盖）。
+ *
+ * 基数是本分支的实测值：原 23 + agentlines = 24。本分支未合入上游 defaults 分区；
+ * 若将来合并 release/merge-to-main，先按届时实际值更新，不要写死 25。
  */
 
 const settingsSource = readFileSync(new URL('./Settings.vue', import.meta.url), 'utf8')
@@ -82,25 +86,42 @@ function visibleFor(role: 'viewer' | 'admin' | 'owner', options: { systemAdmin?:
   return baseKeys.filter((key) => fn(key))
 }
 
-test('settings navigation has 23 non-integration sections (28 with integrations)', () => {
-  assert.equal(baseKeys.length, 23, `base settings keys: ${baseKeys.join(', ')}`)
+test('settings navigation has 24 non-integration sections (29 with integrations)', () => {
+  assert.equal(baseKeys.length, 24, `base settings keys: ${baseKeys.join(', ')}`)
   assert.deepEqual(baseKeys.slice(0, 3), ['general', 'ollama', 'weknoracloud'])
   assert.ok(baseKeys.includes('userprofile'))
   assert.ok(baseKeys.includes('assistant'))
   assert.ok(baseKeys.includes('mymemory'))
   assert.ok(baseKeys.includes('envvars'))
+  assert.ok(baseKeys.includes('agentlines'), 'T03 adds the agent lines section')
 })
 
-test('customer sees exactly the three allowed sections, in the account group order', () => {
-  assert.deepEqual(visibleFor('viewer'), ['general', 'userprofile', 'mymemory'])
+test('customer sees exactly the four allowed sections, in the account group order', () => {
+  assert.deepEqual(visibleFor('viewer'), ['general', 'userprofile', 'mymemory', 'agentlines'])
   // 分组顺序仍由 navGroups 的 account 组决定；助手虽在分组列表里，但会被客户过滤掉。
-  assert.match(settingsSource, /pickItems\(\['general', 'userprofile', 'assistant', 'mymemory', 'envvars'\]\)/)
+  const accountGroup = settingsSource.match(/pickItems\(\[('general'[^\]]*)\]\)/)?.[1] ?? ''
+  assert.deepEqual(
+    [...accountGroup.matchAll(/'([^']+)'/g)].map((match) => match[1]),
+    ['general', 'userprofile', 'assistant', 'mymemory', 'envvars', 'agentlines'],
+  )
   assert.match(settingsSource, /currentSection === 'assistant' && !isCustomerViewerActive/)
 })
 
 test('customer settings whitelist and assistant section follow H2/AC-23', () => {
-  assert.deepEqual([...CUSTOMER_SETTINGS_SECTIONS], ['general', 'userprofile', 'mymemory'])
+  assert.deepEqual([...CUSTOMER_SETTINGS_SECTIONS], ['general', 'userprofile', 'mymemory', 'agentlines'])
   assert.equal(CUSTOMER_SETTINGS_SECTIONS.includes('assistant'), false)
+})
+
+test('agentlines section is customer-only: hidden from admin, rendered only for the customer view (C6)', () => {
+  assert.equal(visibleFor('viewer').includes('agentlines'), true)
+  assert.equal(visibleFor('admin').includes('agentlines'), false)
+  assert.equal(visibleFor('owner').includes('agentlines'), false)
+  assert.equal(visibleFor('admin', { systemAdmin: true }).includes('agentlines'), false)
+  // 渲染分支双保险：只有客户视角才挂 AgentLineSettings。
+  assert.match(
+    settingsSource,
+    /currentSection === 'agentlines' && isCustomerViewerActive[\s\S]*?<AgentLineSettings \/>/,
+  )
 })
 
 test('customer hidden sections are all filtered out', () => {
@@ -116,12 +137,13 @@ test('customer hidden sections are all filtered out', () => {
 
 test('admin keeps every workspace section; system admin adds the five global ones', () => {
   // 普通 admin / owner 看不到 5 个系统管理分区（requiresSystemAdmin）；演示用的管理员是系统管理员。
+  // 24 个基础分区里 agentlines 只对客户可见（C6），因此管理员侧仍为 18 / 23。
   assert.equal(visibleFor('admin').length, 18)
   assert.equal(visibleFor('owner').length, 18)
   assert.equal(visibleFor('admin', { crossTenant: true }).length, 18)
   const systemAdmin = visibleFor('admin', { systemAdmin: true })
   assert.equal(systemAdmin.length, 23)
-  assert.deepEqual(systemAdmin, baseKeys)
+  assert.deepEqual(systemAdmin, baseKeys.filter((key) => key !== 'agentlines'))
 })
 
 test('Settings.vue renders CustomerGeneralSettings only for customers, GeneralSettings otherwise', () => {

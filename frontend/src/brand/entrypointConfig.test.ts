@@ -40,24 +40,16 @@ test('BRAND_CONFIG_JSON is base64-wrapped and parsed in try/catch, never interpo
 test('entrypoint default brand matches the frontend defaults and leaves actionColor derived', () => {
   const match = source.match(/DEFAULT_BRAND_JSON='(\{[\s\S]*?\})'/)
   assert.ok(match, 'docker-entrypoint.sh must keep DEFAULT_BRAND_JSON')
-  const parsed = JSON.parse(match![1]!) as {
-    productName: string
-    primaryColor: string
-    actionColor?: string
-    productLines: Array<{ id: string; agentId: string }>
-  }
+  const parsed = JSON.parse(match![1]!) as Record<string, unknown>
   assert.equal(parsed.productName, DEFAULT_BRAND.productName)
   assert.equal(parsed.primaryColor, DEFAULT_BRAND.primaryColor)
   assert.equal(parsed.actionColor, undefined, 'actionColor must stay derived from primaryColor (H3)')
-  assert.deepEqual(parsed.productLines.map((line) => line.id), DEFAULT_BRAND.productLines.map((line) => line.id))
-  assert.deepEqual(
-    parsed.productLines.map((line) => line.agentId),
-    DEFAULT_BRAND.productLines.map((line) => line.agentId),
-  )
+  assert.equal('productLines' in parsed, false, 'entrypoint default brand must not define product lines (C5)')
 })
 
 test('public/config.js keeps the same default brand shape (no hardcoded actionColor)', () => {
   assert.match(publicConfig, /primaryColor: '#0EA5E9'/)
   assert.doesNotMatch(publicConfig, /actionColor:/)
-  assert.match(publicConfig, /agentId: 'builtin-quick-answer'/)
+  // 产线不再由品牌配置提供（C5），config.js 里不应再有历史产线段。
+  assert.doesNotMatch(publicConfig, /productLines/)
 })
