@@ -8881,6 +8881,11 @@ export default {
       lineGroupLabel: '产品线',
       samplesLabel: '示例问题',
       fallbackNotice: '产品线配置异常，已使用默认产线',
+      chooseAgent: '选择你的 agent',
+      showMoreLines: '查看更多',
+      collapseLines: '收起',
+      emptyNotice: '还没有绑定智能体',
+      emptyAction: '去绑定',
     },
     settings: {
       title: '常规',

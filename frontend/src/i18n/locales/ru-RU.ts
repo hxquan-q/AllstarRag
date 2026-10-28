@@ -8882,6 +8882,11 @@ export default {
       lineGroupLabel: 'Линейки продуктов',
       samplesLabel: 'Примеры вопросов',
       fallbackNotice: 'Ошибка в настройках линеек продуктов, используются линейки по умолчанию',
+      chooseAgent: 'Выберите своего агента',
+      showMoreLines: 'Показать больше',
+      collapseLines: 'Свернуть',
+      emptyNotice: 'Агенты ещё не привязаны',
+      emptyAction: 'Перейти к привязке',
     },
     settings: {
       title: 'Основные',

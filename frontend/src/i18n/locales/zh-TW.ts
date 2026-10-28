@@ -8878,6 +8878,11 @@ export default {
       lineGroupLabel: '產品線',
       samplesLabel: '範例問題',
       fallbackNotice: '產品線設定異常，已使用預設產品線',
+      chooseAgent: '選擇你的 agent',
+      showMoreLines: '查看更多',
+      collapseLines: '收合',
+      emptyNotice: '還沒有綁定智慧體',
+      emptyAction: '去綁定',
     },
     settings: {
       title: '常規',

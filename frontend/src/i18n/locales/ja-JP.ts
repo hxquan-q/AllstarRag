@@ -8882,6 +8882,11 @@ export default {
       lineGroupLabel: '製品ライン',
       samplesLabel: '質問例',
       fallbackNotice: '製品ラインの設定に問題があるため、既定の製品ラインを使用しています',
+      chooseAgent: 'エージェントを選択',
+      showMoreLines: 'もっと見る',
+      collapseLines: '閉じる',
+      emptyNotice: 'エージェントがまだバインドされていません',
+      emptyAction: 'バインドへ',
     },
     settings: {
       title: '一般',

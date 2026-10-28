@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { brandConfig } from '@/brand'
 import type { ProductLine } from '@/brand/types'
 import { useProductLineStore } from '@/stores/productLine'
@@ -17,11 +18,32 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const router = useRouter()
 const productLineStore = useProductLineStore()
+
+/** 折叠阈值：超过 3 条才出现「查看更多」（AC-12）。 */
+const COLLAPSED_LINE_COUNT = 3
 
 const lines = computed(() => productLineStore.lines)
 const currentLine = computed(() => productLineStore.currentLine)
 const samples = computed(() => currentLine.value?.samples ?? [])
+
+/** 展开状态只作用于欢迎区卡片；输入区下拉始终全量（AC-13）。 */
+const expanded = ref(false)
+const hasOverflow = computed(() => lines.value.length > COLLAPSED_LINE_COUNT)
+const visibleLines = computed(() =>
+  hasOverflow.value && !expanded.value ? lines.value.slice(0, COLLAPSED_LINE_COUNT) : lines.value,
+)
+/** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
+const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
+
+function toggleExpanded(): void {
+  expanded.value = !expanded.value
+}
+
+function goBindAgents(): void {
+  void router.push({ path: '/platform/settings', query: { section: 'agentlines' } })
+}
 
 function chooseLine(line: ProductLine): void {
   if (line.id === currentLine.value?.id) return
@@ -37,16 +59,31 @@ function ask(question: string): void {
 <template>
   <section class="customer-welcome" aria-labelledby="customer-welcome-title">
     <h1 id="customer-welcome-title" class="customer-welcome__title">
-      {{ t('brand.welcome.title', { name: brandConfig.productName }) }}
+      {{ t('brand.welcome.chooseAgent') }}
     </h1>
     <p class="customer-welcome__subtitle">{{ t('brand.welcome.subtitle') }}</p>
 
-    <div class="customer-welcome__lines" role="group" :aria-label="t('brand.welcome.lineGroupLabel')">
-      <button v-for="line in lines" :key="line.id" type="button" class="line-card"
+    <div id="customer-welcome-lines" class="customer-welcome__lines" role="group"
+      :aria-label="t('brand.welcome.lineGroupLabel')">
+      <button v-for="line in visibleLines" :key="line.id" type="button" class="line-card"
         :class="{ 'is-active': line.id === currentLine?.id }" :aria-pressed="line.id === currentLine?.id"
         @click="chooseLine(line)">
         <span class="line-card__name">{{ line.name }}</span>
         <span v-if="line.description" class="line-card__desc">{{ line.description }}</span>
+      </button>
+    </div>
+
+    <!-- 超过 3 条时就地展开/收起，不跳页、不弹层（AC-12）；按钮沿用现有 sample-chip 样式。 -->
+    <button v-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"
+      :aria-expanded="expanded" aria-controls="customer-welcome-lines" @click="toggleExpanded">
+      {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}
+    </button>
+
+    <!-- 一条都没绑定时给引导；加载中不渲染（AC-10），不阻断页面。 -->
+    <div v-if="showEmptyState" class="customer-welcome__empty" role="status">
+      <p class="customer-welcome__empty-text">{{ t('brand.welcome.emptyNotice') }}</p>
+      <button type="button" class="sample-chip" @click="goBindAgents">
+        {{ t('brand.welcome.emptyAction') }}
       </button>
     </div>
 
@@ -60,7 +97,7 @@ function ask(question: string): void {
       </div>
     </Transition>
 
-    <!-- 产线 = 当前工作区绑定的 agent（无可绑定时由空态提示承担，见 T04） -->
+    <!-- 产线 = 当前工作区绑定的 agent（无绑定时由上面的空态提示承担） -->
 
     <p v-if="brandConfig.chatDisclaimer" class="customer-welcome__disclaimer">
       {{ brandConfig.chatDisclaimer }}
@@ -98,6 +135,26 @@ function ask(question: string): void {
   flex-wrap: wrap;
   justify-content: center;
   gap: var(--app-space-4);
+}
+
+/* 「查看更多 / 收起」只加间距，视觉沿用上面的 sample-chip 按钮。 */
+.customer-welcome__toggle {
+  margin-top: var(--app-space-4);
+}
+
+/* 空态：提示 + 「去绑定」，不新增动效与图标（C8）。 */
+.customer-welcome__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--app-space-3);
+  margin-top: var(--app-space-4);
+}
+
+.customer-welcome__empty-text {
+  margin: 0;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-base);
 }
 
 .line-card {

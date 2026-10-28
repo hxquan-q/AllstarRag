@@ -8888,6 +8888,11 @@ export default {
       lineGroupLabel: 'Product lines',
       samplesLabel: 'Example questions',
       fallbackNotice: 'Product line configuration is invalid; using the default lines',
+      chooseAgent: 'Choose your agent',
+      showMoreLines: 'Show more',
+      collapseLines: 'Show less',
+      emptyNotice: 'No agents bound yet',
+      emptyAction: 'Go to bind',
     },
     settings: {
       title: 'General',
