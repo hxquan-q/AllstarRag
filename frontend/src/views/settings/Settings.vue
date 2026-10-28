@@ -121,6 +121,11 @@
           <MemorySettings />
         </div>
 
+        <!-- 产线（客户版：绑定当前工作区的 agent）；管理员不出现该分区（C6） -->
+        <div v-if="currentSection === 'agentlines' && isCustomerViewerActive" class="section">
+          <AgentLineSettings />
+        </div>
+
         <!-- 沙箱密钥（成员自己的技能 / 沙箱密钥） -->
         <div v-if="currentSection === 'envvars'" class="section">
           <EnvVarSettings />
@@ -220,6 +225,7 @@ import OllamaSettings from './OllamaSettings.vue'
 import WebSearchSettings from './WebSearchSettings.vue'
 import ChatHistorySettings from './ChatHistorySettings.vue'
 import MemorySettings from './MemorySettings.vue'
+import AgentLineSettings from './AgentLineSettings.vue'
 import EnvVarSettings from './EnvVarSettings.vue'
 import MemoryWorkspaceSettings from './MemoryWorkspaceSettings.vue'
 import AssistantSettings from './AssistantSettings.vue'
@@ -342,6 +348,8 @@ const canSeeSection = (key: string): boolean => {
   if (isCustomerViewer(authStore) && !isCustomerSettingsSection(key)) {
     return false
   }
+  // 产线只属于客户视角：管理员设置保持 WeKnora 默认（C6）。
+  if (key === 'agentlines') return isCustomerViewer(authStore)
   if (isIntegrationSection(key)) {
     const min = INTEGRATION_TAB_MIN_ROLE[integrationTabFromSection(key)]
     if (!min) return true
@@ -388,6 +396,7 @@ const navItems = computed(() => {
     { key: 'system-audit-log', icon: 'history', label: t('system.globalSettings.audit.tabLabel') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
     { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
+    { key: 'agentlines', icon: 'control-platform', label: t('agentLineSettings.title') },
     { key: 'assistant', icon: 'compass', label: t('assistantSettings.title') },
     { key: 'envvars', icon: 'key', label: envNavLabel() },
     { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
@@ -414,7 +423,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'account',
       label: t('settings.navGroups.account'),
-      items: pickItems(['general', 'userprofile', 'assistant', 'mymemory', 'envvars']),
+      items: pickItems(['general', 'userprofile', 'assistant', 'mymemory', 'envvars', 'agentlines']),
     },
     {
       key: 'workspace',
