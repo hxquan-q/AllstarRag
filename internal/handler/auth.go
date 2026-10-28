@@ -9,6 +9,7 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -47,6 +48,11 @@ type AuthHandler struct {
 	// fixtures — the share-link endpoints respond 503 rather than
 	// blocking the rest of the auth surface.
 	invitationSvc interfaces.TenantInvitationService
+	// customAgentService / disabledAgentRepo 只用于校验「产线绑定」的 agent id
+	// 是否属于当前工作区且未被停用。nil（测试 fixture）时绑定写入返回 500，
+	// 其余 auth 接口不受影响。
+	customAgentService interfaces.CustomAgentService
+	disabledAgentRepo  interfaces.TenantDisabledSharedAgentRepository
 }
 
 // NewAuthHandler creates a new auth handler instance with the provided services
@@ -65,6 +71,8 @@ func NewAuthHandler(configInfo *config.Config,
 	userService interfaces.UserService, tenantService interfaces.TenantService,
 	systemSettingSvc interfaces.SystemSettingService,
 	invitationSvc interfaces.TenantInvitationService,
+	customAgentService interfaces.CustomAgentService,
+	disabledAgentRepo interfaces.TenantDisabledSharedAgentRepository,
 ) *AuthHandler {
 	// Boot-time guard: a nil-or-empty Auth section silently disables the
 	// invite_only gate (see Register below). Emit a loud one-shot log
@@ -77,11 +85,13 @@ func NewAuthHandler(configInfo *config.Config,
 			configInfo)
 	}
 	return &AuthHandler{
-		configInfo:       configInfo,
-		userService:      userService,
-		tenantService:    tenantService,
-		systemSettingSvc: systemSettingSvc,
-		invitationSvc:    invitationSvc,
+		configInfo:         configInfo,
+		userService:        userService,
+		tenantService:      tenantService,
+		systemSettingSvc:   systemSettingSvc,
+		invitationSvc:      invitationSvc,
+		customAgentService: customAgentService,
+		disabledAgentRepo:  disabledAgentRepo,
 	}
 }
 
@@ -686,6 +696,13 @@ type updateMyPreferencesRequest struct {
 	// login, not here. Nil = field omitted from the PATCH and stays
 	// untouched.
 	LastActiveTenantID *uint64 `json:"last_active_tenant_id"`
+
+	// BoundAgentIDs 是客户版产线的绑定列表，语义只针对**当前活动工作区**：
+	//   - 传数组 = 覆盖当前工作区的绑定（其他工作区原样保留）；
+	//   - 传空数组 = 清空当前工作区的绑定（把该工作区的键删掉）；
+	//   - 不传该键（nil）= 所有工作区都不动。
+	// 用指针是为了区分「键缺失」与「显式空数组」，两者语义不同。
+	BoundAgentIDs *[]string `json:"bound_agent_ids"`
 }
 
 // UpdateMyPreferences godoc
@@ -721,6 +738,34 @@ func (h *AuthHandler) UpdateMyPreferences(c *gin.Context) {
 	patch := types.UserPreferences{
 		LastActiveTenantID:        req.LastActiveTenantID,
 		BrowserSearchInstructions: req.BrowserSearchInstructions,
+	}
+	if req.BoundAgentIDs != nil {
+		tenantID, ok := types.TenantIDFromContext(ctx)
+		if !ok || tenantID == 0 {
+			appErr := errors.NewValidationError(
+				"binding agents requires an active workspace")
+			c.Error(appErr)
+			return
+		}
+		ids, err := h.validateBoundAgentIDs(ctx, tenantID, *req.BoundAgentIDs)
+		if err != nil {
+			// 校验失败整批不写：这里直接返回，后面的 UpdateUserPreferences 不会执行。
+			c.Error(err)
+			return
+		}
+		// 读-改-写：复制整张 map（必须非 nil，否则表达不了「清空最后一条」），
+		// 只替换当前工作区那一条，其余工作区原样带回去。
+		merged := make(map[string][]string, len(user.Preferences.BoundAgentIDsByTenant)+1)
+		for tenantKey, bound := range user.Preferences.BoundAgentIDsByTenant {
+			merged[tenantKey] = bound
+		}
+		tenantKey := strconv.FormatUint(tenantID, 10)
+		if len(ids) == 0 {
+			delete(merged, tenantKey)
+		} else {
+			merged[tenantKey] = ids
+		}
+		patch.BoundAgentIDsByTenant = merged
 	}
 	prefs, err := h.userService.UpdateUserPreferences(ctx, user.ID, patch)
 	if err != nil {

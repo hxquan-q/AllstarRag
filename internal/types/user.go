@@ -57,6 +57,12 @@ type UserPreferences struct {
 	// gallery renders the same activation state on every device. Nil = the
 	// user never touched the gallery controls (mode defaults to "all").
 	Gallery *GalleryUserPrefs `json:"gallery,omitempty"`
+
+	// BoundAgentIDsByTenant 是客户版产线的绑定列表，按工作区分键（键 = 工作区 id 的十进制字符串）。
+	// 每条产线就是一个 agent，数组顺序即展示顺序。
+	// 按工作区分键，是为了让同一个人加入多个工作区时，各工作区的绑定互不覆盖。
+	// 写入空数组时删掉该工作区的键，不留空数组；nil 表示该用户从未绑定过。
+	BoundAgentIDsByTenant map[string][]string `json:"bound_agent_ids_by_tenant,omitempty"`
 }
 
 // GalleryUserPrefs is the user-tier slice of the gallery configuration. The
