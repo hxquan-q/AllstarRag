@@ -15,6 +15,11 @@ import { fixture, flush } from '../../test-utils/vueFixture.ts'
 
 const source = readFileSync(new URL('./AgentLineSettings.vue', import.meta.url), 'utf8')
 
+/** vm 里返回的对象/数组原型不同，比较前先转成宿主普通值。 */
+function plain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 const BUILTIN_AGENT_IDS = [
   'builtin-quick-answer',
   'builtin-smart-reasoning',
@@ -118,8 +123,8 @@ test('binding an agent saves the whole list, clears the input and toasts success
   await s.vm.bindAgent()
   await flush()
 
-  assert.deepEqual(s.calls, [{ bound_agent_ids: ['agent-a', 'agent-b'] }])
-  assert.deepEqual(s.vm.boundIds, ['agent-a', 'agent-b'])
+  assert.deepEqual(plain(s.calls),[{ bound_agent_ids: ['agent-a', 'agent-b'] }])
+  assert.deepEqual(plain(s.vm.boundIds),['agent-a', 'agent-b'])
   assert.equal(s.vm.draftId, '', 'the input is cleared only after a successful save')
   assert.equal(s.vm.errorMessage, '')
   assert.ok(s.toasts.some((message) => message.includes('agentLineSettings.successBound')))
@@ -148,8 +153,8 @@ test('unbinding removes the agent from the saved list', async t => {
   await s.vm.unbindAgent('agent-a')
   await flush()
 
-  assert.deepEqual(s.calls, [{ bound_agent_ids: ['agent-b'] }])
-  assert.deepEqual(s.vm.boundIds, ['agent-b'])
+  assert.deepEqual(plain(s.calls),[{ bound_agent_ids: ['agent-b'] }])
+  assert.deepEqual(plain(s.vm.boundIds),['agent-b'])
   assert.ok(s.toasts.some((message) => message.includes('agentLineSettings.successUnbound')))
   s.close()
 })
@@ -160,8 +165,8 @@ test('unbinding the last agent leaves an empty list and an empty state (AC-10)',
   await s.vm.unbindAgent('agent-a')
   await flush()
 
-  assert.deepEqual(s.vm.boundIds, [])
-  assert.deepEqual(s.vm.boundRows, [])
+  assert.deepEqual(plain(s.vm.boundIds),[])
+  assert.deepEqual(plain(s.vm.boundRows), [])
   // 空态由模板条件承担（fixture 不渲染模板，这里做源码断言）。
   assert.match(source, /v-if="boundRows\.length === 0"[\s\S]*?agentLineSettings\.empty/)
   s.close()
@@ -192,7 +197,7 @@ test('local pre-checks show the five friendly errors without calling the API', a
   assert.ok(s.vm.errorMessage.startsWith('agentLineSettings.errorLimit'))
   assert.match(s.vm.errorMessage, /20/)
 
-  assert.deepEqual(s.calls, [], 'local pre-checks must not hit the server')
+  assert.deepEqual(plain(s.calls),[], 'local pre-checks must not hit the server')
   s.close()
 })
 
@@ -228,7 +233,7 @@ test('a failed save keeps the typed id so the user can retry (AC-6)', async t =>
   await flush()
 
   assert.equal(s.vm.draftId, 'agent-typo', 'failed save must not clear the input')
-  assert.deepEqual(s.vm.boundIds, ['agent-a'], 'failed save must not change the list')
+  assert.deepEqual(plain(s.vm.boundIds),['agent-a'], 'failed save must not change the list')
   assert.ok(s.vm.errorMessage.includes('agentLineSettings.errorNotFound'))
   s.close()
 })
@@ -284,15 +289,15 @@ test('the bound list follows the active workspace, not the previous one (AC-1)',
     agents: [agent('agent-a', 'A'), agent('agent-b', 'B')],
   })
   await flush()
-  assert.deepEqual(s.vm.boundIds, ['agent-a'])
+  assert.deepEqual(plain(s.vm.boundIds),['agent-a'])
 
   s.auth.effectiveTenantId = 2
   await flush()
-  assert.deepEqual(s.vm.boundIds, ['agent-b'], 'workspace 2 must not see workspace 1 bindings')
+  assert.deepEqual(plain(s.vm.boundIds),['agent-b'], 'workspace 2 must not see workspace 1 bindings')
 
   s.auth.effectiveTenantId = 1
   await flush()
-  assert.deepEqual(s.vm.boundIds, ['agent-a'])
+  assert.deepEqual(plain(s.vm.boundIds),['agent-a'])
   s.close()
 })
 
@@ -307,7 +312,7 @@ test('binding in another workspace writes only that workspace key (AC-1)', async
   await s.vm.bindAgent()
   await flush()
 
-  assert.deepEqual(s.auth.user.preferences.bound_agent_ids_by_tenant, {
+  assert.deepEqual(plain(s.auth.user.preferences.bound_agent_ids_by_tenant), {
     '1': ['agent-a'],
     '2': ['agent-b'],
   })

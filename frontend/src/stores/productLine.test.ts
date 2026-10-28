@@ -200,6 +200,11 @@ function createStore(options: HarnessOptions = {}) {
   }
 }
 
+/** store 在 vm 里创建对象/数组，原型与宿主 realm 不同，比较前先转成宿主普通值。 */
+function plain<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
 async function flush(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve))
   await nextTick()
@@ -226,7 +231,7 @@ test('lines are derived from bound agents: id/agentId/name/description come from
   try {
     await flush()
     assert.deepEqual(
-      h.store.lines.value.map((line) => ({
+      plain(h.store.lines.value).map((line) => ({
         id: line.id,
         agentId: line.agentId,
         name: line.name,
@@ -246,7 +251,7 @@ test('line order follows the binding order, not the agents snapshot order (AC-8)
   const h = defaultHarness({ boundByTenant: { '1': ['agent-b', 'agent-a'] } })
   try {
     await flush()
-    assert.deepEqual(h.store.lines.value.map((line) => line.id), ['agent-b', 'agent-a'])
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-b', 'agent-a'])
   } finally {
     h.close()
   }
@@ -256,7 +261,7 @@ test('disabled agents are filtered out silently (AC-8)', async () => {
   const h = defaultHarness({ disabledOwnAgentIds: ['agent-a'] })
   try {
     await flush()
-    assert.deepEqual(h.store.lines.value.map((line) => line.id), ['agent-b'])
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-b'])
   } finally {
     h.close()
   }
@@ -266,7 +271,7 @@ test('deleted or out-of-workspace agents (missing from snapshot) are filtered ou
   const h = defaultHarness({ boundByTenant: { '1': ['agent-a', 'gone-agent', '', 'agent-b'] } })
   try {
     await flush()
-    assert.deepEqual(h.store.lines.value.map((line) => line.id), ['agent-a', 'agent-b'])
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-a', 'agent-b'])
   } finally {
     h.close()
   }
@@ -276,7 +281,7 @@ test('no bindings means no lines (AC-8 / AC-10)', async () => {
   const h = defaultHarness({ boundByTenant: { '1': [] } })
   try {
     await flush()
-    assert.deepEqual(h.store.lines.value, [])
+    assert.deepEqual(plain(h.store.lines.value), [])
     assert.equal(h.store.currentLineId.value, '')
     assert.equal(h.store.ready.value, true, 'agents loaded: empty state is legitimate')
   } finally {
@@ -336,7 +341,7 @@ test('agents arriving asynchronously re-resolve the current line (AC-8.1 / AC-8.
     await flush()
 
     assert.equal(h.store.ready.value, true)
-    assert.deepEqual(h.store.lines.value.map((line) => line.id), ['agent-a', 'agent-b'])
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-a', 'agent-b'])
     assert.equal(h.store.currentLineId.value, 'agent-b', 'stored selection is restored after agents arrive')
   } finally {
     h.close()
@@ -366,7 +371,7 @@ test('a failed agents fetch keeps ready=false so the empty state stays hidden (A
     h.rejectAgents(new Error('agents unavailable'))
     await flush()
     assert.equal(h.store.ready.value, false)
-    assert.deepEqual(h.store.lines.value, [])
+    assert.deepEqual(plain(h.store.lines.value), [])
   } finally {
     h.close()
   }
@@ -379,16 +384,16 @@ test('switching workspace reads the other tenant key without merging (AC-1 / 5.1
   })
   try {
     await flush()
-    assert.deepEqual(h.store.lines.value.map((line) => line.id), ['agent-a'])
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-a'])
 
     h.authState.tenantId = 2
     await flush()
-    assert.deepEqual(h.store.lines.value.map((line) => line.id), ['agent-b'], 'workspace 2 sees only its own bindings')
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-b'], 'workspace 2 sees only its own bindings')
     assert.equal(h.store.currentLineId.value, 'agent-b')
 
     h.authState.tenantId = 1
     await flush()
-    assert.deepEqual(h.store.lines.value.map((line) => line.id), ['agent-a'], 'switching back does not merge lists')
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-a'], 'switching back does not merge lists')
   } finally {
     h.close()
   }
@@ -402,7 +407,7 @@ test('a line removed by unbinding makes the selection fall back to the first rem
 
     h.authState.user!.preferences.bound_agent_ids_by_tenant['1'] = ['agent-a']
     await flush()
-    assert.deepEqual(h.store.lines.value.map((line) => line.id), ['agent-a'])
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-a'])
     assert.equal(h.store.currentLineId.value, 'agent-a', 'selected line re-resolves when its binding disappears')
   } finally {
     h.close()
@@ -417,7 +422,7 @@ test('unbinding everything clears the selection (AC-8.1 / AC-10)', async () => {
 
     h.authState.user!.preferences.bound_agent_ids_by_tenant['1'] = []
     await flush()
-    assert.deepEqual(h.store.lines.value, [])
+    assert.deepEqual(plain(h.store.lines.value), [])
     assert.equal(h.store.currentLineId.value, '')
     assert.equal(h.store.currentLine.value, null)
   } finally {
@@ -484,7 +489,7 @@ test('logged-out store reads nothing, bootstraps nothing and writes nothing (AC-
   const h = createStore({ userId: '', agents: [AGENT_A], agentsLoaded: true })
   try {
     await flush()
-    assert.deepEqual(h.store.lines.value, [])
+    assert.deepEqual(plain(h.store.lines.value), [])
     assert.equal(h.store.currentLineId.value, '')
     assert.equal(h.ensureAgentsCalls(), 0, 'no agent fetch without a logged-in user')
     h.storage.writes.length = 0
@@ -525,7 +530,7 @@ test('sample questions are lazy-loaded from the agent, failures leave an empty l
   try {
     await flush()
     assert.deepEqual(ok.samplesRequests, ['agent-a', 'agent-b'])
-    assert.deepEqual(ok.store.lines.value[0]?.samples, ['合同怎么审？', '合规风险？'])
+    assert.deepEqual(plain(ok.store.lines.value)[0]?.samples, ['合同怎么审？', '合规风险？'])
   } finally {
     ok.close()
   }
@@ -533,8 +538,8 @@ test('sample questions are lazy-loaded from the agent, failures leave an empty l
   const failing = defaultHarness({ samplesError: new Error('suggested questions unavailable') })
   try {
     await flush()
-    assert.deepEqual(failing.store.lines.value[0]?.samples, [], 'a failed sample request must not block the line')
-    assert.deepEqual(failing.store.lines.value[1]?.samples, [])
+    assert.deepEqual(plain(failing.store.lines.value)[0]?.samples, [], 'a failed sample request must not block the line')
+    assert.deepEqual(plain(failing.store.lines.value)[1]?.samples, [])
   } finally {
     failing.close()
   }
