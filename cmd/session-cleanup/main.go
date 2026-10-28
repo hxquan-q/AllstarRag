@@ -12,6 +12,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -24,10 +25,11 @@ const sampleLimit = 20
 
 // options 是命令行参数。
 type options struct {
-	apply    bool
-	tenantID uint64
-	confirm  int
-	auditDir string
+	apply     bool
+	tenantID  uint64
+	confirm   int
+	auditDir  string
+	drainWait time.Duration
 }
 
 func main() {
@@ -51,6 +53,8 @@ func parseOptions(args []string) (*options, error) {
 	tenantID := fs.Uint64("tenant", 0, "工作区 id；--apply 必填，dry-run 省略表示扫全部工作区")
 	confirm := fs.Int("confirm", -1, "确认删除的会话总数，必须等于本次筛选结果")
 	auditDir := fs.String("audit-dir", ".", "审计文件目录")
+	drainWait := fs.Duration("drain-wait", 5*time.Second,
+		"删除后等待异步清理（聊天历史知识）的宽限时间；0 表示不等待")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -64,10 +68,11 @@ func parseOptions(args []string) (*options, error) {
 		return nil, errors.New("--apply 必须传 --confirm <N>")
 	}
 	return &options{
-		apply:    *apply,
-		tenantID: *tenantID,
-		confirm:  *confirm,
-		auditDir: *auditDir,
+		apply:     *apply,
+		tenantID:  *tenantID,
+		confirm:   *confirm,
+		auditDir:  *auditDir,
+		drainWait: *drainWait,
 	}, nil
 }
 
@@ -123,6 +128,13 @@ func run(args []string) error {
 	groupErrs := applyPlan(ctx, currentPlan, sessionService.BatchDeleteSessions)
 	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, currentPlan.Sessions)
 	allErrs := append(append([]string{}, groupErrs...), verifyErrs...)
+
+	// BatchDeleteSessions 的「清聊天历史知识」是 fire-and-forget goroutine，
+	// CLI 立刻退出会截断它；这里留一个可配置宽限期，尽量让异步清理跑完。
+	if opts.drainWait > 0 {
+		printf("等待异步清理 %s ...\n", opts.drainWait)
+		time.Sleep(opts.drainWait)
+	}
 
 	record := auditRecord{
 		TenantID:                opts.tenantID,
