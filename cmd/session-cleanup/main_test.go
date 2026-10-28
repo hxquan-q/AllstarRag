@@ -68,9 +68,18 @@ func seedCleanupFixture(t *testing.T, db *gorm.DB) {
 	require.NoError(t, db.Create(&users).Error)
 
 	members := []*types.TenantMember{
-		{UserID: "u1", TenantID: 1, Role: types.TenantRoleViewer, Status: types.TenantMemberStatusActive, JoinedAt: joined},
-		{UserID: "u2", TenantID: 1, Role: types.TenantRoleViewer, Status: types.TenantMemberStatusActive, JoinedAt: joined},
-		{UserID: "u3", TenantID: 1, Role: types.TenantRoleAdmin, Status: types.TenantMemberStatusActive, JoinedAt: joined},
+		{
+			UserID: "u1", TenantID: 1, Role: types.TenantRoleViewer,
+			Status: types.TenantMemberStatusActive, JoinedAt: joined,
+		},
+		{
+			UserID: "u2", TenantID: 1, Role: types.TenantRoleViewer,
+			Status: types.TenantMemberStatusActive, JoinedAt: joined,
+		},
+		{
+			UserID: "u3", TenantID: 1, Role: types.TenantRoleAdmin,
+			Status: types.TenantMemberStatusActive, JoinedAt: joined,
+		},
 	}
 	require.NoError(t, db.Create(&members).Error)
 
