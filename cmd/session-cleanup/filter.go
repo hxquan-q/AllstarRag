@@ -134,10 +134,13 @@ func loadBindings(
 	return out, nil
 }
 
-// loadSessions 按 (工作区, 属主) 精确取会话。
+// loadSessions 按 (工作区, 属主) 精确取普通网页会话。
 // 注意：不能用 SessionRepository.GetByTenantID —— 它会把 user_id 为空的
 // 历史/渠道会话也算进每个用户的可见范围。这里只取 user_id 精确等于
 // viewer 成员的行，且 GORM 自动排除 deleted_at 非空的行。
+// kind 只取 ''：迁移 000121/000039 定义为 VARCHAR(32) NOT NULL DEFAULT ''，
+// 助手抽屉历史（assistant）和委派子会话转录（agent_delegated）不属于
+// AC-16 的「客户无标记会话」，绝不能删（见 T05 复核意见）。
 func loadSessions(
 	ctx context.Context,
 	db *gorm.DB,
@@ -157,7 +160,7 @@ func loadSessions(
 	for _, tenantID := range tenants {
 		var sessions []*types.Session
 		err := db.WithContext(ctx).
-			Where("tenant_id = ? AND user_id IN ?", tenantID, userIDsByTenant[tenantID]).
+			Where("tenant_id = ? AND user_id IN ? AND kind = ?", tenantID, userIDsByTenant[tenantID], "").
 			Find(&sessions).Error
 		if err != nil {
 			return nil, err

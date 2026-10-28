@@ -41,6 +41,8 @@ func newCleanupTestDB(t *testing.T) *gorm.DB {
 //	s5 u1 无产线但已软删  -> 留
 //	s6 属主为空无产线     -> 留（不能算到任何 viewer 头上）
 //	s7 u2 产线任意        -> 删（零绑定 = 全部可删）
+//	s8 u1 assistant 无产线 -> 留（助手抽屉历史不是普通会话）
+//	s9 u1 agent_delegated 无产线 -> 留（委派子会话转录不是普通会话）
 func seedCleanupFixture(t *testing.T, db *gorm.DB) {
 	t.Helper()
 	joined := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
@@ -91,6 +93,11 @@ func seedCleanupFixture(t *testing.T, db *gorm.DB) {
 		{ID: "s5", TenantID: 1, UserID: "u1", Title: "already deleted"},
 		{ID: "s6", TenantID: 1, UserID: "", Title: "legacy tenant level"},
 		{ID: "s7", TenantID: 1, UserID: "u2", Title: "zero binding", ProductLine: "anything"},
+		{ID: "s8", TenantID: 1, UserID: "u1", Title: "assistant drawer", Kind: types.SessionKindAssistant},
+		{
+			ID: "s9", TenantID: 1, UserID: "u1", Title: "delegated transcript",
+			Kind: types.SessionKindAgentDelegated,
+		},
 	}
 	for _, session := range sessions {
 		require.NoError(t, db.Session(&gorm.Session{SkipHooks: true}).Create(session).Error)
@@ -109,6 +116,8 @@ func TestLoadScanDataAndBuildPlanApplyFilterRules(t *testing.T) {
 
 	currentPlan := buildPlan(data)
 	require.Equal(t, []string{"s1", "s3", "s7"}, sessionIDs(currentPlan.Sessions))
+	require.NotContains(t, sessionIDs(currentPlan.Sessions), "s8", "assistant 抽屉历史不能删")
+	require.NotContains(t, sessionIDs(currentPlan.Sessions), "s9", "委派子会话转录不能删")
 	require.Equal(t, []string{"1/u2"}, ownerStrings(currentPlan.ZeroBindingOwners))
 	require.Equal(t, 1, currentPlan.ZeroBindingSessionCount)
 	require.Equal(t, 2, len(currentPlan.ByOwner[ownerKey{TenantID: 1, UserID: "u1"}]))
@@ -124,6 +133,23 @@ func TestAdminSessionNeverSelected(t *testing.T) {
 	currentPlan := buildPlan(data)
 	for _, session := range currentPlan.Sessions {
 		require.NotEqual(t, "u3", session.UserID, "管理员会话绝不能被选中")
+	}
+}
+
+func TestNonOrdinarySessionKindsExcluded(t *testing.T) {
+	db := newCleanupTestDB(t)
+	seedCleanupFixture(t, db)
+
+	data, err := loadScanData(context.Background(), db, 1)
+	require.NoError(t, err)
+	currentPlan := buildPlan(data)
+
+	ids := sessionIDs(currentPlan.Sessions)
+	require.NotContains(t, ids, "s8", "assistant 会话不属于清理范围")
+	require.NotContains(t, ids, "s9", "agent_delegated 会话不属于清理范围")
+	require.Contains(t, ids, "s1", "同用户的普通会话仍要清理")
+	for _, session := range currentPlan.Sessions {
+		require.Equal(t, "", session.Kind, "候选清单里只能有普通网页会话")
 	}
 }
 
@@ -185,8 +211,8 @@ func TestApplyPlanDeletesViewerSessionsAndKeepsAdminSessions(t *testing.T) {
 	require.Empty(t, failedIDs)
 	require.Equal(t, []string{"s1", "s3", "s7"}, deletedIDs)
 
-	// 管理员会话与「仍在绑定里」的会话保持原样。
-	for _, id := range []string{"s2", "s4"} {
+	// 管理员会话、「仍在绑定里」的会话、助手/委派会话都保持原样。
+	for _, id := range []string{"s2", "s4", "s8", "s9"} {
 		_, err := sessionRepo.GetByID(ctx, 1, id)
 		require.NoError(t, err, "会话 %s 不应被删除", id)
 	}
