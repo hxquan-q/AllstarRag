@@ -3,7 +3,6 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MorphIcon } from 'morphicons/vue'
 import { ChevronDown, ChevronUp } from 'lucide'
-import { brandConfig } from '@/brand'
 import { resolveLine } from '@/brand/productLines'
 import type { ProductLine } from '@/brand/types'
 
@@ -21,13 +20,13 @@ const props = withDefaults(
   defineProps<{
     /** 当前产线 id，通常绑定 productLine store 的 currentLineId */
     modelValue?: string
-    /** 产线清单，默认取运行时品牌配置 */
+    /** 产线清单，由 productLine store 传入（默认空 = 无产线） */
     lines?: readonly ProductLine[]
     disabled?: boolean
   }>(),
   {
     modelValue: '',
-    lines: () => brandConfig.productLines,
+    lines: () => [],
     disabled: false,
   },
 )

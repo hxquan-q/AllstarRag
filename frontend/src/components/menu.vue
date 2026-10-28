@@ -665,7 +665,7 @@ const customerLineGroups = computed<ProductLineGroup<CustomerSessionRow>[]>(() =
     if (!isCustomer.value) return [];
     const bucket = activeBucket.value;
     if (!bucket?.items.length) return [];
-    // 产线清单来自运行时品牌配置（C5）；store 在这里懒调用，管理员不实例化（C6）
+    // 产线清单来自 productLine store（当前工作区绑定 agent 派生）；store 在这里懒调用，管理员不实例化（C6）
     const lines = useProductLineStore().lines;
     const rows: CustomerSessionRow[] = bucket.items.map((item) => ({
         ...item,

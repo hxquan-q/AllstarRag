@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { brandConfig, productLinesFallback } from '@/brand'
+import { brandConfig } from '@/brand'
 import type { ProductLine } from '@/brand/types'
 import { useProductLineStore } from '@/stores/productLine'
 
@@ -60,10 +60,7 @@ function ask(question: string): void {
       </div>
     </Transition>
 
-    <!-- 产线配置整段不可用时只提示，不回退成不可用界面（AC-21） -->
-    <p v-if="productLinesFallback" class="customer-welcome__notice" role="status">
-      {{ t('brand.welcome.fallbackNotice') }}
-    </p>
+    <!-- 产线 = 当前工作区绑定的 agent（无可绑定时由空态提示承担，见 T04） -->
 
     <p v-if="brandConfig.chatDisclaimer" class="customer-welcome__disclaimer">
       {{ brandConfig.chatDisclaimer }}
@@ -188,12 +185,6 @@ function ask(question: string): void {
 .samples-swap-enter-from,
 .samples-swap-leave-to {
   opacity: 0;
-}
-
-.customer-welcome__notice {
-  margin: var(--app-space-4) 0 0;
-  color: var(--td-warning-color);
-  font-size: var(--app-text-sm);
 }
 
 .customer-welcome__disclaimer {

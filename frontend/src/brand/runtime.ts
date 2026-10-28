@@ -1,7 +1,7 @@
 import { brandCssVars, deriveActionColor, isValidHex } from './colors'
 import type { BrandMode } from './colors'
 import { DEFAULT_BRAND } from './defaults'
-import type { BrandConfig, ProductLine, WindowWithBrandConfig } from './types'
+import type { BrandConfig, WindowWithBrandConfig } from './types'
 
 function warn(message: string): void {
   console.warn(`[brand] ${message}`)
@@ -25,12 +25,9 @@ function describe(value: unknown): string {
   }
 }
 
-function cloneLines(lines: ProductLine[]): ProductLine[] {
-  return lines.map((line) => ({ ...line, samples: [...line.samples] }))
-}
-
 function cloneBrand(config: BrandConfig): BrandConfig {
-  return { ...config, productLines: cloneLines(config.productLines) }
+  // 品牌字段都是原始值（产线已不再由品牌配置提供），浅拷贝即可。
+  return { ...config }
 }
 
 function pickString(raw: Record<string, unknown>, key: keyof BrandConfig, fallback: string): string {
@@ -95,92 +92,9 @@ function pickActionColor(raw: Record<string, unknown>, primaryColor: string): st
   return value.trim()
 }
 
-/** 校验并整理一条产线；缺 id/name/agentId 的整条丢弃。 */
-function normalizeProductLine(value: unknown, index: number): ProductLine | null {
-  if (!isRecord(value)) {
-    warn(`BRAND.productLines[${index}] 不是对象（收到 ${describe(value)}），已丢弃`)
-    return null
-  }
-
-  const missing = (['id', 'name', 'agentId'] as const).filter((key) => !isNonEmptyString(value[key]))
-  if (missing.length > 0) {
-    warn(`BRAND.productLines[${index}] 缺少可用字段 ${missing.join('/')}，已丢弃`)
-    return null
-  }
-
-  let description = ''
-  if (isNonEmptyString(value.description)) {
-    description = value.description.trim()
-  } else if (value.description !== undefined && value.description !== null) {
-    warn(`BRAND.productLines[${index}].description 不是非空字符串，按空说明处理`)
-  }
-
-  let samples: string[] = []
-  if (Array.isArray(value.samples)) {
-    const cleaned = value.samples.filter(isNonEmptyString).map((sample) => sample.trim())
-    // 同一产线里重复的示例问题去掉，避免界面出现两遍同样的按钮（L-13）。
-    samples = Array.from(new Set(cleaned))
-    if (samples.length !== value.samples.length) {
-      warn(`BRAND.productLines[${index}].samples 中有空值、重复项或非字符串项，已忽略`)
-    }
-  } else if (value.samples !== undefined && value.samples !== null) {
-    warn(`BRAND.productLines[${index}].samples 不是数组，按空示例问题处理`)
-  }
-
-  return {
-    id: (value.id as string).trim(),
-    name: (value.name as string).trim(),
-    description,
-    agentId: (value.agentId as string).trim(),
-    samples,
-  }
-}
-
-/**
- * 最近一次 readBrandConfig 是否因为产线配置整段不可用而回落到默认两条。
- * 用模块级变量而不是改返回值，是为了不破坏 readBrandConfig 的既有签名和调用方。
- */
-let lastProductLinesFallback = false
-
-function pickProductLines(raw: Record<string, unknown>): ProductLine[] {
-  const value = raw.productLines
-  if (value === undefined || value === null) {
-    warn('BRAND.productLines 缺失，使用默认产线')
-    lastProductLinesFallback = true
-    return cloneLines(DEFAULT_BRAND.productLines)
-  }
-  if (!Array.isArray(value)) {
-    warn(`BRAND.productLines 不是数组（收到 ${describe(value)}），使用默认产线`)
-    lastProductLinesFallback = true
-    return cloneLines(DEFAULT_BRAND.productLines)
-  }
-
-  // 按 id 去重：重复 id 会产生重复 Vue key / DOM id，第二条产线永远选不中（L-13）。
-  const seenIds = new Set<string>()
-  const lines = value
-    .map((line, index) => normalizeProductLine(line, index))
-    .filter((line): line is ProductLine => {
-      if (line === null) return false
-      if (seenIds.has(line.id)) {
-        warn(`BRAND.productLines 中 id「${line.id}」重复，已忽略后出现的配置`)
-        return false
-      }
-      seenIds.add(line.id)
-      return true
-    })
-
-  if (lines.length === 0) {
-    warn('BRAND.productLines 没有可用产线，使用默认产线')
-    lastProductLinesFallback = true
-    return cloneLines(DEFAULT_BRAND.productLines)
-  }
-  lastProductLinesFallback = false
-  return lines
-}
-
 /**
  * 读取并校验一份品牌原始配置。
- * 整体缺失、字段缺失、字段非法、产线不可用时都回落到默认值，不抛错。
+ * 整体缺失、字段缺失或字段非法时都回落到默认值，不抛错。
  * 这个函数不依赖 window，方便单元测试直接传对象。
  */
 export function readBrandConfig(raw: unknown): BrandConfig {
@@ -201,7 +115,6 @@ export function readBrandConfig(raw: unknown): BrandConfig {
     actionColor: pickActionColor(raw, primaryColor),
     loginSubtitle: pickString(raw, 'loginSubtitle', DEFAULT_BRAND.loginSubtitle),
     chatDisclaimer: pickString(raw, 'chatDisclaimer', DEFAULT_BRAND.chatDisclaimer),
-    productLines: pickProductLines(raw),
   }
 }
 
@@ -222,12 +135,6 @@ function deepFreeze<T>(value: T): T {
 /** 启动时读取一次的品牌配置单例。 */
 const startupRawBrand = readRawBrandFromWindow()
 export const brandConfig: Readonly<BrandConfig> = deepFreeze(readBrandConfig(startupRawBrand))
-
-/**
- * 启动时产线配置是否整段回退到了默认两条。
- * 只反映启动那一次读取（欢迎区据此显示可读提示）；后续测试再调 readBrandConfig 不会改到这里。
- */
-export const productLinesFallback: boolean = lastProductLinesFallback
 
 /**
  * 浅色、深色各算一份品牌变量。

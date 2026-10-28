@@ -108,6 +108,9 @@ export interface UserPreferences {
     mode?: 'all' | 'custom'
     status?: Record<string, string>
   }
+  // bound_agent_ids_by_tenant 是客户版产线的绑定列表，按工作区 id（十进制字符串）分键。
+  // 每条产线 = 一个 agent id，顺序即展示顺序；缺键/空数组表示该工作区未绑定。
+  bound_agent_ids_by_tenant?: Record<string, string[]>
 }
 
 // 用户信息接口
