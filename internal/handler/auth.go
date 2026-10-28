@@ -744,13 +744,13 @@ func (h *AuthHandler) UpdateMyPreferences(c *gin.Context) {
 		if !ok || tenantID == 0 {
 			appErr := errors.NewValidationError(
 				"binding agents requires an active workspace")
-			c.Error(appErr)
+			_ = c.Error(appErr)
 			return
 		}
 		ids, err := h.validateBoundAgentIDs(ctx, tenantID, *req.BoundAgentIDs)
 		if err != nil {
 			// 校验失败整批不写：这里直接返回，后面的 UpdateUserPreferences 不会执行。
-			c.Error(err)
+			_ = c.Error(err)
 			return
 		}
 		// 读-改-写：复制整张 map（必须非 nil，否则表达不了「清空最后一条」），
