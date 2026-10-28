@@ -51,8 +51,19 @@ func seedCleanupFixture(t *testing.T, db *gorm.DB) {
 				BoundAgentIDsByTenant: map[string][]string{"1": {"agent-a"}},
 			},
 		},
-		{ID: "u2", Username: "viewer2", Email: "viewer2@example.com", TenantID: 1, IsActive: true},
-		{ID: "u3", Username: "admin1", Email: "admin1@example.com", TenantID: 1, IsActive: true},
+		{
+			ID: "u2", Username: "viewer2", Email: "viewer2@example.com", TenantID: 1, IsActive: true,
+			// 在别的租户有绑定、在本租户没有，验证「按工作区分键」。
+			Preferences: types.UserPreferences{
+				BoundAgentIDsByTenant: map[string][]string{"2": {"agent-b"}},
+			},
+		},
+		{
+			ID: "u3", Username: "admin1", Email: "admin1@example.com", TenantID: 1, IsActive: true,
+			Preferences: types.UserPreferences{
+				BoundAgentIDsByTenant: map[string][]string{"1": {"agent-a"}},
+			},
+		},
 	}
 	require.NoError(t, db.Create(&users).Error)
 
