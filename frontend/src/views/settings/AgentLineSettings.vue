@@ -75,7 +75,29 @@ const candidateOptions = computed(() => {
     }))
 })
 
-function localizeServerError(message?: string): string {
+/**
+ * 后端校验错误 → 本地文案。优先按 Details 里的稳定 code 映射（F5，不受后端措辞调整影响），
+ * code 缺失（旧后端/非校验错误）时退回英文 message 子串匹配兜底。
+ */
+function localizeServerError(code: string | undefined, message?: string): string {
+  const stableCode = typeof code === 'string' ? code : ''
+  switch (stableCode) {
+    case 'bound_agent_empty':
+      return t('agentLineSettings.errorEmpty')
+    case 'bound_agent_internal':
+      return t('agentLineSettings.errorInternal')
+    case 'bound_agent_disabled':
+      return t('agentLineSettings.errorDisabled')
+    case 'bound_agent_limit':
+      return t('agentLineSettings.errorLimit', { max: MAX_BOUND_AGENTS })
+    case 'bound_agent_not_found':
+      return t('agentLineSettings.errorNotFound')
+    default:
+      return localizeByMessage(message)
+  }
+}
+
+function localizeByMessage(message?: string): string {
   const raw = (message || '').toLowerCase()
   if (raw.includes('cannot be empty')) return t('agentLineSettings.errorEmpty')
   if (raw.includes('is internal')) return t('agentLineSettings.errorInternal')
@@ -96,13 +118,14 @@ async function saveBoundIds(nextIds: string[]): Promise<boolean> {
   try {
     const result = await updateMyPreferences({ bound_agent_ids: nextIds })
     if (!result.success || !result.data) {
-      errorMessage.value = localizeServerError(result.message)
+      errorMessage.value = localizeServerError(result.errorCode, result.message)
       return false
     }
     authStore.setUser({ ...user, preferences: result.data })
     return true
   } catch (error: any) {
-    errorMessage.value = localizeServerError(error?.message)
+    // 兜底路径：updateMyPreferences 已捕获常规错误，这里只防意外抛出。
+    errorMessage.value = localizeServerError(error?.error?.details, error?.message)
     return false
   } finally {
     saving.value = false

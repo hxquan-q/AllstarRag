@@ -42,11 +42,14 @@ func (h *AuthHandler) validateBoundAgentIDs(
 	ids []string,
 ) ([]string, error) {
 	// 去重保序，不 trim：id 按客户端送来的原样校验，避免悄悄改写绑定值。
+	// 每类校验错误的 Details 放稳定 code（F5）：前端按 code 映射文案，
+	// 不再依赖英文 message 子串；message 措辞调整不会破坏前端映射。
 	unique := make([]string, 0, len(ids))
 	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		if id == "" {
-			return nil, errors.NewValidationError("agent id cannot be empty")
+			return nil, errors.NewValidationError(
+				"agent id cannot be empty").WithDetails("bound_agent_empty")
 		}
 		if _, dup := seen[id]; dup {
 			continue
@@ -59,7 +62,8 @@ func (h *AuthHandler) validateBoundAgentIDs(
 	}
 	if len(unique) > maxBoundAgentIDsPerTenant {
 		return nil, errors.NewValidationError(fmt.Sprintf(
-			"cannot bind more than %d agents in one workspace", maxBoundAgentIDsPerTenant))
+			"cannot bind more than %d agents in one workspace",
+			maxBoundAgentIDsPerTenant)).WithDetails("bound_agent_limit")
 	}
 	if h.customAgentService == nil {
 		return nil, errors.NewInternalServerError("Failed to validate bound agents")
@@ -90,16 +94,17 @@ func (h *AuthHandler) validateBoundAgentIDs(
 	for _, id := range unique {
 		if _, internal := internalAgentIDs[id]; internal {
 			return nil, errors.NewValidationError(fmt.Sprintf(
-				"agent %q is internal and cannot be bound", id))
+				"agent %q is internal and cannot be bound", id)).WithDetails("bound_agent_internal")
 		}
 		if _, err := h.customAgentService.GetAgentByID(agentCtx, id); err != nil {
 			// 不存在与跨工作区给同一句话，不泄露别的租户有没有这个 agent。
 			return nil, errors.NewValidationError(fmt.Sprintf(
-				"agent %q does not exist or cannot be bound in this workspace", id))
+				"agent %q does not exist or cannot be bound in this workspace",
+				id)).WithDetails("bound_agent_not_found")
 		}
 		if _, disabled := disabledIDs[id]; disabled {
 			return nil, errors.NewValidationError(fmt.Sprintf(
-				"agent %q is disabled in this workspace", id))
+				"agent %q is disabled in this workspace", id)).WithDetails("bound_agent_disabled")
 		}
 	}
 

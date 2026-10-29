@@ -381,7 +381,7 @@ export interface UpdateMyPreferencesPatch extends Partial<UserPreferences> {
  */
 export async function updateMyPreferences(
   patch: UpdateMyPreferencesPatch,
-): Promise<{ success: boolean; data?: UserPreferences; message?: string }> {
+): Promise<{ success: boolean; data?: UserPreferences; message?: string; errorCode?: string }> {
   try {
     const response = await put('/api/v1/auth/me/preferences', patch)
     return response as unknown as { success: boolean; data?: UserPreferences; message?: string }
@@ -389,6 +389,9 @@ export async function updateMyPreferences(
     return {
       success: false,
       message: error.message || t('error.auth.updatePreferencesFailed'),
+      // 非 2xx 时 request 层 reject 的就是响应体 {success:false,error:{code,message,details}}；
+      // details 里是后端校验错误的稳定 code（F5），与 resolveChangePasswordError 同一读法。
+      errorCode: typeof error?.error?.details === 'string' ? error.error.details : undefined,
     }
   }
 }
