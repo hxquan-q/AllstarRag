@@ -717,10 +717,23 @@ func (s *userService) UpdateUserPreferences(
 		merged.Gallery = g
 	}
 	if patch.BoundAgentIDsByTenant != nil {
-		// 整张 map 覆盖：按工作区合并的逻辑在 handler 里做完了
-		// （handler 读出原 map、只替换当前工作区那条、再把整张 map 送进来）。
-		// service 只负责落库，保持「传进来的就是最终值」的 PATCH 语义。
-		merged.BoundAgentIDsByTenant = patch.BoundAgentIDsByTenant
+		// 逐键合并（F3）：只动 patch 里出现的工作区键（空数组 = 删除该键），
+		// 其他工作区的绑定保持上面刚重读的 user 行里的最新值。
+		// handler 只传「当前活动工作区一个键」；不再整表覆盖，避免两个设备
+		// 并发保存时，后写者用请求入口的旧快照把先写者刚保存的其他工作区绑定覆盖掉。
+		perTenant := make(map[string][]string,
+			len(merged.BoundAgentIDsByTenant)+len(patch.BoundAgentIDsByTenant))
+		for tenantKey, bound := range merged.BoundAgentIDsByTenant {
+			perTenant[tenantKey] = bound
+		}
+		for tenantKey, ids := range patch.BoundAgentIDsByTenant {
+			if len(ids) == 0 {
+				delete(perTenant, tenantKey)
+				continue
+			}
+			perTenant[tenantKey] = ids
+		}
+		merged.BoundAgentIDsByTenant = perTenant
 	}
 
 	user.Preferences = merged

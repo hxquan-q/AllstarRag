@@ -753,19 +753,12 @@ func (h *AuthHandler) UpdateMyPreferences(c *gin.Context) {
 			_ = c.Error(err)
 			return
 		}
-		// 读-改-写：复制整张 map（必须非 nil，否则表达不了「清空最后一条」），
-		// 只替换当前工作区那一条，其余工作区原样带回去。
-		merged := make(map[string][]string, len(user.Preferences.BoundAgentIDsByTenant)+1)
-		for tenantKey, bound := range user.Preferences.BoundAgentIDsByTenant {
-			merged[tenantKey] = bound
-		}
+		// 只写当前工作区一个键（F3）：其他工作区的键由 service 按事务内重读的最新
+		// 数据逐键合并，handler 不再回写整张 map —— 请求入口的 user 快照可能已过期，
+		// 整表回写会把另一台设备刚保存的其他工作区绑定静默覆盖掉。
+		// 空数组也照常放键，「删除该工作区键」由 service 的逐键合并完成。
 		tenantKey := strconv.FormatUint(tenantID, 10)
-		if len(ids) == 0 {
-			delete(merged, tenantKey)
-		} else {
-			merged[tenantKey] = ids
-		}
-		patch.BoundAgentIDsByTenant = merged
+		patch.BoundAgentIDsByTenant = map[string][]string{tenantKey: ids}
 	}
 	prefs, err := h.userService.UpdateUserPreferences(ctx, user.ID, patch)
 	if err != nil {
