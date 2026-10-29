@@ -100,7 +100,7 @@
         <!-- 客户直达「产线」设置分区（AC-11）；管理员端不出现该入口（C6）。 -->
         <div v-if="isCustomer" class="menu-item" @click="handleQuickNav('agentlines')">
           <t-icon name="control-platform" class="menu-icon" />
-          <span>{{ $t('agentLineSettings.title') }}</span>
+          <span>{{ $t('agentLineSettings.menuLabel') }}</span>
         </div>
         <div v-if="!authStore.isLiteMode && !isCustomer" class="menu-item" @click="handleQuickNav('tenant')">
           <t-icon name="user-circle" class="menu-icon" />

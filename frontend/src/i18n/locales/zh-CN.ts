@@ -9352,6 +9352,7 @@ export default {
   },
   agentLineSettings: {
     title: '产线',
+    menuLabel: '绑定 agent',
     description: '绑定你在这个工作区要使用的智能体。绑定几个，就能选择几条产线。',
     boundTitle: '已绑定',
     count: '已绑定 {count} / {max}',

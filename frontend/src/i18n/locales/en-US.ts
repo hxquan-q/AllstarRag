@@ -9359,6 +9359,7 @@ export default {
   },
   agentLineSettings: {
     title: 'Product lines',
+    menuLabel: 'Bind agents',
     description: 'Bind the agents you want to use in this workspace. Each bound agent becomes a product line.',
     boundTitle: 'Bound agents',
     count: '{count} / {max} bound',

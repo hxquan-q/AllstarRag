@@ -9353,6 +9353,7 @@ export default {
   },
   agentLineSettings: {
     title: '製品ライン',
+    menuLabel: 'エージェントを紐付け',
     description: 'このワークスペースで使うエージェントをバインドします。バインドした数だけ製品ラインができます。',
     boundTitle: 'バインド済みエージェント',
     count: '{max} 件中 {count} 件バインド済み',

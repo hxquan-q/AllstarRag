@@ -9349,6 +9349,7 @@ export default {
   },
   agentLineSettings: {
     title: '產品線',
+    menuLabel: '綁定 agent',
     description: '綁定你在這個工作區要使用的智慧體。綁定幾個，就能選擇幾條產品線。',
     boundTitle: '已綁定',
     count: '已綁定 {count} / {max}',
