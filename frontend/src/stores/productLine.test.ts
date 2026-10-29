@@ -102,6 +102,8 @@ interface HarnessOptions {
   storageImpl?: StorageImpl
   samples?: Record<string, string[]>
   samplesError?: Error
+  /** 为 true 时示例问题请求挂起，等测试手动 resolve（验证旧账号迟到写入被丢弃）。 */
+  samplesDeferred?: boolean
 }
 
 interface StoreShape {
@@ -150,6 +152,10 @@ function createStore(options: HarnessOptions = {}) {
   // 重试必须拿到新的 pending promise，而不是复用已 rejected 的旧 promise。
   const ensures: Deferred[] = []
   const samplesRequests: string[] = []
+  const sampleDeferreds: Array<{
+    agentId: string
+    resolve: (questions: string[]) => void
+  }> = []
   const fakeChatResources = {
     get agents() {
       return resources.agents
@@ -183,11 +189,20 @@ function createStore(options: HarnessOptions = {}) {
     resolveLine,
     useAuthStore: () => fakeAuthStore,
     useChatResourcesStore: () => fakeChatResources,
-    getSuggestedQuestions: async (agentId: string) => {
+    getSuggestedQuestions: (agentId: string) => {
       samplesRequests.push(agentId)
-      if (options.samplesError) throw options.samplesError
+      if (options.samplesError) return Promise.reject(options.samplesError)
+      if (options.samplesDeferred) {
+        return new Promise((resolve) => {
+          sampleDeferreds.push({
+            agentId,
+            resolve: (questions) =>
+              resolve({ data: { questions: questions.map((question) => ({ question })) } }),
+          })
+        })
+      }
       const questions = options.samples?.[agentId] ?? []
-      return { data: { questions: questions.map((question: string) => ({ question })) } }
+      return Promise.resolve({ data: { questions: questions.map((question) => ({ question })) } })
     },
   }) as StoreShape
   return {
@@ -196,6 +211,7 @@ function createStore(options: HarnessOptions = {}) {
     resources,
     authState,
     samplesRequests,
+    sampleDeferreds,
     ensureAgentsCalls: () => resources.ensureAgentsCalls,
     resolveAgents: () => ensures.at(-1)?.resolve(),
     rejectAgents: (error: Error) => ensures.at(-1)?.reject(error),
@@ -605,6 +621,69 @@ test('sample questions are lazy-loaded from the agent, failures leave an empty l
     assert.deepEqual(plain(failing.store.lines.value)[1]?.samples, [])
   } finally {
     failing.close()
+  }
+})
+
+test('R3-5 samples cache is per identity: switching account re-requests instead of reusing previous tenant text', async () => {
+  const h = createStore({
+    userId: 'user-a',
+    tenantId: 1,
+    boundByTenant: { '1': ['builtin-quick-answer'] },
+    agents: [{ id: 'builtin-quick-answer', name: '快速问答', description: '' }],
+    agentsLoaded: true,
+    samples: { 'builtin-quick-answer': ['A 的私有问题'] },
+  })
+  try {
+    await flush()
+    assert.deepEqual(plain(h.store.lines.value[0]?.samples), ['A 的私有问题'])
+    assert.deepEqual(h.samplesRequests, ['builtin-quick-answer'])
+
+    // SPA 内退出 A、登录 B（不刷新页面），B 绑定同一个内建 agent id。
+    h.authState.user = {
+      id: 'user-b',
+      preferences: { bound_agent_ids_by_tenant: { '1': ['builtin-quick-answer'] } },
+    }
+    await flush()
+    assert.deepEqual(
+      h.samplesRequests,
+      ['builtin-quick-answer', 'builtin-quick-answer'],
+      '缓存必须清空并按新身份重新请求',
+    )
+  } finally {
+    h.close()
+  }
+})
+
+test('R3-5 a late response from the previous account never lands in the new account cache', async () => {
+  const h = createStore({
+    userId: 'user-a',
+    tenantId: 1,
+    boundByTenant: { '1': ['builtin-quick-answer'] },
+    agents: [{ id: 'builtin-quick-answer', name: '快速问答', description: '' }],
+    agentsLoaded: true,
+    samplesDeferred: true,
+  })
+  try {
+    await flush()
+    assert.equal(h.sampleDeferreds.length, 1, 'A 的请求应挂起')
+
+    h.authState.user = {
+      id: 'user-b',
+      preferences: { bound_agent_ids_by_tenant: { '1': ['builtin-quick-answer'] } },
+    }
+    await flush()
+    assert.equal(h.sampleDeferreds.length, 2, 'B 登录后应重新请求')
+
+    // A 的旧请求迟到返回：不得写进 B 的缓存。
+    h.sampleDeferreds[0].resolve(['A 的私有问题'])
+    await flush()
+    assert.deepEqual(plain(h.store.lines.value[0]?.samples), [], '旧身份的响应必须被丢弃')
+
+    h.sampleDeferreds[1].resolve(['B 的公开问题'])
+    await flush()
+    assert.deepEqual(plain(h.store.lines.value[0]?.samples), ['B 的公开问题'])
+  } finally {
+    h.close()
   }
 })
 

@@ -9375,5 +9375,9 @@ export default {
     errorInternal: '内部智能体不能绑定为产线',
     errorLimit: '一个工作区最多绑定 {max} 个智能体',
     errorUnknown: '绑定失败，请稍后重试',
+    cleanupInvalid: '清理 {count} 个失效绑定',
+    cleanupConfirmTitle: '清理失效绑定',
+    cleanupConfirmBody: '以下智能体已被删除或停用，将从你的绑定列表移除：{ids}',
+    cleanupDone: '已清理 {count} 个失效绑定',
   },
 }

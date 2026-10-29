@@ -151,7 +151,7 @@ func run(args []string) error {
 
 	printf("\n开始删除 %d 条会话（按 tenant + owner 分组，删除前逐组复核绑定）...\n",
 		currentPlan.SessionCount())
-	groupErrs, attempted, rebindKept := applyPlan(
+	groupErrs, attempted, rebindKept, protectedOwners := applyPlan(
 		ctx, currentPlan,
 		func(reloadCtx context.Context, key ownerKey) ([]string, error) {
 			return reloadOwnerBindings(reloadCtx, db, key)
@@ -159,6 +159,9 @@ func run(args []string) error {
 		sessionService.BatchDeleteSessions)
 	if rebindKept > 0 {
 		printf("删除前复核：%d 条会话因绑定已更新而保留，不再删除\n", rebindKept)
+	}
+	if protectedOwners > 0 {
+		printf("删除前复核：%d 个属主已被提升为平台管理员，其会话整组跳过（AC-16）\n", protectedOwners)
 	}
 	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, attempted)
 	allErrs := append(append([]string{}, groupErrs...), verifyErrs...)

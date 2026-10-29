@@ -9372,5 +9372,9 @@ export default {
     errorInternal: '內部智慧體不能綁定為產品線',
     errorLimit: '一個工作區最多綁定 {max} 個智慧體',
     errorUnknown: '綁定失敗，請稍後再試',
+    cleanupInvalid: '清理 {count} 個失效綁定',
+    cleanupConfirmTitle: '清理失效綁定',
+    cleanupConfirmBody: '以下智慧體已被刪除或停用，將從你的綁定列表移除：{ids}',
+    cleanupDone: '已清理 {count} 個失效綁定',
   },
 }

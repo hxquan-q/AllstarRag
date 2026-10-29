@@ -62,6 +62,7 @@ function setup(tc: TestContext, options: SetupOptions = {}) {
   const f = fixture(tc)
   const calls: Array<{ bound_agent_ids: string[] }> = []
   const toasts: string[] = []
+  const dialogs: Array<{ onConfirm?: () => void; onCancel?: () => void }> = []
   const auth = reactive({
     user: {
       id: 'user-1',
@@ -94,7 +95,15 @@ function setup(tc: TestContext, options: SetupOptions = {}) {
   }
   const { vm, close } = f.component(new URL('./AgentLineSettings.vue', import.meta.url), {
     'vue-i18n': { useI18n: () => ({ t }) },
-    'tdesign-vue-next': { MessagePlugin: { success: (msg: string) => toasts.push(msg) } },
+    'tdesign-vue-next': {
+      MessagePlugin: { success: (msg: string) => toasts.push(msg) },
+      DialogPlugin: {
+        confirm: (dialogOptions: { onConfirm?: () => void; onCancel?: () => void }) => {
+          dialogs.push(dialogOptions)
+          return { destroy() {} }
+        },
+      },
+    },
     '@/api/auth': {
       updateMyPreferences: async (patch: { bound_agent_ids: string[] }) => {
         calls.push(patch)
@@ -111,6 +120,7 @@ function setup(tc: TestContext, options: SetupOptions = {}) {
     resources,
     calls,
     toasts,
+    dialogs,
     close,
     setResponse: (next: typeof respond) => {
       respond = next
@@ -363,4 +373,35 @@ test('the component has no admin entry points and is only wired into the custome
   assert.doesNotMatch(source, /知识库|管理智能体|共享给我/)
   const settings = readFileSync(new URL('./Settings.vue', import.meta.url), 'utf8')
   assert.match(settings, /currentSection === 'agentlines' && isCustomerViewerActive/)
+})
+
+test('R3-4 all-invalid bindings can be cleaned up in one confirmed action (clears the list)', async t => {
+  const s = setup(t, {
+    boundByTenant: { '1': ['ghost-a', 'ghost-b'] },
+    agents: [agent('agent-c', '可用助手')],
+  })
+  await flush()
+  assert.deepEqual(plain(s.vm.invalidBoundIds), ['ghost-a', 'ghost-b'], '失效绑定要被识别出来')
+  await s.vm.cleanupInvalidBindings()
+  assert.equal(s.dialogs.length, 1, '清理前必须确认')
+  await s.dialogs[0].onConfirm?.()
+  await flush()
+  assert.deepEqual(plain(s.calls), [{ bound_agent_ids: [] }], '全部失效时等价于清空当前工作区绑定')
+  assert.ok(s.toasts.some(message => message.includes('agentLineSettings.cleanupDone')))
+  s.close()
+})
+
+test('R3-4 cleanup keeps valid bindings and drops only invalid ones', async t => {
+  const s = setup(t, {
+    boundByTenant: { '1': ['agent-a', 'ghost-b', 'agent-disabled'] },
+    agents: [agent('agent-a', '法务助手'), agent('agent-c', '可用助手'), agent('agent-disabled', '已停用')],
+    disabled: ['agent-disabled'],
+  })
+  await flush()
+  assert.deepEqual(plain(s.vm.invalidBoundIds), ['ghost-b', 'agent-disabled'])
+  await s.vm.cleanupInvalidBindings()
+  await s.dialogs[0].onConfirm?.()
+  await flush()
+  assert.deepEqual(plain(s.calls), [{ bound_agent_ids: ['agent-a'] }], '只保留仍然有效的绑定')
+  s.close()
 })

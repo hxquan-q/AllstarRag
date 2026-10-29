@@ -96,13 +96,10 @@ function ask(question: string): void {
       {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}
     </button>
 
-    <!-- 一条都没绑定时给引导；加载中不渲染（AC-10），不阻断页面。 -->
-    <div v-if="showEmptyState" class="customer-welcome__empty" role="status">
-      <p class="customer-welcome__empty-text">{{ t('brand.welcome.emptyNotice') }}</p>
-      <button type="button" class="sample-chip" @click="goBindAgents">
-        {{ t('brand.welcome.emptyAction') }}
-      </button>
-    </div>
+    <!-- 未绑定：不单独提示「还没有绑定智能体」，去绑定入口紧跟副标题，保持紧凑（用户反馈） -->
+    <button v-if="showEmptyState" type="button" class="customer-welcome__bind-link" @click="goBindAgents">
+      {{ t('brand.welcome.emptyAction') }}
+    </button>
 
     <!-- agents 拉取失败且无产线时给重试（AC-10 失败兜底）；复用空态容器与 sample-chip，不加新动效（C8）。 -->
     <div v-if="showLoadFailed" class="customer-welcome__empty" role="alert">
@@ -171,6 +168,25 @@ function ask(question: string): void {
   margin: 0 0 var(--app-space-6);
   color: var(--td-text-color-secondary);
   font-size: var(--app-text-base);
+}
+
+/* 空态去绑定入口：贴着副标题（-16px 抵消副标题下边距，留 8px 呼吸），轻量文字链接样式 */
+.customer-welcome__bind-link {
+  margin: calc(-1 * var(--app-space-4)) 0 var(--app-space-5);
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--td-brand-color);
+  font-size: var(--app-text-base);
+  font-family: var(--app-font-family);
+  cursor: pointer;
+  transition: opacity var(--app-motion-fast) ease;
+}
+
+.customer-welcome__bind-link:hover {
+  opacity: 0.75;
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .customer-welcome__lines {

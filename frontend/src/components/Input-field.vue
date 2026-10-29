@@ -2921,14 +2921,18 @@ defineExpose({
         <div class="control-left">
           <!-- 嵌入时宿主已定好 agent/KB，只保留模型选择 -->
           <template v-if="!embeddedMode">
-          <!-- 客户版左侧只保留产线选择器；智能体/KB/文件/MCP/Skill 等入口全部不进 DOM -->
+          <!-- 客户/管理员在这里分叉：客户分支（含 0/1 条产线、agents 未加载）绝不渲染
+               下方的管理员工具栏；此前把 >1 写进 LineSelector 的 v-if，0/1 条时会掉进
+               v-else 露出智能体选择等入口（R3-2）。 -->
+          <template v-if="customerMode">
           <!-- 产线数 = 1 或 0 时不渲染下拉（AC-9；0 条的空态由欢迎区承担） -->
           <LineSelector
-            v-if="customerMode && (productLineStore?.lines.length ?? 0) > 1"
+            v-if="(productLineStore?.lines.length ?? 0) > 1"
             :model-value="productLineStore?.currentLineId ?? ''"
             :lines="productLineStore?.lines ?? []"
             @update:model-value="productLineStore?.selectLine($event)"
           />
+          </template>
           <template v-else>
           <!-- Agent 模式切换按钮 -->
           <div ref="agentModeButtonRef" class="control-btn agent-mode-btn" :class="{

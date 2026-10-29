@@ -136,6 +136,62 @@ func TestAdminSessionNeverSelected(t *testing.T) {
 	}
 }
 
+// R3-1：viewer 被提升为平台管理员（只改 users 标志、tenant_members 行不变）后，
+// 其会话必须整体排除（AC-16「管理员的会话一律不动」）。
+func TestPrivilegedViewerSessionsExcluded(t *testing.T) {
+	db := newCleanupTestDB(t)
+	seedCleanupFixture(t, db)
+
+	require.NoError(t, db.Model(&types.User{}).Where("id = ?", "u1").
+		Update("is_system_admin", true).Error)
+	require.NoError(t, db.Model(&types.User{}).Where("id = ?", "u2").
+		Update("can_access_all_tenants", true).Error)
+
+	data, err := loadScanData(context.Background(), db, 1)
+	require.NoError(t, err)
+	require.Empty(t, data.Members, "平台管理员不能作为清理对象")
+	currentPlan := buildPlan(data)
+	require.Empty(t, sessionIDs(currentPlan.Sessions), "平台管理员的会话一条都不能进待删名单")
+	require.Empty(t, currentPlan.ZeroBindingOwners)
+}
+
+// R3-1 兜底：扫描后、删除前被提权的属主，删除前复核必须整组跳过且不算失败。
+func TestApplyPlanProtectsPromotedOwner(t *testing.T) {
+	db := newCleanupTestDB(t)
+	seedCleanupFixture(t, db)
+	ctx := context.Background()
+
+	data, err := loadScanData(ctx, db, 1)
+	require.NoError(t, err)
+	currentPlan := buildPlan(data)
+	require.Equal(t, []string{"s1", "s3", "s7"}, sessionIDs(currentPlan.Sessions))
+
+	// 扫描之后 u1 被提升为系统管理员；u2 仍是普通 viewer。
+	require.NoError(t, db.Model(&types.User{}).Where("id = ?", "u1").
+		Update("is_system_admin", true).Error)
+
+	sessionRepo := repository.NewSessionRepository(db)
+	var seenOwners []string
+	deleteBatch := func(groupCtx context.Context, ids []string) error {
+		tenantID := types.MustTenantIDFromContext(groupCtx)
+		ownerID := types.SessionOwnerIDFromContext(groupCtx)
+		seenOwners = append(seenOwners, ownerID)
+		_, err := sessionRepo.BatchDelete(groupCtx, tenantID, ownerID, ids)
+		return err
+	}
+
+	groupErrs, attempted, rebindKept, protectedOwners := applyPlan(ctx, currentPlan,
+		func(reloadCtx context.Context, key ownerKey) ([]string, error) {
+			return reloadOwnerBindings(reloadCtx, db, key)
+		}, deleteBatch)
+
+	require.Empty(t, groupErrs, "保护性跳过不是错误")
+	require.Equal(t, 1, protectedOwners)
+	require.Equal(t, 0, rebindKept)
+	require.Equal(t, []string{"u2"}, seenOwners, "只有非管理员的 u2 组被删除")
+	require.Equal(t, []string{"s7"}, sessionIDs(attempted))
+}
+
 func TestNonOrdinarySessionKindsExcluded(t *testing.T) {
 	db := newCleanupTestDB(t)
 	seedCleanupFixture(t, db)
@@ -206,9 +262,10 @@ func TestApplyPlanDeletesViewerSessionsAndKeepsAdminSessions(t *testing.T) {
 	reload := func(reloadCtx context.Context, key ownerKey) ([]string, error) {
 		return reloadOwnerBindings(reloadCtx, db, key)
 	}
-	groupErrs, attempted, rebindKept := applyPlan(ctx, currentPlan, reload, deleteBatch)
+	groupErrs, attempted, rebindKept, protectedOwners := applyPlan(ctx, currentPlan, reload, deleteBatch)
 	require.Empty(t, groupErrs)
 	require.Equal(t, 0, rebindKept, "绑定没变化时复核不应保留任何会话")
+	require.Equal(t, 0, protectedOwners, "没有平台管理员时不应跳过任何组")
 	require.Equal(t, []string{"u1", "u2"}, seenOwners, "必须按 (tenant, owner) 分组，逐组换成属主身份")
 
 	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, attempted)
@@ -256,7 +313,7 @@ func TestApplyPlanRechecksBindingsBeforeDelete(t *testing.T) {
 		return err
 	}
 
-	groupErrs, attempted, rebindKept := applyPlan(
+	groupErrs, attempted, rebindKept, protectedOwners := applyPlan(
 		ctx, currentPlan,
 		func(reloadCtx context.Context, key ownerKey) ([]string, error) {
 			return reloadOwnerBindings(reloadCtx, db, key)
@@ -266,6 +323,7 @@ func TestApplyPlanRechecksBindingsBeforeDelete(t *testing.T) {
 	require.Empty(t, groupErrs)
 	require.Equal(t, []string{"s1"}, sessionIDs(attempted), "只有 s1 仍满足清理条件")
 	require.Equal(t, 2, rebindKept, "s3 与 s7 因删除前复核被保留")
+	require.Equal(t, 0, protectedOwners)
 	require.Equal(t, []string{"u1"}, seenOwners, "u2 的组过滤后为空，必须整组跳过")
 
 	// s3 / s7 仍在库里（被新绑定保住），s1 已删。

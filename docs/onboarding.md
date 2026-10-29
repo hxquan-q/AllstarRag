@@ -8,11 +8,20 @@
 **注册 = 开一个全新的工作区，注册者自动成为这个工作区的 owner。**
 每个工作区有自己独立的智能体、成员和会话数据，互不可见。
 
+> 前提假设：服务端使用默认的 `auth.default_tenant_mode=create_personal`。
+> 如果部署方把它改成 `tenantless`，注册只会创建账号身份，**不会**创建工作区、也不会授予
+> owner；这类账号需要由管理员邀请加入某个工作区后才有归属。
+
 ### 前提：服务端开放了自助注册
 
-注册接口只在服务端注册模式为自助（`self_serve`，默认值）时可用。
-如果管理员把模式改成了 `invite_only`（或设置了环境变量 `DISABLE_REGISTRATION=true`），
-接口会直接返回 `403 Public registration is disabled`——这时请联系管理员开通，或走邀请链接。
+注册接口只在服务端注册模式为自助（`self_serve`，默认值）时可用，否则返回
+`403 Public registration is disabled`——这时请联系管理员开通，或走邀请链接。
+
+> 注意配置优先级：运行时以数据库 `system_settings` 里的 `auth.registration_mode`
+> 为最高优先；启动配置（含环境变量 `DISABLE_REGISTRATION=true`，它只把配置层强制成
+> `invite_only`）次之；两者都没有时默认 `self_serve`。
+> 因此**仅设置 `DISABLE_REGISTRATION=true` 不一定返回 403**——若数据库里已显式写入
+> `self_serve`，注册仍然可用。需要关闭时请改数据库中的该项设置。
 
 ### 接口与字段约束
 

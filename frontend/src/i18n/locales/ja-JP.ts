@@ -9376,5 +9376,9 @@ export default {
     errorInternal: '内部エージェントは製品ラインとしてバインドできません',
     errorLimit: '1 つのワークスペースでバインドできるのは最大 {max} 件です',
     errorUnknown: 'バインドに失敗しました。しばらくしてから再試行してください。',
+    cleanupInvalid: '無効なバインディング {count} 件を整理',
+    cleanupConfirmTitle: '無効なバインディングの整理',
+    cleanupConfirmBody: '以下のエージェントは削除または無効化されているため、バインディングから削除されます: {ids}',
+    cleanupDone: '無効なバインディング {count} 件を整理しました',
   },
 }

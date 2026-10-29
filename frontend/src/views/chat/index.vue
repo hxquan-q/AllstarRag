@@ -1362,7 +1362,9 @@ const productLineStore = computed(() => (isCustomer.value ? useProductLineStore(
 watch(() => productLineStore.value?.currentLineId, (lineId, prevLineId) => {
     if (!isCustomer.value || props.embeddedMode) return;
     // 首次观测（角色水合晚于挂载、store 才创建时 oldValue 为 undefined）只记基线，不跳转。
-    if (prevLineId === undefined || lineId === prevLineId) return;
+    // ''→agentId 是 agents 异步返回后 reconcile 的自动水合（冷启动直达历史会话时
+    // 当前值先是空串），同样不是用户主动切线——否则会被弹回新对话页（R3-3）。
+    if (prevLineId === undefined || prevLineId === '' || lineId === prevLineId) return;
     // 生成中先按「停止」按钮同路径中止：前端立即停 + 后端停生成，不留写原会话的孤儿流（AC-14）。
     if (loading.value || isReplying.value) {
         handleStopGeneration();

@@ -9376,5 +9376,9 @@ export default {
     errorInternal: '내부 에이전트는 제품 라인으로 바인딩할 수 없습니다',
     errorLimit: '한 워크스페이스에는 최대 {max}개의 에이전트만 바인딩할 수 있습니다',
     errorUnknown: '바인딩하지 못했습니다. 잠시 후 다시 시도하세요.',
+    cleanupInvalid: '유효하지 않은 바인딩 {count}개 정리',
+    cleanupConfirmTitle: '유효하지 않은 바인딩 정리',
+    cleanupConfirmBody: '다음 에이전트는 삭제되었거나 중지되어 바인딩 목록에서 제거됩니다: {ids}',
+    cleanupDone: '유효하지 않은 바인딩 {count}개를 정리했습니다',
   },
 }

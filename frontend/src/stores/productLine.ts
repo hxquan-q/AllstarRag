@@ -35,6 +35,11 @@ export const useProductLineStore = defineStore('productLine', () => {
   const samplesById = ref<Record<string, string[]>>({})
   /** 已经请求过的 agent（含失败），避免同一 agent 反复打接口。 */
   const samplesRequested = new Set<string>()
+  /**
+   * 身份代际：切换账号时自增。示例问题内容随工作区而变（可能来自私有 FAQ），
+   * 旧账号迟到的响应必须丢弃，不能写进新账号的缓存（R3-5）。
+   */
+  let samplesEpoch = 0
 
   /**
    * 产线 = 绑定 agent 派生（AC-8）。
@@ -180,16 +185,20 @@ export const useProductLineStore = defineStore('productLine', () => {
     const pending = ids.filter((id) => id && !samplesRequested.has(id))
     if (pending.length === 0) return
     pending.forEach((id) => samplesRequested.add(id))
+    const epoch = samplesEpoch
     await Promise.all(
       pending.map(async (id) => {
         try {
           const res = await getSuggestedQuestions(id)
+          // 账号已切换：旧身份的响应作废，不写进新账号缓存。
+          if (epoch !== samplesEpoch) return
           const questions = res?.data?.questions ?? []
           samplesById.value = {
             ...samplesById.value,
             [id]: questions.map((item) => item.question).filter((question) => !!question),
           }
         } catch {
+          if (epoch !== samplesEpoch) return
           samplesById.value = { ...samplesById.value, [id]: [] }
         }
       }),
@@ -218,6 +227,11 @@ export const useProductLineStore = defineStore('productLine', () => {
       ready.value = chatResources.isLoaded('agents')
       bootstrapPromise = null
       loadFailed.value = false
+      // R3-5：登出再登录是 SPA 内跳转（不刷新页面），Pinia 缓存会跨账号存活；
+      // 示例问题可能来自私有 FAQ，必须清空并按新身份重新请求。
+      samplesEpoch++
+      samplesById.value = {}
+      samplesRequested.clear()
       hydrate()
       bootstrapAgents()
     },

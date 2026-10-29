@@ -169,3 +169,12 @@ test('F6 welcome loadFailed / retry i18n keys exist in all six locales', () => {
     assert.match(block, /retry["']?\s*:/, `${lang} must define brand.welcome.retry`)
   }
 })
+
+test('R3-3 cold-start hydration (empty -> agent id) does not navigate away', () => {
+  // agents 异步返回后 reconcile 把 '' 改成绑定 agent id；这不是用户主动切线，
+  // watcher 必须跳过，否则冷启动直达历史会话会被弹回新对话页。
+  assert.match(
+    chatView,
+    /prevLineId === undefined \|\| prevLineId === '' \|\| lineId === prevLineId/,
+  )
+})

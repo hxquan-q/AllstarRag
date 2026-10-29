@@ -19,6 +19,11 @@ import (
 // nowFunc 便于单测固定时间；生产环境就是 time.Now。
 var nowFunc = time.Now
 
+// errOwnerProtected 表示该会话属主是平台级管理员（系统管理员 / 可跨租户访问），
+// 按 AC-16「管理员的会话一律不动」必须在删除前跳过。
+// 扫描阶段已整体排除这类成员；此处是扫描与删除之间被提权的兜底（安全方向）。
+var errOwnerProtected = errors.New("owner is a platform administrator; sessions are protected")
+
 // ownerKey 标识「工作区 + 会话属主」这一组。BatchDeleteSessions 的可见性
 // 按 (tenant, owner) 判定，因此扫描、分组、上下文构造都用它做键。
 type ownerKey struct {
@@ -64,6 +69,12 @@ func loadScanData(ctx context.Context, db *gorm.DB, tenantID uint64) (*scanData,
 	if err != nil {
 		return nil, fmt.Errorf("读取 viewer 成员失败: %w", err)
 	}
+	// 被提升为系统管理员 / 可跨租户访问的用户，其 viewer 成员行可能残留；
+	// 这类用户的会话一律不动（AC-16）。
+	members, err = excludePrivilegedMembers(ctx, db, members)
+	if err != nil {
+		return nil, fmt.Errorf("读取用户特权标记失败: %w", err)
+	}
 	bindings, err := loadBindings(ctx, db, members)
 	if err != nil {
 		return nil, fmt.Errorf("读取用户绑定失败: %w", err)
@@ -89,6 +100,51 @@ func loadViewerMembers(ctx context.Context, db *gorm.DB, tenantID uint64) ([]*ty
 		return nil, err
 	}
 	return members, nil
+}
+
+// excludePrivilegedMembers 过滤掉平台级管理员（users.is_system_admin /
+// users.can_access_all_tenants）。提权操作只改 users 标志、不会清掉原有的
+// viewer 成员行，所以必须在扫描阶段整体排除，否则其普通会话会被当成客户会话删掉。
+// 用户行缺失时按非特权处理（与 loadBindings 的口径一致）。
+func excludePrivilegedMembers(
+	ctx context.Context,
+	db *gorm.DB,
+	members []*types.TenantMember,
+) ([]*types.TenantMember, error) {
+	if len(members) == 0 {
+		return members, nil
+	}
+	idSet := make(map[string]struct{}, len(members))
+	for _, member := range members {
+		idSet[member.UserID] = struct{}{}
+	}
+	ids := make([]string, 0, len(idSet))
+	for id := range idSet {
+		ids = append(ids, id)
+	}
+	var users []*types.User
+	if err := db.WithContext(ctx).Where("id IN ?", ids).Find(&users).Error; err != nil {
+		return nil, err
+	}
+	if len(users) == 0 {
+		return members, nil
+	}
+	privileged := make(map[string]struct{}, len(users))
+	for _, user := range users {
+		if user.IsSystemAdmin || user.CanAccessAllTenants {
+			privileged[user.ID] = struct{}{}
+		}
+	}
+	if len(privileged) == 0 {
+		return members, nil
+	}
+	kept := make([]*types.TenantMember, 0, len(members))
+	for _, member := range members {
+		if _, protected := privileged[member.UserID]; !protected {
+			kept = append(kept, member)
+		}
+	}
+	return kept, nil
 }
 
 // loadBindings 读取每个成员在其工作区下的绑定列表。
@@ -268,6 +324,10 @@ func reloadOwnerBindings(ctx context.Context, db *gorm.DB, key ownerKey) ([]stri
 		}
 		return nil, err
 	}
+	// 删除前复查特权标记（扫描后提权的兜底，安全方向：宁可跳过不误删）。
+	if user.IsSystemAdmin || user.CanAccessAllTenants {
+		return nil, errOwnerProtected
+	}
 	return user.Preferences.BoundAgentIDsByTenant[tenantKey], nil
 }
 
@@ -282,7 +342,7 @@ func applyPlan(
 	p *plan,
 	reload bindingsLookup,
 	deleteBatch batchDeleteFunc,
-) (errs []string, attempted []*types.Session, rebindKept int) {
+) (errs []string, attempted []*types.Session, rebindKept int, protected int) {
 	keys := make([]ownerKey, 0, len(p.ByOwner))
 	for key := range p.ByOwner {
 		keys = append(keys, key)
@@ -293,6 +353,11 @@ func applyPlan(
 		group := p.ByOwner[key]
 		bound, err := reload(ctx, key)
 		if err != nil {
+			// 扫描后被提升为平台管理员的属主：整组跳过，不算失败（AC-16 保护）。
+			if errors.Is(err, errOwnerProtected) {
+				protected++
+				continue
+			}
 			errs = append(errs, fmt.Sprintf("%s: 删除前重读绑定失败，跳过该组: %v", key.String(), err))
 			continue
 		}
@@ -316,7 +381,7 @@ func applyPlan(
 		}
 		attempted = append(attempted, kept...)
 	}
-	return errs, attempted, rebindKept
+	return errs, attempted, rebindKept, protected
 }
 
 // verifyDeletion 用「会话行是否还存在」核对真实删除数。

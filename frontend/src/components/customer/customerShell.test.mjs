@@ -51,13 +51,15 @@ test('customer welcome collapses cards above four and can expand/collapse in pla
 })
 
 test('customer empty state links to the agentlines settings section', () => {
-  // AC-10 / AC-11：去绑定直达设置「产线」分区。
+  // AC-10 / AC-11：去绑定直达设置「产线」分区；2026-10-29 用户反馈后
+  // 空态不再单独渲染「还没有绑定智能体」文案，去绑定入口直接跟在副标题下。
   assert.match(
     welcome,
     /router\.push\(\{ path: '\/platform\/settings', query: \{ section: 'agentlines' \} \}\)/,
   )
-  assert.match(welcome, /t\('brand\.welcome\.emptyNotice'\)/)
+  assert.match(welcome, /customer-welcome__bind-link/)
   assert.match(welcome, /t\('brand\.welcome\.emptyAction'\)/)
+  assert.doesNotMatch(welcome, /t\('brand\.welcome\.emptyNotice'\)/, '空态不再显示提示句')
 })
 
 test('sample questions and manual input both go through Input-field.triggerSend', () => {
@@ -70,8 +72,10 @@ test('sample questions and manual input both go through Input-field.triggerSend'
 })
 
 test('customer composer keeps only the line selector and send button', () => {
-  // AC-9：只有 1 条以上产线才渲染下拉（0/1 条都不渲染）。
-  assert.match(inputField, /<LineSelector\s+v-if="customerMode && \(productLineStore\?\.lines\.length \?\? 0\) > 1"/)
+  // R3-2：客户分支必须整体包裹，0/1 条产线（或 agents 未加载）时也不能掉进
+  // 下方管理员 v-else 工具栏；产线数条件只控制客户分支内部的 LineSelector。
+  assert.match(inputField, /<template v-if="customerMode">/)
+  assert.match(inputField, /<LineSelector\s+v-if="\(productLineStore\?\.lines\.length \?\? 0\) > 1"/)
   // AC-13：下拉拿全量列表，不做 3 条切片。
   assert.match(inputField, /:lines="productLineStore\?\.lines \?\? \[\]"/)
   assert.match(inputField, /<template v-else>\s*<!-- Agent 模式切换按钮 -->/)

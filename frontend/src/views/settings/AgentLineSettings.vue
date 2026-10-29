@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { MessagePlugin } from 'tdesign-vue-next'
+import { DialogPlugin, MessagePlugin } from 'tdesign-vue-next'
 import { useI18n } from 'vue-i18n'
 import { updateMyPreferences } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
@@ -58,6 +58,44 @@ const boundRows = computed(() =>
     name: agentById.value.get(id)?.name || id,
   })),
 )
+
+/**
+ * 失效绑定（R3-4）：已绑定但 agent 已被删除/不在本工作区，或已被本工作区停用。
+ * 只在 agents 快照可信（已加载成功）时判定，避免加载中把全部绑定误判为失效。
+ */
+const agentsSnapshotReady = computed(() => chatResources.isLoaded('agents'))
+const invalidBoundIds = computed<string[]>(() => {
+  if (!agentsSnapshotReady.value) return []
+  return boundIds.value.filter((id) => !agentById.value.has(id) || disabledIds.value.has(id))
+})
+
+/**
+ * 清理失效绑定：逐个解绑会被后端整批校验拒绝（剩余列表里仍有非法 id），
+ * 所以这里一次性提交「仅保留有效 id」的列表。后端校验不放宽。
+ * 全部失效时等价于清空当前工作区绑定。
+ */
+async function cleanupInvalidBindings(): Promise<void> {
+  if (saving.value) return
+  const invalid = invalidBoundIds.value
+  if (invalid.length === 0) return
+  const valid = boundIds.value.filter((id) => !invalid.includes(id))
+  const dialog = DialogPlugin.confirm({
+    header: t('agentLineSettings.cleanupConfirmTitle'),
+    body: t('agentLineSettings.cleanupConfirmBody', { ids: invalid.join('、') }),
+    confirmBtn: t('agentLineSettings.cleanupInvalid', { count: invalid.length }),
+    cancelBtn: t('common.cancel'),
+    onConfirm: () => {
+      dialog.destroy()
+      void (async () => {
+        const ok = await saveBoundIds(valid)
+        if (ok) {
+          MessagePlugin.success(t('agentLineSettings.cleanupDone', { count: invalid.length }))
+        }
+      })()
+    },
+    onCancel: () => dialog.destroy(),
+  })
+}
 
 /** 候选 = 本工作区未停用 + 尚未绑定 + 不是内部 agent；7 个内建 agent 允许出现。 */
 const candidateOptions = computed(() => {
@@ -224,6 +262,20 @@ onMounted(() => {
         </li>
       </ul>
 
+      <!-- R3-4：失效绑定（agent 已删除或已停用）无法逐个解绑——后端会整批拒绝，
+           这里提供一次性清理入口；只提交仍然有效的 id，不绕过后端校验。 -->
+      <p v-if="invalidBoundIds.length > 0" class="invalid-hint">
+        <t-button
+          size="small"
+          variant="text"
+          theme="danger"
+          :disabled="saving"
+          @click="cleanupInvalidBindings"
+        >
+          {{ $t('agentLineSettings.cleanupInvalid', { count: invalidBoundIds.length }) }}
+        </t-button>
+      </p>
+
       <div class="bind-row">
         <t-input
           v-model="draftId"
@@ -362,6 +414,12 @@ onMounted(() => {
     margin: 10px 0 0;
     color: var(--td-error-color);
     font-size: var(--app-text-md);
+  }
+
+  .invalid-hint {
+    margin: 6px 0 0;
+    display: flex;
+    justify-content: flex-end;
   }
 
   .candidate-row {

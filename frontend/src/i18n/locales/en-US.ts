@@ -9382,5 +9382,9 @@ export default {
     errorInternal: 'Internal agents cannot be bound as product lines',
     errorLimit: 'A workspace can bind at most {max} agents',
     errorUnknown: 'Binding failed. Please try again later.',
+    cleanupInvalid: 'Clean up {count} invalid binding(s)',
+    cleanupConfirmTitle: 'Clean up invalid bindings',
+    cleanupConfirmBody: 'These agents were deleted or disabled and will be removed from your bindings: {ids}',
+    cleanupDone: 'Cleaned up {count} invalid binding(s)',
   },
 }
