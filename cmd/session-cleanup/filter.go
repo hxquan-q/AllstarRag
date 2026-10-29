@@ -352,14 +352,34 @@ func writeAudit(dir string, record auditRecord) (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, auditFileName(record.TenantID, time.Now()))
-	data, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", err
-	}
-	data = append(data, '\n')
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	// 文件名与 record.GeneratedAt 用同一个 nowFunc：单测固定时间后两者一致（F7）。
+	path := filepath.Join(dir, auditFileName(record.TenantID, nowFunc()))
+	if err := writeAuditTo(path, record); err != nil {
 		return "", err
 	}
 	return path, nil
+}
+
+// createAuditPlaceholder 在删除开始前原子创建占位审计文件（F2）：
+// O_CREATE|O_EXCL 保证「已存在即失败」，与 findAuditFile 是同一道一次性闸。
+// 之后进程即便在删除中途被杀、或最终审计写盘失败，这个文件也会挡住下一轮重删。
+func createAuditPlaceholder(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	return file.Close()
+}
+
+// writeAuditTo 把完整审计内容覆盖写到指定路径（占位文件的路径），保持闸在同一文件上。
+func writeAuditTo(path string, record auditRecord) error {
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(path, data, 0o600)
 }

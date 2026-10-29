@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -124,6 +125,15 @@ func run(args []string) error {
 		return fmt.Errorf("初始化会话服务失败: %w", err)
 	}
 
+	// 安全闸之三（F2）：删除开始前原子创建占位审计文件。O_EXCL 保证已存在即失败，
+	// 与开头的 findAuditFile 合成同一道一次性闸：此后进程被杀或审计写盘失败，
+	// 占位文件仍在，下一轮会被拒绝，不会把此后新产生的会话再删一遍（AC-16）。
+	generatedAt := nowFunc()
+	auditPath := filepath.Join(opts.auditDir, auditFileName(opts.tenantID, generatedAt))
+	if err := createAuditPlaceholder(auditPath); err != nil {
+		return fmt.Errorf("创建审计占位文件失败（%s），拒绝执行: %w", auditPath, err)
+	}
+
 	printf("\n开始删除 %d 条会话（按 tenant + owner 分组）...\n", currentPlan.SessionCount())
 	groupErrs := applyPlan(ctx, currentPlan, sessionService.BatchDeleteSessions)
 	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, currentPlan.Sessions)
@@ -131,7 +141,7 @@ func run(args []string) error {
 
 	record := auditRecord{
 		TenantID:                opts.tenantID,
-		GeneratedAt:             nowFunc().Format("2006-01-02T15:04:05Z07:00"),
+		GeneratedAt:             generatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		TotalCandidates:         currentPlan.SessionCount(),
 		DeletedCount:            len(deletedIDs),
 		FailedCount:             len(failedIDs),
@@ -142,9 +152,11 @@ func run(args []string) error {
 		ZeroBindingSessionCount: currentPlan.ZeroBindingSessionCount,
 		Errors:                  allErrs,
 	}
-	auditPath, err := writeAudit(opts.auditDir, record)
-	if err != nil {
-		return fmt.Errorf("写审计文件失败: %w（本次已删除 %d 条，请勿直接重跑）", err, len(deletedIDs))
+	// 覆盖写回占位文件（同一路径）。写失败也保留占位文件，避免下次被当成首次执行。
+	if err := writeAuditTo(auditPath, record); err != nil {
+		return fmt.Errorf(
+			"写审计文件失败: %w（占位文件 %s 已保留，本次已删除 %d 条，请人工核对后处理，勿直接重跑）",
+			err, auditPath, len(deletedIDs))
 	}
 
 	// 审计文件已落盘后再等异步清理：BatchDeleteSessions 的「清聊天历史知识」
