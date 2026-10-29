@@ -36,8 +36,13 @@ const visibleLines = computed(() =>
 )
 /** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
 const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
-/** agents 拉取失败且没有任何产线时给「加载失败 + 重试」，避免永久空窗（AC-10 失败兜底）。 */
-const showLoadFailed = computed(() => productLineStore.loadFailed && lines.value.length === 0)
+/**
+ * agents 拉取失败且没有任何产线时给「加载失败 + 重试」，避免永久空窗（AC-10 失败兜底）。
+ * 要求 !ready：与上面的空态（ready 且 0 条）严格互斥，不出现「空态 + 失败态」双块同现。
+ */
+const showLoadFailed = computed(
+  () => productLineStore.loadFailed && !productLineStore.ready && lines.value.length === 0,
+)
 
 function retryLoadAgents(): void {
   productLineStore.retryBootstrapAgents()

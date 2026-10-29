@@ -151,18 +151,22 @@ export const useProductLineStore = defineStore('productLine', () => {
     if (!authStore.currentUserId) return
     if (bootstrapPromise) return
     loadFailed.value = false
-    bootstrapPromise = chatResources
+    const current: Promise<void> = chatResources
       .ensureAgents()
       .then(() => {
         ready.value = true
       })
       .catch((error) => {
-        // 拉取失败置 loadFailed（保持 ready=false：不显示空态）；bootstrapPromise 清掉，
-        // 欢迎区的重试按钮可以再拉一次。
-        bootstrapPromise = null
-        loadFailed.value = true
+        // 只有这次 promise 仍是当前自举时才清引用、置 loadFailed（F14）：
+        // 账号切换后旧请求迟到失败，不得清掉新 bootstrap 的 promise、
+        // 也不得把 stale 失败态留在新会话上（否则与空态同现）。
+        if (bootstrapPromise === current) {
+          bootstrapPromise = null
+          loadFailed.value = true
+        }
         console.warn('[product-line] 拉取智能体列表失败，产线暂不可用:', error)
       })
+    bootstrapPromise = current
   }
 
   /** 自举失败后的手动重试：清掉已结束的 promise 再拉一次（ensureAgents 失败不缓存，必然发新请求）。 */
