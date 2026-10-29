@@ -195,8 +195,11 @@ func run(args []string) error {
 	for _, message := range allErrs {
 		printf("  失败详情: %s\n", message)
 	}
-	if len(failedIDs) > 0 {
-		return fmt.Errorf("有 %d 条会话未能删除，详见审计文件 %s", len(failedIDs), auditPath)
+	// F12：有组被跳过（删除前重读绑定失败）或有会话删除失败时必须非零退出，
+	// 否则脚本/操作者按退出码判断会误以为一次性清理已全部完成。dry-run 不走这里。
+	if len(groupErrs) > 0 || len(failedIDs) > 0 {
+		return fmt.Errorf("有 %d 组被跳过/失败、%d 条会话未能删除，详见审计文件 %s",
+			len(groupErrs), len(failedIDs), auditPath)
 	}
 	return nil
 }
