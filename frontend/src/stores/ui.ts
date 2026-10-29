@@ -27,6 +27,9 @@ export const useUIStore = defineStore('ui', {
     sidebarWidth: clampSidebarWidth(Number(localStorage.getItem('sidebar_width'))),
     sidebarResizing: false,
     sidebarBrowserStatus: localStorage.getItem('sidebar_browser_status') !== 'false',
+    // 客户移动端的侧栏抽屉开关。只存在于内存，不写 localStorage，
+    // 避免污染桌面端管理员的 sidebar_collapsed 偏好。
+    mobileDrawerOpen: false,
   }),
 
   getters: {
@@ -176,6 +179,19 @@ export const useUIStore = defineStore('ui', {
       if (options.persist !== false) {
         localStorage.setItem('sidebar_collapsed', 'false')
       }
+    },
+
+    // 移动端抽屉：纯内存状态，不做持久化。
+    openMobileDrawer() {
+      this.mobileDrawerOpen = true
+    },
+
+    closeMobileDrawer() {
+      this.mobileDrawerOpen = false
+    },
+
+    toggleMobileDrawer() {
+      this.mobileDrawerOpen = !this.mobileDrawerOpen
     }
   }
 })

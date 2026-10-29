@@ -8,6 +8,9 @@ import "tdesign-vue-next/dist/tdesign.css";
 import "@/assets/theme/theme.css";
 // 客户版主题必须在 theme.css 之后加载：同优先级下后加载的 html[data-customer] 规则才能覆盖绿色令牌。
 import "@/assets/theme/brand.css";
+// 客户版移动端公共样式（T01 骨架）：同样全部挂在 html[data-customer="true"] 下，
+// 并且页面规则再包一层 max-width: 1023px，管理端不会命中。
+import "@/assets/theme/customer-mobile.css";
 // 客户版容器动效（AC-27）。同样全部挂在 html[data-customer="true"] 下，
 // 放在 brand.css 之后只是保持「客户版样式成组、后加载」的阅读顺序。
 import "@/assets/theme/customer-motion.css";

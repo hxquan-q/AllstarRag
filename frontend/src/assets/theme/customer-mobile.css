@@ -1,0 +1,73 @@
+/* 客户版移动端跨组件样式（T01 搭骨架，T02–T05 在此基础上补）。
+ *
+ * 作用域约定（后续所有移动规则都照这个来）：
+ * - 每条规则都挂在 html[data-customer="true"] 下。管理员端不设置该属性，一条也命不中（C6）。
+ * - 页面内规则再统一包进 @media (max-width: 1023px)；只有安全区变量可以放在媒体查询外。
+ * - 这里只放跨组件的公共规则，组件自己的窄屏布局仍写在各组件的样式里。
+ * - 断点数值以 useResponsiveLayout.ts 的 MOBILE_LAYOUT_MAX_WIDTH(1024) 为准，
+ *   媒体查询写 1023px 是为了和「宽度 < 1024」严格等价。
+ */
+
+/* 安全区变量：桌面浏览器取不到值时为 0px，不影响现有布局。 */
+html[data-customer="true"] {
+    --app-safe-top: env(safe-area-inset-top, 0px);
+    --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --app-safe-left: env(safe-area-inset-left, 0px);
+    --app-safe-right: env(safe-area-inset-right, 0px);
+}
+
+@media (max-width: 1023px) {
+    /* 1. 解除桌面端写死的横向最小宽度。
+     *    高度改用动态视口变量：键盘弹出时整壳收缩，不依赖 position: fixed。 */
+    html[data-customer="true"] .main {
+        min-width: 0;
+        height: var(--app-visual-viewport-height, 100%);
+    }
+
+    html[data-customer="true"] .chat.customer-shell {
+        min-width: 0;
+    }
+
+    /* 2. 页面级横向溢出裁掉。只限定 #app 与 .main，
+     *    不给 body 加硬切，避免把真正溢出的内容藏起来。 */
+    html[data-customer="true"] #app,
+    html[data-customer="true"] .main {
+        overflow-x: clip;
+    }
+
+    /* 3. 抽屉打开时的滚动锁。class 由 T02 挂到 <html> 上。 */
+    html[data-customer="true"].customer-mobile-drawer-open,
+    html[data-customer="true"].customer-mobile-drawer-open body {
+        overflow: hidden;
+        overscroll-behavior: none;
+    }
+
+    /* 4. 输入框字号至少 16px：iOS 聚焦小于 16px 的输入框会自动放大页面。
+     *    --app-text-xl 就是 16px，用令牌避免样式守卫记一笔字面量。 */
+    html[data-customer="true"] textarea,
+    html[data-customer="true"] input,
+    html[data-customer="true"] .t-textarea__inner {
+        font-size: var(--app-text-xl);
+    }
+
+    /* 5. 主要按钮的触控目标至少 44×44。图标本身保持原尺寸，只把容器撑够。 */
+    html[data-customer="true"] .control-btn,
+    html[data-customer="true"] .send-btn,
+    html[data-customer="true"] .customer-topbar button,
+    html[data-customer="true"] .menu_item {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* 6. 消息里的表格/代码块在各自容器内横向滚动，不撑破页面。
+     *    聊天 markdown 的实际容器是 .markdown-content（botmsg.vue），按真实类名限定。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list table,
+    html[data-customer="true"] .chat.customer-shell .msg_list pre,
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content table,
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content pre {
+        overflow-x: auto;
+        max-width: 100%;
+    }
+
+    /* 7. 引用面板窄屏全屏的辅助规则由 T05 细化，本票先留位置。 */
+}
