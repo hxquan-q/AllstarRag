@@ -352,7 +352,7 @@ const isSectionSupported = (key: string): boolean => {
 }
 
 const canSeeSection = (key: string): boolean => {
-  // 客户视角只保留三个个人分区（常规/账号/记忆）；其余入口不渲染，deep-link 落到 role-denied 兜底。
+  // 客户视角只保留四个个人分区（常规/账号/记忆/产线）；其余入口不渲染，deep-link 落到 role-denied 兜底。
   // 这只是界面可见性，后端 RBAC 仍是最终权限（C4）。
   if (isCustomerViewer(authStore) && !isCustomerSettingsSection(key)) {
     return false
