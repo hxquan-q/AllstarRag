@@ -202,11 +202,16 @@ func TestApplyPlanDeletesViewerSessionsAndKeepsAdminSessions(t *testing.T) {
 		return err
 	}
 
-	groupErrs := applyPlan(ctx, currentPlan, deleteBatch)
+	// 生产同款删除前复核：真实重读绑定（此处与扫描一致，复核不会改变结果）。
+	reload := func(reloadCtx context.Context, key ownerKey) ([]string, error) {
+		return reloadOwnerBindings(reloadCtx, db, key)
+	}
+	groupErrs, attempted, rebindKept := applyPlan(ctx, currentPlan, reload, deleteBatch)
 	require.Empty(t, groupErrs)
+	require.Equal(t, 0, rebindKept, "绑定没变化时复核不应保留任何会话")
 	require.Equal(t, []string{"u1", "u2"}, seenOwners, "必须按 (tenant, owner) 分组，逐组换成属主身份")
 
-	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, currentPlan.Sessions)
+	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, attempted)
 	require.Empty(t, verifyErrs)
 	require.Empty(t, failedIDs)
 	require.Equal(t, []string{"s1", "s3", "s7"}, deletedIDs)
@@ -216,6 +221,82 @@ func TestApplyPlanDeletesViewerSessionsAndKeepsAdminSessions(t *testing.T) {
 		_, err := sessionRepo.GetByID(ctx, 1, id)
 		require.NoError(t, err, "会话 %s 不应被删除", id)
 	}
+}
+
+// F9：扫描与删除之间用户补绑了产线，对应会话必须在删除前复核时被保留；
+// 整组都被保留时该组直接跳过（deleteBatch 不再被调用）。
+func TestApplyPlanRechecksBindingsBeforeDelete(t *testing.T) {
+	db := newCleanupTestDB(t)
+	seedCleanupFixture(t, db)
+	ctx := context.Background()
+
+	data, err := loadScanData(ctx, db, 1)
+	require.NoError(t, err)
+	currentPlan := buildPlan(data)
+	require.Equal(t, []string{"s1", "s3", "s7"}, sessionIDs(currentPlan.Sessions))
+
+	// 模拟扫描后、删除前用户改了绑定：u1 绑上 agent-z（保住 s3），
+	// u2 在本租户从零绑定变为绑定 anything（保住 s7，整组清空）。
+	rebind := func(userID string, tenantKey string, ids []string) {
+		var user types.User
+		require.NoError(t, db.Where("id = ?", userID).First(&user).Error)
+		user.Preferences.BoundAgentIDsByTenant[tenantKey] = ids
+		require.NoError(t, db.Save(&user).Error)
+	}
+	rebind("u1", "1", []string{"agent-a", "agent-z"})
+	rebind("u2", "1", []string{"anything"})
+
+	sessionRepo := repository.NewSessionRepository(db)
+	var seenOwners []string
+	deleteBatch := func(groupCtx context.Context, ids []string) error {
+		tenantID := types.MustTenantIDFromContext(groupCtx)
+		ownerID := types.SessionOwnerIDFromContext(groupCtx)
+		seenOwners = append(seenOwners, ownerID)
+		_, err := sessionRepo.BatchDelete(groupCtx, tenantID, ownerID, ids)
+		return err
+	}
+
+	groupErrs, attempted, rebindKept := applyPlan(
+		ctx, currentPlan,
+		func(reloadCtx context.Context, key ownerKey) ([]string, error) {
+			return reloadOwnerBindings(reloadCtx, db, key)
+		},
+		deleteBatch)
+
+	require.Empty(t, groupErrs)
+	require.Equal(t, []string{"s1"}, sessionIDs(attempted), "只有 s1 仍满足清理条件")
+	require.Equal(t, 2, rebindKept, "s3 与 s7 因删除前复核被保留")
+	require.Equal(t, []string{"u1"}, seenOwners, "u2 的组过滤后为空，必须整组跳过")
+
+	// s3 / s7 仍在库里（被新绑定保住），s1 已删。
+	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, attempted)
+	require.Empty(t, verifyErrs)
+	require.Empty(t, failedIDs)
+	require.Equal(t, []string{"s1"}, deletedIDs)
+	for _, id := range []string{"s3", "s7"} {
+		_, err := sessionRepo.GetByID(ctx, 1, id)
+		require.NoError(t, err, "删除前补绑定的会话 %s 不应被删除", id)
+	}
+}
+
+// F10：--apply 必须显式传绝对路径 --audit-dir；dry-run 不受影响。
+func TestParseOptionsAuditDirGate(t *testing.T) {
+	_, err := parseOptions([]string{"--apply", "--tenant", "1", "--confirm", "0"})
+	require.ErrorContains(t, err, "--audit-dir", "apply 未显式传 audit-dir 必须拒绝")
+
+	_, err = parseOptions([]string{"--apply", "--tenant", "1", "--confirm", "0", "--audit-dir", "audits"})
+	require.ErrorContains(t, err, "绝对路径", "apply 传相对路径必须拒绝")
+
+	opts, err := parseOptions([]string{"--apply", "--tenant", "1", "--confirm", "0", "--audit-dir", "/var/audits/"})
+	require.NoError(t, err)
+	require.True(t, filepath.IsAbs(opts.auditDir))
+	require.Equal(t, "/var/audits", opts.auditDir, "保存 Clean 后的绝对路径")
+
+	// dry-run 不受影响：默认目录照常可用。
+	opts, err = parseOptions(nil)
+	require.NoError(t, err)
+	require.False(t, opts.apply)
+	require.Equal(t, ".", opts.auditDir)
 }
 
 func TestCheckConfirmRejectsMismatch(t *testing.T) {

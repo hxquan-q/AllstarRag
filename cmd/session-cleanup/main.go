@@ -46,19 +46,24 @@ func main() {
 // parseOptions 解析参数并做互斥/必填校验：
 //   - 不传 --apply 即 dry-run；
 //   - --apply 必须同时传 --tenant 与 --confirm；
-//   - --apply 与 --dry-run 不能同时出现。
+//   - --apply 与 --dry-run 不能同时出现；
+//   - --apply 必须显式传 --audit-dir 且为绝对路径（F10）：默认的相对路径 "."
+//     随工作目录漂移，换目录即绕过一次性审计闸。
 func parseOptions(args []string) (*options, error) {
 	fs := flag.NewFlagSet("session-cleanup", flag.ContinueOnError)
 	apply := fs.Bool("apply", false, "实际执行删除（必须同时给 --tenant 与 --confirm）")
 	dryRun := fs.Bool("dry-run", false, "只打印待删清单（默认行为）")
 	tenantID := fs.Uint64("tenant", 0, "工作区 id；--apply 必填，dry-run 省略表示扫全部工作区")
 	confirm := fs.Int("confirm", -1, "确认删除的会话总数，必须等于本次筛选结果")
-	auditDir := fs.String("audit-dir", ".", "审计文件目录")
+	auditDir := fs.String("audit-dir", ".", "审计文件目录（--apply 必须显式传绝对路径）")
 	drainWait := fs.Duration("drain-wait", 5*time.Second,
 		"删除后等待异步清理（聊天历史知识）的宽限时间；0 表示不等待")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
+	// 显式传入的 flag 集合：audit-dir 的默认值 "." 不能算显式传入（F10）。
+	explicit := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
 	if *apply && *dryRun {
 		return nil, errors.New("--apply 与 --dry-run 不能同时使用")
 	}
@@ -68,11 +73,19 @@ func parseOptions(args []string) (*options, error) {
 	if *apply && *confirm < 0 {
 		return nil, errors.New("--apply 必须传 --confirm <N>")
 	}
+	if *apply && !explicit["audit-dir"] {
+		return nil, errors.New(
+			"--apply 必须显式传 --audit-dir <绝对路径>（默认的 . 随工作目录漂移，会绕过一次性审计闸）")
+	}
+	if *apply && !filepath.IsAbs(*auditDir) {
+		return nil, errors.New(
+			"--apply 的 --audit-dir 必须是绝对路径（相对路径随工作目录漂移，会绕过一次性审计闸）")
+	}
 	return &options{
 		apply:     *apply,
 		tenantID:  *tenantID,
 		confirm:   *confirm,
-		auditDir:  *auditDir,
+		auditDir:  filepath.Clean(*auditDir),
 		drainWait: *drainWait,
 	}, nil
 }
@@ -85,6 +98,8 @@ func run(args []string) error {
 
 	// 安全闸之一：同工作区已有审计文件时拒绝执行（一次性迁移语义）。
 	if opts.apply {
+		// F10：打印解析后的审计目录绝对路径，操作者可核对这道闸钉在哪个目录上。
+		printf("审计目录: %s\n", opts.auditDir)
 		existing, err := findAuditFile(opts.auditDir, opts.tenantID)
 		if err != nil {
 			return fmt.Errorf("检查审计文件失败: %w", err)
@@ -134,9 +149,18 @@ func run(args []string) error {
 		return fmt.Errorf("创建审计占位文件失败（%s），拒绝执行: %w", auditPath, err)
 	}
 
-	printf("\n开始删除 %d 条会话（按 tenant + owner 分组）...\n", currentPlan.SessionCount())
-	groupErrs := applyPlan(ctx, currentPlan, sessionService.BatchDeleteSessions)
-	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, currentPlan.Sessions)
+	printf("\n开始删除 %d 条会话（按 tenant + owner 分组，删除前逐组复核绑定）...\n",
+		currentPlan.SessionCount())
+	groupErrs, attempted, rebindKept := applyPlan(
+		ctx, currentPlan,
+		func(reloadCtx context.Context, key ownerKey) ([]string, error) {
+			return reloadOwnerBindings(reloadCtx, db, key)
+		},
+		sessionService.BatchDeleteSessions)
+	if rebindKept > 0 {
+		printf("删除前复核：%d 条会话因绑定已更新而保留，不再删除\n", rebindKept)
+	}
+	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, attempted)
 	allErrs := append(append([]string{}, groupErrs...), verifyErrs...)
 
 	record := auditRecord{
@@ -150,6 +174,7 @@ func run(args []string) error {
 		ByUser:                  planByUser(currentPlan),
 		ZeroBindingUsers:        zeroBindingUserKeys(currentPlan),
 		ZeroBindingSessionCount: currentPlan.ZeroBindingSessionCount,
+		RebindKept:              rebindKept,
 		Errors:                  allErrs,
 	}
 	// 覆盖写回占位文件（同一路径）。写失败也保留占位文件，避免下次被当成首次执行。

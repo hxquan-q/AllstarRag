@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -252,26 +253,70 @@ func ownerContext(parent context.Context, tenantID uint64, userID string) contex
 // 单独抽出来便于在单测里替换。
 type batchDeleteFunc func(ctx context.Context, ids []string) error
 
+// bindingsLookup 重读某个 (工作区, 用户) 的最新绑定；生产实现读库（reloadOwnerBindings），
+// 单测可替换。单独抽类型是为了让 applyPlan 的删除前复核（F9）可测。
+type bindingsLookup func(ctx context.Context, key ownerKey) ([]string, error)
+
+// reloadOwnerBindings 删除前重读单个 (工作区, 用户) 的绑定（F9）。
+// 用户行不存在或从未绑定都按零绑定（nil）处理，与 loadBindings 同口径。
+func reloadOwnerBindings(ctx context.Context, db *gorm.DB, key ownerKey) ([]string, error) {
+	tenantKey := strconv.FormatUint(key.TenantID, 10)
+	var user types.User
+	if err := db.WithContext(ctx).Where("id = ?", key.UserID).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return user.Preferences.BoundAgentIDsByTenant[tenantKey], nil
+}
+
 // applyPlan 按 (tenant, owner) 分组，逐组构造属主上下文并调用删除函数。
-// 返回每组失败的描述；实际删掉多少条由调用方再查库核对。
-func applyPlan(ctx context.Context, p *plan, deleteBatch batchDeleteFunc) []string {
+// 每组在调删除前重读该用户该工作区的绑定、重新过滤一次 needsCleanup（F9）：
+// 扫描与删除之间用户新绑定的产线对应的会话不再被删；过滤后为空的组直接跳过。
+// 重读绑定失败的组也跳过（宁可少删不误删），错误记入 errs。
+// 返回：每组失败的描述、实际提交删除的会话（供删后核对与审计）、
+// 因重读绑定而被保留下来的会话数。
+func applyPlan(
+	ctx context.Context,
+	p *plan,
+	reload bindingsLookup,
+	deleteBatch batchDeleteFunc,
+) (errs []string, attempted []*types.Session, rebindKept int) {
 	keys := make([]ownerKey, 0, len(p.ByOwner))
 	for key := range p.ByOwner {
 		keys = append(keys, key)
 	}
 	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
 
-	var errs []string
 	for _, key := range keys {
-		ids := make([]string, 0, len(p.ByOwner[key]))
-		for _, session := range p.ByOwner[key] {
+		group := p.ByOwner[key]
+		bound, err := reload(ctx, key)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: 删除前重读绑定失败，跳过该组: %v", key.String(), err))
+			continue
+		}
+		kept := make([]*types.Session, 0, len(group))
+		for _, session := range group {
+			if needsCleanup(session, bound) {
+				kept = append(kept, session)
+			} else {
+				rebindKept++
+			}
+		}
+		if len(kept) == 0 {
+			continue
+		}
+		ids := make([]string, 0, len(kept))
+		for _, session := range kept {
 			ids = append(ids, session.ID)
 		}
 		if err := deleteBatch(ownerContext(ctx, key.TenantID, key.UserID), ids); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", key.String(), err))
 		}
+		attempted = append(attempted, kept...)
 	}
-	return errs
+	return errs, attempted, rebindKept
 }
 
 // verifyDeletion 用「会话行是否还存在」核对真实删除数。
@@ -321,7 +366,9 @@ type auditRecord struct {
 	ByUser                  map[string]int `json:"by_user"`
 	ZeroBindingUsers        []string       `json:"zero_binding_users"`
 	ZeroBindingSessionCount int            `json:"zero_binding_session_count"`
-	Errors                  []string       `json:"errors,omitempty"`
+	// RebindKept 是删除前复核（F9）时因绑定已更新而被保留下来的会话数。
+	RebindKept int      `json:"rebind_kept,omitempty"`
+	Errors     []string `json:"errors,omitempty"`
 }
 
 // auditFilePattern 是「同一工作区已有审计文件」的判定模式。
