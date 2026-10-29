@@ -1096,6 +1096,36 @@ onMounted(async () => {
   }
 }
 
+/* CP3 F5 / OQ2：769–1023（iPad 竖屏）也改成单列，表单在上、品牌区在下；
+   输入框 16px 规则从 360 上移到这里，iOS 聚焦不再放大页面。
+   768/480 两段既有规则原文保留，窄屏继续按原样覆盖。 */
+@media (max-width: 1023px) {
+  .login-layout {
+    flex-direction: column;
+    padding-top: 64px;
+    box-sizing: border-box;
+  }
+
+  .showcase-section {
+    flex: 0 0 auto;
+    padding: 40px 24px;
+  }
+
+  .showcase-content {
+    max-width: 100%;
+  }
+
+  .form-section {
+    order: -1;
+    flex: 0 0 auto;
+    padding: 24px;
+  }
+
+  .form-content :deep(.t-input .t-input__inner) {
+    font-size: var(--app-text-xl);
+  }
+}
+
 @media (max-width: 768px) {
   .login-layout {
     flex-direction: column;

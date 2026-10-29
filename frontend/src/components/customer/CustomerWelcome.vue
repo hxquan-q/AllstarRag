@@ -346,7 +346,9 @@ function ask(question: string): void {
   }
 
   /* 示例问题/折叠/去绑定按钮：可换行，触控目标 ≥44px。 */
+  /* CP3 F7：加载失败态的「重试」也复用 sample-chip，一并纳入 44px 规则。 */
   .customer-welcome__samples .sample-chip,
+  .customer-welcome__empty .sample-chip,
   .customer-welcome__toggle,
   .customer-welcome__bind-btn {
     max-width: 100%;

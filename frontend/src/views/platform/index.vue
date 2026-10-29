@@ -1,5 +1,5 @@
 <template>
-    <div class="main" ref="dropzone" :class="{ 'main--customer-mobile': isCustomerMobile }"
+    <div class="main" ref="dropzone"
         :style="{ '--sidebar-width': `${uiStore.sidebarDisplayWidth}px` }">
         <Menu></Menu>
         <!-- 客户版页面切换（AC-27）用一次性的淡入 keyframes 挂在路由出口上：

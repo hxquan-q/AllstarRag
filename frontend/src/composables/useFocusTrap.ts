@@ -114,6 +114,9 @@ export function useFocusTrap(
     if (typeof document !== 'undefined') {
         onScopeDispose(() => {
             document.removeEventListener('keydown', onKeydown, true)
+            // 卸载时复位内部状态，避免复用实例/热更新时残留打开标记与旧焦点（CP3 F10）。
+            isActive = false
+            lastFocused = null
         })
     }
 }

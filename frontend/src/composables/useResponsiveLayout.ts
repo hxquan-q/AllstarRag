@@ -20,6 +20,9 @@ const FONT_SCALE_EVENT = 'weknora:font-scale-change'
 /** 客户移动态写到 <html> 上的动态视口高度变量。 */
 const VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height'
 
+/** 当前存活的 hook 实例数；归零时把写进 <html> 的高度变量清掉（CP3 F10）。 */
+let activeInstances = 0
+
 /** 把无效 zoom（0、NaN、负数）按 1 处理，避免除零。 */
 function normalizeZoom(zoom: number): number {
   return Number.isFinite(zoom) && zoom > 0 ? zoom : 1
@@ -62,6 +65,8 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
     return { isMobileLayout, viewportWidth, viewportHeight, isCoarsePointer }
   }
 
+  activeInstances += 1
+
   const root = document.documentElement
   const visualViewport = window.visualViewport ?? null
   let widthQuery: MediaQueryList | null = null
@@ -97,6 +102,10 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
     measure()
   }
 
+  function onCoarsePointerChange(event: MediaQueryListEvent) {
+    isCoarsePointer.value = event.matches
+  }
+
   if (typeof window.matchMedia === 'function') {
     widthQuery = window.matchMedia(MOBILE_LAYOUT_QUERY)
     widthQuery.addEventListener('change', onViewportChange)
@@ -106,7 +115,8 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
   if (typeof window.matchMedia === 'function') {
     coarseQuery = window.matchMedia('(pointer: coarse)')
     isCoarsePointer.value = coarseQuery.matches
-    coarseQuery.addEventListener('change', onViewportChange)
+    // 触屏/鼠标切换时同步标志（当前无消费者，但状态必须跟着设备变，CP3 F9）。
+    coarseQuery.addEventListener('change', onCoarsePointerChange)
   }
 
   // data-customer 可能在组件挂载后才切换（登录/退出），变了要重新决定是否写高度变量。
@@ -129,10 +139,15 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
       widthQuery = null
     }
     if (coarseQuery) {
-      coarseQuery.removeEventListener('change', onViewportChange)
+      coarseQuery.removeEventListener('change', onCoarsePointerChange)
       coarseQuery = null
     }
     customerObserver.disconnect()
+    // 最后一个实例卸载后清掉高度变量，避免残留值影响后续页面（CP3 F10）。
+    activeInstances = Math.max(0, activeInstances - 1)
+    if (activeInstances === 0) {
+      root.style.removeProperty(VIEWPORT_HEIGHT_VAR)
+    }
   }
 
   // 只有确实处在组件/effect 作用域里时才登记清理，避免测试里单独调用时报错。

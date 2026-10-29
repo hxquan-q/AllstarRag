@@ -1423,6 +1423,9 @@ const getIcon = (path: string) => {
 }
 getIcon(typeof route.name === 'string' ? route.name as string : (route.name ? String(route.name) : ''))
 const handleMenuClick = async (path: string) => {
+    // 移动抽屉：点菜单先关抽屉。同路径点击不会触发路由变化，
+    // 只靠路由 watch 关闭会残留遮罩（CP3 F12）。
+    if (mobileDrawer.value) uiStore.closeMobileDrawer()
     if (path === 'knowledge-bases') {
         // 知识库菜单项：如果在知识库内部，跳转到当前知识库文件页；否则跳转到知识库列表
         const kbId = await getCurrentKbId()
@@ -1460,6 +1463,8 @@ const getCurrentKbId = async (): Promise<string | null> => {
 
 const gotopage = async (path: string) => {
     pathPrefix.value = path;
+    // 移动抽屉里的会话/菜单导航同样先关抽屉，同路径点击也能收起（CP3 F12）。
+    if (mobileDrawer.value) uiStore.closeMobileDrawer()
     // 处理退出登录
     if (path === 'logout') {
         try {

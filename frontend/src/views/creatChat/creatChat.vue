@@ -512,17 +512,13 @@ async function openProjectDir() {
     }
 }
 
-/* —— T03：客户移动态窄屏；输入区与底部免责声明不重叠。 —— */
+/* —— T03 / CP3 F15：客户移动态窄屏；免责声明按内容高度占位。 —— */
 @media (max-width: 1023px) {
-    .dialogue-wrap.customer-shell .dialogue-answers {
-        // 免责声明是绝对定位，给底部留出它的高度 + 安全区。
-        padding-bottom: calc(40px + env(safe-area-inset-bottom));
-    }
-
+    // 免责声明不再绝对定位：它作为 flex 列的最后一个子项排在输入区下方，
+    // 由内容决定高度；320px 折 2–3 行时不会和输入区重叠（CP3 F15）。
     .dialogue-wrap.customer-shell .customer-disclaimer {
-        left: 12px;
-        right: 12px;
-        bottom: max(6px, env(safe-area-inset-bottom));
+        position: static;
+        padding: 6px max(12px, var(--app-safe-left)) max(6px, var(--app-safe-bottom)) max(12px, var(--app-safe-right));
         line-height: 1.4;
         white-space: normal;
         overflow-wrap: anywhere;

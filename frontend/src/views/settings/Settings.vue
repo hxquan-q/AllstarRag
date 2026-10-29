@@ -10,7 +10,9 @@
             'active': currentSection === item.key,
             'has-submenu': item.children && item.children.length > 0,
             'expanded': expandedMenus.includes(item.key)
-          }]" @click="handleNavClick(item)">
+          }]" :role="mobileLayout ? 'button' : undefined" :tabindex="mobileLayout ? 0 : undefined"
+            :aria-current="mobileLayout && currentSection === item.key ? 'page' : undefined"
+            @click="handleNavClick(item)" @keydown="handleNavKeydown(item, $event)">
             <!-- 网络搜索使用自定义 SVG 图标 -->
             <svg v-if="item.key === 'websearch'" width="17" height="17" viewBox="0 0 18 18" fill="none"
               xmlns="http://www.w3.org/2000/svg" class="nav-icon">
@@ -504,6 +506,15 @@ const handleNavClick = (item: any) => {
   if (mobileLayout.value) mobileShowNav.value = false
 }
 
+// 移动态一级导航是 div，需要 Enter / Space 等价于点击（AC-14）。
+// 桌面态不渲染 role/tabindex，函数在这里再兜一层，管理端零影响（C6）。
+const handleNavKeydown = (item: NavItem, event: KeyboardEvent) => {
+  if (!mobileLayout.value) return
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  handleNavClick(item)
+}
+
 // 子菜单点击处理
 const handleSubMenuClick = (parentKey: string, childKey: string) => {
   currentSection.value = parentKey
@@ -523,17 +534,19 @@ const visible = computed(() => {
   return route.path === '/platform/settings' || uiStore.showSettingsModal
 })
 
-// 移动态打开设置时决定先看哪一级：
-// - 站内入口（uiStore.showSettingsModal=true）先看分区列表；
-// - 外部直达 /platform/settings?section=x 直接进该分区。
-watch(visible, (isVisible) => {
-  if (!isVisible) return
-  const directToSection = route.path === '/platform/settings'
-    && !uiStore.showSettingsModal
-    && typeof route.query.section === 'string'
-    && route.query.section !== ''
-  mobileShowNav.value = !directToSection
-}, { immediate: true })
+// 移动态初始层级以 URL 的 ?section= 为主判据，并随它变化（CP3 F2）：
+// - 有 section（外部直达、用户菜单快捷入口带分区）→ 直接进分区内容；
+// - 没有 section（只打开设置）→ 先看分区列表。
+// 返回列表只改 mobileShowNav、不动 query，所以不会被这个 watch 反向拉回。
+watch(
+  () => [visible.value, route.path, route.query.section] as const,
+  ([isVisible, path, section]) => {
+    if (!isVisible || path !== '/platform/settings') return
+    if (!mobileLayout.value) return
+    mobileShowNav.value = !(typeof section === 'string' && section !== '')
+  },
+  { immediate: true },
+)
 
 useAssistantPageContext(() => {
   if (!visible.value) return null
@@ -614,6 +627,9 @@ watch(
   ([isVisible, path, section, capabilitiesLoaded]) => {
     if (!isVisible || path !== '/platform/settings') return
     if (typeof section !== 'string') {
+      // 客户移动态没有 ?section= 时停在分区列表；不要自动补 section，
+      // 否则列表会被立刻拉进默认分区内容（CP3 F2）。
+      if (mobileLayout.value) return
       syncSettingsRoute(currentSection.value || 'general')
       return
     }

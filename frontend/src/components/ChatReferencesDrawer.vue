@@ -255,8 +255,9 @@ const panelWidth = computed(() => {
 // 客户移动态由 chat 页显式传 overlayBreakpoint：铺满视口，不沿用桌面拖拽宽度偏好。
 // 管理端默认 <960 的覆盖层与 embed 不传该 prop，保持原有宽度逻辑（C6）。
 const fillViewport = computed(() => useOverlay.value && props.overlayBreakpoint !== undefined)
+// 全屏宽度用 100% 而不是 100vw：根字号 zoom 会再把 vw 乘一次，导致面板超出视口（CP3 F3）。
 const panelStyle = computed(() => ({
-  width: fillViewport.value ? '100vw' : `${panelWidth.value}px`,
+  width: fillViewport.value ? '100%' : `${panelWidth.value}px`,
 }))
 
 watchEffect(() => {

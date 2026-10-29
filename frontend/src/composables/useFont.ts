@@ -209,8 +209,8 @@ const lastApplied: { sans: string; mono: string; scale: string } = {
   scale: '',
 }
 
-// 根字号（zoom）真正变化后通知布局层：useResponsiveLayout 要靠它重建按缩放
-// 换算过的媒体查询，否则字号放大后断点会误判。
+// 根字号（zoom）真正变化后通知布局层：字号变化只重测动态视口高度；
+// 断点固定 1023px，不随 zoom 重建媒体查询。
 const FONT_SCALE_EVENT = 'weknora:font-scale-change'
 
 function applyFont() {
@@ -241,7 +241,7 @@ function applyFont() {
     // in the standard CSSStyleDeclaration type.
     root.style.setProperty('zoom', scale)
     lastApplied.scale = scale
-    // 通知布局层重建媒体查询；没有 window 的测试环境直接跳过。
+    // 通知布局层重测动态视口高度；断点固定 1023px，不随 zoom 重建。
     if (typeof window !== 'undefined' && typeof CustomEvent === 'function') {
       window.dispatchEvent(new CustomEvent(FONT_SCALE_EVENT))
     }
