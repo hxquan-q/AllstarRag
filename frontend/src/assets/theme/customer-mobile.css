@@ -417,8 +417,11 @@ html[data-customer="true"] {
 
     /* 弹层挂在 body 上，用客户移动作用域限制最大宽度，避免超出视口
        （产线失效绑定清理确认框、账号改密 popup、各类下拉）。 */
+    /* F18：不用 100vw 做限宽。根字号 zoom 会把 100vw 再乘一次（zoom=1.125
+       时 100vw 渲染成 112.5% 视口），改用 JS 写入的 --app-viewport-width；
+       它已经除过 zoom，渲染后正好等于视口宽。未写入时回落到 100vw。 */
     html[data-customer="true"] .t-dialog {
-        max-width: calc(100vw - 32px);
+        max-width: calc(var(--app-viewport-width, 100vw) - 32px);
     }
 
     html[data-customer="true"] .t-dialog__body {
@@ -426,7 +429,7 @@ html[data-customer="true"] {
     }
 
     html[data-customer="true"] .t-popup__content {
-        max-width: calc(100vw - 24px);
+        max-width: calc(var(--app-viewport-width, 100vw) - 24px);
     }
 }
 
@@ -491,7 +494,7 @@ html[data-customer="true"] {
     }
 
     html[data-customer="true"] .login-layout .language-dropdown {
-        max-width: calc(100vw - 24px);
+        max-width: calc(var(--app-viewport-width, 100vw) - 24px);
     }
 }
 
@@ -501,8 +504,9 @@ html[data-customer="true"] {
  */
 @media (max-width: 1023px) {
     html[data-customer="true"] .aside_box.aside_box--mobile-drawer .user-dropdown {
-        max-width: calc(100vw - 24px);
-        max-height: calc(100dvh - 96px);
+        max-width: calc(var(--app-viewport-width, 100vw) - 24px);
+        /* F18：高度同理避开 100dvh 的 zoom 二次放大，用已换算好的动态视口高度。 */
+        max-height: calc(var(--app-visual-viewport-height, 100dvh) - 96px);
         margin-bottom: calc(6px + var(--app-safe-bottom));
         overflow-y: auto;
         overscroll-behavior: contain;

@@ -20,6 +20,13 @@ const FONT_SCALE_EVENT = 'weknora:font-scale-change'
 /** 客户移动态写到 <html> 上的动态视口高度变量。 */
 const VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height'
 
+/**
+ * 客户移动态写到 <html> 上的视口宽度变量（CP3 F18）。
+ * window.innerWidth 是视觉像素，写成 CSS 长度前要除以 root zoom；
+ * zoom 渲染时再乘回来，弹层拿到的就是真实视口宽。
+ */
+const VIEWPORT_WIDTH_VAR = '--app-viewport-width'
+
 /** 当前存活的 hook 实例数；归零时把写进 <html> 的高度变量清掉（CP3 F10）。 */
 let activeInstances = 0
 
@@ -51,8 +58,8 @@ export interface ResponsiveLayoutState {
  * - viewportHeight：visualViewport 高度按根字号 zoom 换算成 CSS px，键盘弹出时跟着变；
  * - isCoarsePointer：触屏设备（可选判断，不参与布局）。
  *
- * 客户移动态会把实时高度写到 <html> 的 --app-visual-viewport-height，
- * 管理员态一律移除，避免管理端样式受到影响。
+ * 客户移动态会把实时视口宽高写到 <html> 的 --app-viewport-width /
+ * --app-visual-viewport-height，管理员态一律移除，避免管理端样式受到影响。
  */
 export function useResponsiveLayout(): ResponsiveLayoutState {
   const isMobileLayout = ref(false)
@@ -65,20 +72,34 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
     return { isMobileLayout, viewportWidth, viewportHeight, isCoarsePointer }
   }
 
-  activeInstances += 1
+  // 无 scope 的单测调用不登记清理，因此也不计入实例数；自增与减量必须成对（CP3 F19）。
+  const tracksInstance = !!getCurrentScope()
+  if (tracksInstance) activeInstances += 1
 
   const root = document.documentElement
   const visualViewport = window.visualViewport ?? null
   let widthQuery: MediaQueryList | null = null
   let coarseQuery: MediaQueryList | null = null
 
-  /** 客户移动态写高度变量；其他情况（含管理端）移除。 */
-  function syncViewportHeightVar() {
+  /** 客户移动态写视口变量；其他情况（含管理端）移除。 */
+  function syncViewportVars() {
     if (!root) return
     const isCustomer = root.dataset.customer === 'true'
-    if (isMobileLayout.value && isCustomer && viewportHeight.value > 0) {
-      root.style.setProperty(VIEWPORT_HEIGHT_VAR, `${Math.round(viewportHeight.value)}px`)
+    if (isMobileLayout.value && isCustomer) {
+      if (viewportWidth.value > 0) {
+        // 视觉像素 → CSS px：除以 zoom，避免弹层在放大字号时溢出视口。
+        const zoom = normalizeZoom(getRootZoom())
+        root.style.setProperty(VIEWPORT_WIDTH_VAR, `${Math.round(viewportWidth.value / zoom)}px`)
+      } else {
+        root.style.removeProperty(VIEWPORT_WIDTH_VAR)
+      }
+      if (viewportHeight.value > 0) {
+        root.style.setProperty(VIEWPORT_HEIGHT_VAR, `${Math.round(viewportHeight.value)}px`)
+      } else {
+        root.style.removeProperty(VIEWPORT_HEIGHT_VAR)
+      }
     } else {
+      root.style.removeProperty(VIEWPORT_WIDTH_VAR)
       root.style.removeProperty(VIEWPORT_HEIGHT_VAR)
     }
   }
@@ -95,7 +116,7 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
     isMobileLayout.value = widthQuery
       ? widthQuery.matches
       : resolveIsMobileLayout(window.innerWidth)
-    syncViewportHeightVar()
+    syncViewportVars()
   }
 
   function onViewportChange() {
@@ -119,8 +140,8 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
     coarseQuery.addEventListener('change', onCoarsePointerChange)
   }
 
-  // data-customer 可能在组件挂载后才切换（登录/退出），变了要重新决定是否写高度变量。
-  const customerObserver = new MutationObserver(syncViewportHeightVar)
+  // data-customer 可能在组件挂载后才切换（登录/退出），变了要重新决定是否写视口变量。
+  const customerObserver = new MutationObserver(syncViewportVars)
   customerObserver.observe(root, { attributes: true, attributeFilter: ['data-customer'] })
 
   window.addEventListener('resize', onViewportChange)
@@ -143,15 +164,19 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
       coarseQuery = null
     }
     customerObserver.disconnect()
-    // 最后一个实例卸载后清掉高度变量，避免残留值影响后续页面（CP3 F10）。
-    activeInstances = Math.max(0, activeInstances - 1)
-    if (activeInstances === 0) {
-      root.style.removeProperty(VIEWPORT_HEIGHT_VAR)
+    // 最后一个实例卸载后清掉视口变量，避免残留值影响后续页面（CP3 F10/F18）。
+    // 无 scope 的调用没有登记清理，也不参与计数，保证自增与减量成对（CP3 F19）。
+    if (tracksInstance) {
+      activeInstances = Math.max(0, activeInstances - 1)
+      if (activeInstances === 0) {
+        root.style.removeProperty(VIEWPORT_WIDTH_VAR)
+        root.style.removeProperty(VIEWPORT_HEIGHT_VAR)
+      }
     }
   }
 
   // 只有确实处在组件/effect 作用域里时才登记清理，避免测试里单独调用时报错。
-  if (getCurrentScope()) onScopeDispose(cleanup)
+  if (tracksInstance) onScopeDispose(cleanup)
 
   return { isMobileLayout, viewportWidth, viewportHeight, isCoarsePointer }
 }

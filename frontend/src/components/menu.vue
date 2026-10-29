@@ -532,6 +532,9 @@ const toggleSidebarFromKeyboard = () => {
 };
 
 function handleLogoClick() {
+    // F17：抽屉里点 logo 经常还落在当前页（如 /platform/creatChat），路由不变
+    // 就不会触发抽屉关闭；同路径点击也要收起抽屉、遮罩和滚动锁。
+    if (mobileDrawer.value) uiStore.closeMobileDrawer();
     router.push(defaultLandingPath(authStore, '/platform/knowledge-bases'));
 }
 
