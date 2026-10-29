@@ -504,13 +504,25 @@ test('CP3 F6: customer mobile topbar / message list / input respect horizontal s
   }
 })
 
-test('CP3 F7: welcome empty-state retry chip joins the 44px touch target rule', () => {
+test('CP3 F7: welcome empty-state retry chip joins the 44px rule inside <=1023 media block', () => {
   const welcomeStyle = styleBlock(welcome)
   const touchRule = parseCssBlocks(welcomeStyle).find(
     (block) => !block.isAtRule && block.prelude.includes('.customer-welcome__empty .sample-chip'),
   )
   assert.ok(touchRule, 'empty-state retry chip rule not found')
+  // F20：44px 规则必须落在 @media (max-width: 1023px) 内，而不是写成全局规则。
+  assert.equal(
+    touchRule.parentPrelude,
+    '@media (max-width: 1023px)',
+    'retry chip 44px rule must live inside the mobile media query',
+  )
   assert.match(touchRule.body, /min-height: 44px;/)
+
+  const welcome1023 = mediaBlock(welcomeStyle, 'max-width: 1023px')
+  const scopedRule = ruleBlocks(welcome1023, '.customer-welcome__empty .sample-chip').find(
+    (block) => block.body.includes('min-height: 44px;'),
+  )
+  assert.ok(scopedRule, 'retry chip 44px rule missing from the 1023px block')
 })
 
 test('CP3 F8: useFont comments no longer instruct rebuilding media queries', () => {
@@ -528,10 +540,11 @@ test('CP3 F9/F10: coarse pointer sync, viewport var cleanup and focus-trap reset
   )
   assert.match(responsive, /coarseQuery\.addEventListener\('change', onCoarsePointerChange\)/)
   assert.match(responsive, /coarseQuery\.removeEventListener\('change', onCoarsePointerChange\)/)
-  assert.match(responsive, /activeInstances = Math\.max\(0, activeInstances - 1\)/)
+
+  // F20 同步（F19 新契约）：减量包在 tracksInstance 内，归零时同时清掉宽度与高度变量。
   assert.match(
     responsive,
-    /if \(activeInstances === 0\) \{\s*root\.style\.removeProperty\(VIEWPORT_HEIGHT_VAR\)\s*\}/,
+    /if \(tracksInstance\) \{\s*activeInstances = Math\.max\(0, activeInstances - 1\)\s*if \(activeInstances === 0\) \{\s*root\.style\.removeProperty\(VIEWPORT_WIDTH_VAR\)\s*root\.style\.removeProperty\(VIEWPORT_HEIGHT_VAR\)\s*\}\s*\}/,
   )
 
   // 焦点陷阱卸载时复位内部状态，避免复用实例残留。
@@ -589,6 +602,67 @@ test('CP3 F11/F12/F14/F15: dead class gone, drawer closes on same-route nav, she
   )
   assert.doesNotMatch(creatChat1023, /position: absolute/)
   assert.doesNotMatch(creatChatStyle, /padding-bottom: calc\(40px/)
+})
+
+// ---------------------------------------------------------------------------
+// 8b. CP3 R1 low（F17-F20）：logo 同路径关抽屉、viewport 变量弹层、实例计数
+// ---------------------------------------------------------------------------
+
+test('CP3 F17: drawer logo click closes the drawer before routing (same-path safe)', () => {
+  const logoClick = menu.slice(
+    menu.indexOf('function handleLogoClick()'),
+    menu.indexOf('function handleLogoError'),
+  )
+  assert.ok(logoClick.length > 0, 'handleLogoClick not found')
+  assert.match(logoClick, /if \(mobileDrawer\.value\) uiStore\.closeMobileDrawer\(\);/)
+  const closeAt = logoClick.indexOf('uiStore.closeMobileDrawer()')
+  const pushAt = logoClick.indexOf('router.push(')
+  assert.ok(closeAt >= 0 && pushAt > closeAt, 'closeMobileDrawer must run before router.push')
+})
+
+test('CP3 F18: viewport-width variable feeds the body-teleported overlays', () => {
+  // JS 写入：innerWidth / zoom 的 CSS px。
+  assert.match(responsive, /const VIEWPORT_WIDTH_VAR = '--app-viewport-width'/)
+  assert.match(
+    responsive,
+    /root\.style\.setProperty\(VIEWPORT_WIDTH_VAR, `\$\{Math\.round\(viewportWidth\.value \/ zoom\)\}px`\)/,
+  )
+
+  // 四个弹层/下拉：宽度改用 var(--app-viewport-width)，不再直接写 100vw/100dvh。
+  const targets = [
+    ['.t-dialog', 't-dialog'],
+    ['.t-popup__content', 't-popup content'],
+    ['.language-dropdown', 'language dropdown'],
+    ['.user-dropdown', 'user dropdown'],
+  ]
+  for (const [selector, label] of targets) {
+    const block = ruleBlocks(mobileCss, selector).find((item) =>
+      item.body.includes('var(--app-viewport-width'),
+    )
+    assert.ok(block, `${label} must size with var(--app-viewport-width)`)
+    assert.doesNotMatch(
+      block.body,
+      /(?:^|[;{\s])(?:max-width|width|max-height|height)\s*:\s*100(?:vw|dvh|dvw)\b/,
+      `${label} must not use a raw viewport unit for sizing`,
+    )
+  }
+
+  // 用户下拉高度改用已换算的动态视口高度变量。
+  const userDropdown = ruleBlocks(mobileCss, '.user-dropdown').find((item) =>
+    item.body.includes('max-height'),
+  )
+  assert.ok(userDropdown, 'user dropdown height rule not found')
+  assert.match(userDropdown.body, /max-height: calc\(var\(--app-visual-viewport-height, 100dvh\) - 96px\);/)
+})
+
+test('CP3 F19: activeInstances increment/decrement are paired under tracksInstance', () => {
+  assert.match(responsive, /const tracksInstance = !!getCurrentScope\(\)/)
+  // 自增只在 tracksInstance 时发生，且没有无条件自增残留。
+  assert.match(responsive, /if \(tracksInstance\) activeInstances \+= 1/)
+  assert.doesNotMatch(responsive, /\n\s*activeInstances \+= 1/)
+  // onScopeDispose(cleanup) 只在 tracksInstance 时登记，且只登记一次。
+  assert.match(responsive, /if \(tracksInstance\) onScopeDispose\(cleanup\)/)
+  assert.equal((responsive.match(/onScopeDispose\(cleanup\)/g) || []).length, 1)
 })
 
 // ---------------------------------------------------------------------------
