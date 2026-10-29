@@ -154,10 +154,16 @@ test('F6 agents fetch failure surfaces a retry in the welcome area (AC-10)', () 
 test('F6 welcome loadFailed / retry i18n keys exist in all six locales', () => {
   // 键位对齐由 npm run check-i18n 兜底；这里直接钉住六个语言文件里
   // brand.welcome 块（以 chooseAgent 为锚，避开其他同名 welcome 块）都补齐了两个新 key。
+  // 块边界用索引定位而不是 [^}]*：文案值里就有字面量 }（如「欢迎使用{name}」）。
   for (const { lang, source } of locales) {
-    const block = source.match(/welcome: \{[^}]*chooseAgent[^}]*\}/)
-    assert.ok(block, `brand.welcome block (anchored on chooseAgent) not found in ${lang}`)
-    assert.match(block[0], /loadFailed["']?\s*:/, `${lang} must define brand.welcome.loadFailed`)
-    assert.match(block[0], /retry["']?\s*:/, `${lang} must define brand.welcome.retry`)
+    const anchor = source.indexOf('chooseAgent')
+    assert.ok(anchor >= 0, `${lang}: brand.welcome.chooseAgent not found`)
+    const blockStart = source.lastIndexOf('welcome: {', anchor)
+    // welcome 是扁平块：闭合处是行首 4 空格缩进的 },
+    const blockEnd = source.indexOf('\n    },', anchor)
+    assert.ok(blockStart >= 0 && blockEnd > anchor, `${lang}: brand.welcome block not found`)
+    const block = source.slice(blockStart, blockEnd)
+    assert.match(block, /loadFailed["']?\s*:/, `${lang} must define brand.welcome.loadFailed`)
+    assert.match(block, /retry["']?\s*:/, `${lang} must define brand.welcome.retry`)
   }
 })
