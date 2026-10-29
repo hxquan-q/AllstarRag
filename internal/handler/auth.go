@@ -753,8 +753,8 @@ func (h *AuthHandler) UpdateMyPreferences(c *gin.Context) {
 			_ = c.Error(err)
 			return
 		}
-		// 只写当前工作区一个键（F3）：其他工作区的键由 service 按事务内重读的最新
-		// 数据逐键合并，handler 不再回写整张 map —— 请求入口的 user 快照可能已过期，
+		// 只写当前工作区一个键（F3）：其他工作区的键由 service 按重读的最新
+		// user 行逐键合并，handler 不再回写整张 map —— 请求入口的 user 快照可能已过期，
 		// 整表回写会把另一台设备刚保存的其他工作区绑定静默覆盖掉。
 		// 空数组也照常放键，「删除该工作区键」由 service 的逐键合并完成。
 		tenantKey := strconv.FormatUint(tenantID, 10)
