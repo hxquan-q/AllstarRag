@@ -1099,6 +1099,8 @@ onMounted(async () => {
 @media (max-width: 768px) {
   .login-layout {
     flex-direction: column;
+    padding-top: 64px;
+    box-sizing: border-box;
   }
 
   .knowledge-node:nth-of-type(n + 9) {
@@ -1137,6 +1139,7 @@ onMounted(async () => {
   }
 
   .form-section {
+    order: -1;
     flex: 0 0 auto;
     padding: 24px;
   }
@@ -1197,6 +1200,10 @@ onMounted(async () => {
     right: 14px;
     gap: 6px;
     flex-wrap: wrap;
+
+    .link-text {
+      display: none;
+    }
 
     .header-link {
       padding: 7px 10px;
