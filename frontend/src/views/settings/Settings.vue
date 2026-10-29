@@ -1,5 +1,6 @@
 <template>
   <SettingsModalShell :visible="visible" :title="$t('general.settings')" overlay-class="all-settings-overlay"
+    :mobile-layout="mobileLayout" :mobile-show-nav="mobileShowNav" @mobile-back="mobileShowNav = true"
     @close="modalShell.requestClose">
     <template #nav>
       <template v-for="group in navGroups" :key="group.key">
@@ -219,6 +220,7 @@ import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useModalShell } from '@/composables/useModalShell'
+import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 import { useAssistantPageContext } from '@/composables/useAssistantPageContext'
 import SettingsModalShell from '@/components/SettingsModalShell.vue'
 import ResourceIcon from '@/components/icons/ResourceIcon.vue'
@@ -280,6 +282,11 @@ const { t, te } = useI18n()
 // 客户视角（viewer 且不可跨空间）在「常规」里渲染精简版；管理员分支保持原组件。
 // 只决定渲染哪套界面，权限仍以后端 RBAC 为准（C4）。
 const isCustomerViewerActive = computed(() => isCustomerViewer(authStore))
+const { isMobileLayout } = useResponsiveLayout()
+// 客户 + 移动视口才切全屏二级导航；管理端与非移动视口不进入该分支（C6）。
+const mobileLayout = computed(() => isCustomerViewerActive.value && isMobileLayout.value)
+// 移动态一级导航 / 二级内容切换：true 显示分区列表，false 显示当前分区。
+const mobileShowNav = ref(true)
 const hostSkills = computed(() => hostSkillsOnly(
   deploymentCapabilities.isSupported('settings.sandbox.remote'),
   deploymentCapabilities.isSupported('settings.sandbox.host'),
@@ -493,6 +500,8 @@ const handleNavClick = (item: any) => {
   // 否则从其它 section 点进来时 query 不变，路由监听会把内容拉回去。
   currentSection.value = item.key
   syncSettingsRoute(item.key)
+  // 移动态点一级导航后进入该分区；返回按钮由壳发出 mobile-back 再回到列表。
+  if (mobileLayout.value) mobileShowNav.value = false
 }
 
 // 子菜单点击处理
@@ -513,6 +522,18 @@ const handleSubMenuClick = (parentKey: string, childKey: string) => {
 const visible = computed(() => {
   return route.path === '/platform/settings' || uiStore.showSettingsModal
 })
+
+// 移动态打开设置时决定先看哪一级：
+// - 站内入口（uiStore.showSettingsModal=true）先看分区列表；
+// - 外部直达 /platform/settings?section=x 直接进该分区。
+watch(visible, (isVisible) => {
+  if (!isVisible) return
+  const directToSection = route.path === '/platform/settings'
+    && !uiStore.showSettingsModal
+    && typeof route.query.section === 'string'
+    && route.query.section !== ''
+  mobileShowNav.value = !directToSection
+}, { immediate: true })
 
 useAssistantPageContext(() => {
   if (!visible.value) return null

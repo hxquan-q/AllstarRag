@@ -189,3 +189,241 @@ html[data-customer="true"] {
         inset: -12px -4px;
     }
 }
+
+/* —— T04：客户设置页全屏 + 二级导航 ——
+ * 只在客户移动态命中：html[data-customer="true"] 与 .settings-modal--mobile 双重限定。
+ * 管理端不设置 data-customer；其它 SettingsModalShell 消费者不传移动 props，
+ * 面板不会带 settings-modal--mobile，下面的规则整段命不中（C6）。
+ */
+@media (max-width: 1023px) {
+    /* 面板铺满视口，去掉外层 20px 留白与圆角。 */
+    html[data-customer="true"] .settings-modal-shell.settings-overlay {
+        padding: 0;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal.settings-modal--mobile {
+        width: 100vw;
+        height: 100dvh;
+        max-width: none;
+        max-height: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    /* 顶部标题栏：二级页面显示返回；右侧给绝对定位的关闭按钮留位。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-mobile-header {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 56px;
+        padding: calc(6px + var(--app-safe-top)) max(56px, calc(12px + var(--app-safe-right))) 6px max(12px, var(--app-safe-left));
+        border-bottom: 1px solid var(--td-component-stroke);
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-mobile-back {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        min-width: 44px;
+        min-height: 44px;
+        margin-left: -8px;
+        padding: 0 8px;
+        border: 0;
+        background: transparent;
+        color: var(--td-text-color-primary);
+        font-size: var(--app-text-base);
+        cursor: pointer;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-mobile-back:active {
+        background: var(--td-bg-color-container-hover);
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-mobile-title {
+        flex: 1;
+        min-width: 0;
+        margin: 0;
+        font-size: var(--app-text-xl);
+        font-weight: 600;
+        color: var(--td-text-color-primary);
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    /* 关闭按钮撑到 44×44 触控目标，避开安全区。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile > .close-btn {
+        top: calc(6px + var(--app-safe-top));
+        right: max(6px, var(--app-safe-right));
+        width: 44px;
+        height: 44px;
+    }
+
+    /* 一级（导航）与二级（内容）共用同一个滚动容器。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-container--mobile {
+        display: block;
+        flex: 1;
+        height: auto;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-nav--mobile {
+        overflow: visible;
+        padding: 8px max(8px, var(--app-safe-right)) calc(12px + var(--app-safe-bottom)) max(8px, var(--app-safe-left));
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-nav--mobile .nav-group-title {
+        padding: 12px 12px 4px;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-nav--mobile .nav-item {
+        min-height: 48px;
+        padding: 10px 12px;
+        font-size: var(--app-text-lg);
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-content--mobile {
+        flex: 1;
+        height: auto;
+        overflow: visible;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-body {
+        overflow: visible;
+        padding: 16px max(16px, var(--app-safe-right)) max(16px, var(--app-safe-bottom)) max(16px, var(--app-safe-left));
+    }
+
+    /* 内容页自己的桌面内边距让位给上面的 16px 统一内边距。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .content-wrapper {
+        min-width: 0;
+        padding: 0;
+    }
+
+    /* 资源列表页（我的记忆等）原本靠外层固定高度滚动；移动端交给整页滚动，
+       避免内层 flex 高度被裁切。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .content-wrapper--resource-list {
+        flex: none;
+        overflow: visible;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-footer {
+        flex-wrap: wrap;
+        padding: 12px 16px max(12px, var(--app-safe-bottom));
+    }
+
+    /* 设置行统一单列：说明在上、控件在下，长文本可断行。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .setting-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 14px 0;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .setting-info {
+        max-width: 100%;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .setting-control {
+        width: 100%;
+        min-width: 0;
+        justify-content: flex-start;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .section-description,
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .desc,
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .info-value {
+        overflow-wrap: anywhere;
+    }
+
+    /* 客户「常规」：语言选择占满可用宽度（桌面宽度由组件 scoped 样式保持）。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .customer-general-settings .language-select {
+        width: 100%;
+    }
+
+    /* 账号信息：右对齐的值改为左对齐，长邮箱/ID 断行。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .user-profile .info-value {
+        text-align: left;
+    }
+
+    /* 我的记忆：工具栏与条目单列，操作按钮换行不溢出。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .list-toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .list-actions {
+        width: 100%;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .memory-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 12px 0;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .memory-actions {
+        flex-wrap: wrap;
+        margin-top: 0;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .memory-topic {
+        max-width: 100%;
+        white-space: normal;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .section-header {
+        padding-right: 0;
+    }
+
+    /* 产线：分组收窄内边距，已绑定/候选/绑定行都单列，按钮全宽且 ≥44px。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings {
+        max-width: 100%;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .settings-group {
+        padding: 16px;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .group-title {
+        flex-wrap: wrap;
+        gap: 2px;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .bound-row,
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .bind-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .candidate-select {
+        max-width: 100%;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .settings-group .t-button {
+        min-height: 44px;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .invalid-hint {
+        justify-content: flex-start;
+    }
+
+    /* 弹层挂在 body 上，用客户移动作用域限制最大宽度，避免超出视口
+       （产线失效绑定清理确认框、账号改密 popup、各类下拉）。 */
+    html[data-customer="true"] .t-dialog {
+        max-width: calc(100vw - 32px);
+    }
+
+    html[data-customer="true"] .t-dialog__body {
+        overflow-wrap: anywhere;
+    }
+
+    html[data-customer="true"] .t-popup__content {
+        max-width: calc(100vw - 24px);
+    }
+}
+
