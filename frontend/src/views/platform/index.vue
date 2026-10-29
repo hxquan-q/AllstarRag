@@ -1,15 +1,21 @@
 <template>
-    <div class="main" ref="dropzone" :style="{ '--sidebar-width': `${uiStore.sidebarDisplayWidth}px` }">
+    <div class="main" ref="dropzone" :class="{ 'main--customer-mobile': isCustomerMobile }"
+        :style="{ '--sidebar-width': `${uiStore.sidebarDisplayWidth}px` }">
         <Menu></Menu>
         <!-- 客户版页面切换（AC-27）用一次性的淡入 keyframes 挂在路由出口上：
              creatChat 这类页面是多根节点，Vue 的 <Transition> 无法直接包裹。
              管理员不会加 customer-page-enter 类，出口保持原样（C6）。
              历史会话之间（/platform/chat/a → /platform/chat/b）交给 chat/index.vue
-             自己先淡出再换，避免两套动画叠加。 -->
+             自己先淡出再换，避免两套动画叠加。
+             移动抽屉打开时整块内容 inert + aria-hidden，焦点和朗读都留在抽屉里。 -->
         <div v-if="isRouterAlive" class="platform-route-outlet"
+            :inert="mobileDrawerOpen" :aria-hidden="mobileDrawerOpen ? 'true' : undefined"
             :class="{ 'customer-page-enter': customerPageAnimating }" @animationend.self="onCustomerPageAnimationEnd">
             <RouterView />
         </div>
+        <!-- 客户移动抽屉的半透明遮罩：点击关闭。管理端与桌面端不渲染（C6）。 -->
+        <div v-if="mobileDrawerOpen" class="customer-mobile-scrim" aria-hidden="true"
+            @click="uiStore.closeMobileDrawer()"></div>
         <!-- WeKnora 助手：停靠时作为布局右栏挤压页面，悬浮时浮在页面上；都不加遮罩，
              跨页面保留会话，从侧栏、右侧边缘按钮或命令面板唤出（设置里可选）。
              客户版整体不挂载（H2）：这样即使 sessionStorage 里残留 visible=true
@@ -36,7 +42,7 @@
 </template>
 <script setup lang="ts">
 import Menu from '@/components/menu.vue'
-import { ref, computed, onMounted, onUnmounted, nextTick, provide, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, onBeforeUnmount, nextTick, provide, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router'
 import UploadMask from '@/components/upload-mask.vue'
 import Settings from '@/views/settings/Settings.vue'
@@ -57,6 +63,7 @@ import { useAuthStore } from '@/stores/auth'
 import { isCustomerViewer } from '@/config/customerAccess'
 import { useCustomerAgent } from '@/composables/useCustomerAgent'
 import { useAssistantStore } from '@/stores/assistant'
+import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 
 const route = useRoute();
 const router = useRouter();
@@ -69,6 +76,28 @@ const { t } = useI18n();
 const authStore = useAuthStore();
 const isCustomer = computed(() => isCustomerViewer(authStore));
 useCustomerAgent(() => isCustomer.value);
+
+// 客户 + 窄屏才启用移动外壳；管理端与桌面端的行为/DOM 不变（C6 / AC-8）。
+const { isMobileLayout } = useResponsiveLayout()
+const isCustomerMobile = computed(() => isCustomer.value && isMobileLayout.value)
+// 只有客户移动态才可能渲染遮罩/inert；管理员或桌面下恒为 false。
+const mobileDrawerOpen = computed(() => isCustomerMobile.value && uiStore.mobileDrawerOpen)
+
+// 从抽屉态切回桌面时关闭抽屉，避免遮罩/滚动锁残留（AC-1）。
+watch(isCustomerMobile, (mobile) => {
+    if (!mobile && uiStore.mobileDrawerOpen) uiStore.closeMobileDrawer()
+})
+// 路由变化（含点历史会话）自动关闭抽屉（AC-6）。
+watch(() => route.fullPath, () => {
+    if (uiStore.mobileDrawerOpen) uiStore.closeMobileDrawer()
+})
+
+// 滚动锁挂在 <html> 上：T01 的选择器是
+// html[data-customer="true"].customer-mobile-drawer-open，两者必须同时具备。
+watch(mobileDrawerOpen, (open) => {
+    if (typeof document === 'undefined') return
+    document.documentElement.classList.toggle('customer-mobile-drawer-open', open)
+}, { immediate: true })
 
 // 客户身份下把助手的 visible 状态收掉，避免之后切回管理员时又“自动打开”。
 // 这只是界面状态，不涉及权限（C4）。
@@ -300,6 +329,15 @@ onUnmounted(() => {
         }
     }
     dragCounter = 0;
+});
+
+// 离开平台壳（如退出登录）前把抽屉状态和 <html> 滚动锁复位，
+// 避免下次进入时遮罩/锁定状态残留。
+onBeforeUnmount(() => {
+    uiStore.closeMobileDrawer();
+    if (typeof document !== 'undefined') {
+        document.documentElement.classList.remove('customer-mobile-drawer-open');
+    }
 });
 </script>
 <style lang="less">

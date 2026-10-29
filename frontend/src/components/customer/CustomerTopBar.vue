@@ -5,6 +5,20 @@
          会话列表的收起/展开入口在侧栏自身（menu.vue）：展开态是 logo 行的折叠按钮，
          收起态是侧栏右缘的浮出按钮（U4），顶栏不再放开关。 -->
     <div class="customer-topbar">
+        <!-- 客户 + 移动端：汉堡按钮是侧栏抽屉的唯一入口（桌面/管理端不渲染）。
+             aria-label 复用既有 menu.expandSidebar，不新增文案键。 -->
+        <button v-if="isMobileLayout" type="button" class="customer-topbar__menu"
+            :aria-label="t('menu.expandSidebar')" :aria-expanded="uiStore.mobileDrawerOpen"
+            @click="uiStore.toggleMobileDrawer()">
+            <svg viewBox="0 0 20 20" width="20" height="20" fill="none" aria-hidden="true">
+                <line x1="3" y1="5" x2="17" y2="5" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" />
+                <line x1="3" y1="10" x2="17" y2="10" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" />
+                <line x1="3" y1="15" x2="17" y2="15" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" />
+            </svg>
+        </button>
         <span class="customer-topbar__product">
             <!-- 内联知识库图标，方便用 currentColor 跟随主色；img 引入的 SVG 无法继承文字颜色 -->
             <svg class="customer-topbar__product-icon" viewBox="0 0 20 20" aria-hidden="true">
@@ -29,7 +43,9 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useUIStore } from '@/stores/ui'
+import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 
 const props = withDefaults(defineProps<{
     /** 右侧显示的当前会话标题；为空时不渲染，避免顶栏出现空占位 */
@@ -38,7 +54,10 @@ const props = withDefaults(defineProps<{
     title: '',
 })
 
+const { t } = useI18n()
 const uiStore = useUIStore()
+// 本组件只在客户壳里挂载；断点判断仍统一走 useResponsiveLayout，不写魔法数字。
+const { isMobileLayout } = useResponsiveLayout()
 
 const titleText = computed(() => props.title.trim())
 
@@ -63,6 +82,47 @@ onMounted(() => {
     box-sizing: border-box;
     border-bottom: 1px solid var(--td-component-stroke);
     background: var(--td-bg-color-container);
+}
+
+/* 移动端汉堡：44×44 触控目标。只在 isMobileLayout 时渲染，桌面 DOM 不变。 */
+.customer-topbar__menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 44px;
+    width: 44px;
+    height: 44px;
+    margin-left: -6px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--app-radius-sm);
+    background: transparent;
+    color: var(--td-text-color-primary);
+    cursor: pointer;
+
+    &:hover {
+        background: var(--td-bg-color-container-hover);
+    }
+
+    &:focus-visible {
+        outline: 2px solid var(--td-brand-color);
+        outline-offset: 2px;
+    }
+}
+
+/* ≤360px：字标按比例缩到 88px，标题继续省略。 */
+@media (max-width: 360px) {
+    :global(html[data-customer="true"]) .customer-topbar__wordmark {
+        width: 88px;
+        height: 26px;
+        flex-basis: 88px;
+    }
+
+    :global(html[data-customer="true"]) .customer-topbar__wordmark img {
+        width: 146px;
+        left: -30px;
+        top: -27px;
+    }
 }
 
 .customer-topbar__product {
