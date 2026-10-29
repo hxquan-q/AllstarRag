@@ -78,7 +78,7 @@ function ask(question: string): void {
       </span>
       <template v-else>{{ t('brand.welcome.chooseAgent') }}</template>
     </h1>
-    <p class="customer-welcome__subtitle">{{ t('brand.welcome.subtitle') }}</p>
+    <p v-if="lines.length === 0" class="customer-welcome__subtitle">{{ t('brand.welcome.subtitle') }}</p>
 
     <div id="customer-welcome-lines" class="customer-welcome__lines" role="group"
       :aria-label="t('brand.welcome.lineGroupLabel')">
@@ -96,8 +96,8 @@ function ask(question: string): void {
       {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}
     </button>
 
-    <!-- 未绑定：不单独提示「还没有绑定智能体」，去绑定入口紧跟副标题，保持紧凑（用户反馈） -->
-    <button v-if="showEmptyState" type="button" class="customer-welcome__bind-link" @click="goBindAgents">
+    <!-- 未绑定：不单独提示「还没有绑定智能体」，去绑定沿用原来的 sample-chip 按钮样式，紧跟副标题 -->
+    <button v-if="showEmptyState" type="button" class="sample-chip customer-welcome__bind-btn" @click="goBindAgents">
       {{ t('brand.welcome.emptyAction') }}
     </button>
 
@@ -170,23 +170,9 @@ function ask(question: string): void {
   font-size: var(--app-text-base);
 }
 
-/* 空态去绑定入口：贴着副标题（-16px 抵消副标题下边距，留 8px 呼吸），轻量文字链接样式 */
-.customer-welcome__bind-link {
-  margin: calc(-1 * var(--app-space-4)) 0 var(--app-space-5);
-  padding: 2px 4px;
-  border: none;
-  background: transparent;
-  color: var(--td-brand-color);
-  font-size: var(--app-text-base);
-  font-family: var(--app-font-family);
-  cursor: pointer;
-  transition: opacity var(--app-motion-fast) ease;
-}
-
-.customer-welcome__bind-link:hover {
-  opacity: 0.75;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+/* 空态去绑定：沿用原 sample-chip 按钮外观，只收紧与副标题的间距 */
+.customer-welcome__bind-btn {
+  margin: calc(-1 * var(--app-space-3)) 0 var(--app-space-4);
 }
 
 .customer-welcome__lines {

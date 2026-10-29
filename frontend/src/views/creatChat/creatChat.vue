@@ -391,8 +391,13 @@ async function openProjectDir() {
 
 .dialogue-wrap.customer-shell .dialogue-answers {
     flex: 1;
-    justify-content: center;
+    // 用户反馈：内容整体上移贴近「选择你的 agent」字标，间距自适应；矮屏时整块可滚动
+    justify-content: flex-start;
+    padding-top: clamp(16px, 6vh, 56px);
+    gap: var(--app-space-4);
     margin: 0 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .dialogue-answers {

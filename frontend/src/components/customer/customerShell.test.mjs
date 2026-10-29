@@ -60,9 +60,12 @@ test('customer empty state links to the agentlines settings section', () => {
     welcome,
     /router\.push\(\{ path: '\/platform\/settings', query: \{ section: 'agentlines' \} \}\)/,
   )
-  assert.match(welcome, /customer-welcome__bind-link/)
+  assert.match(welcome, /customer-welcome__bind-btn/)
+  assert.match(welcome, /class="sample-chip customer-welcome__bind-btn"/, '去绑定沿用原按钮样式')
   assert.match(welcome, /t\('brand\.welcome\.emptyAction'\)/)
   assert.doesNotMatch(welcome, /t\('brand\.welcome\.emptyNotice'\)/, '空态不再显示提示句')
+  // 有 agent 后副标题「输入 agentid…」隐藏。
+  assert.match(welcome, /v-if="lines\.length === 0" class="customer-welcome__subtitle"/)
 })
 
 test('sample questions and manual input both go through Input-field.triggerSend', () => {
