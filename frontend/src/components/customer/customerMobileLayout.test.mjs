@@ -28,6 +28,12 @@ const inputField = read('../Input-field.vue')
 const shell = read('../SettingsModalShell.vue')
 const settings = read('../../views/settings/Settings.vue')
 const references = read('../ChatReferencesDrawer.vue')
+const welcome = read('./CustomerWelcome.vue')
+const creatChat = read('../../views/creatChat/creatChat.vue')
+const login = read('../../views/auth/Login.vue')
+const onboarding = read('../../views/auth/WorkspaceOnboarding.vue')
+const useFont = read('../../composables/useFont.ts')
+const useFocusTrap = read('../../composables/useFocusTrap.ts')
 
 // 其余四个 SettingsModalShell 消费者（管理端）不得传客户移动 props。
 const adminShellConsumers = {
@@ -86,6 +92,57 @@ function walkSourceFiles(dir, out = []) {
     }
   }
   return out
+}
+
+/** 读取 SFC 第一个 <style ...> 块的内容（移动规则都在 scoped 样式里）。 */
+function styleBlock(source) {
+  const open = source.search(/<style[^>]*>/)
+  if (open < 0) return ''
+  const start = source.indexOf('>', open) + 1
+  const end = source.indexOf('</style>', start)
+  return end < 0 ? '' : source.slice(start, end)
+}
+
+/** 去掉 CSS 块注释与 Less 行注释，便于按选择器扫描。 */
+function stripStyleComments(cssText) {
+  return stripCssComments(cssText).replace(/(^|\s)\/\/[^\n]*/g, '$1')
+}
+
+/** 从某个 `{` 起取配平的整段内容（用于 @media 块）。 */
+function extractBalancedBlock(text, openBraceIndex) {
+  let depth = 0
+  for (let index = openBraceIndex; index < text.length; index += 1) {
+    if (text[index] === '{') depth += 1
+    else if (text[index] === '}') {
+      depth -= 1
+      if (depth === 0) return text.slice(openBraceIndex + 1, index)
+    }
+  }
+  return ''
+}
+
+/** 取 `@media (<query>) { ... }` 的块内容。 */
+function mediaBlock(cssText, query) {
+  const clean = stripStyleComments(cssText)
+  const marker = `@media (${query})`
+  const at = clean.indexOf(marker)
+  assert.ok(at >= 0, `media block not found: ${marker}`)
+  return extractBalancedBlock(clean, clean.indexOf('{', at))
+}
+
+/** 粗粒度选择器提取：块内每个 `选择器 {` 的前导文本（够用于限定性断言）。 */
+function selectorsIn(cssText) {
+  const clean = stripStyleComments(cssText)
+  return [...clean.matchAll(/([^{}]+)\{/g)]
+    .map((match) => match[1].trim())
+    .filter(Boolean)
+}
+
+/** 普通规则块（跳过 @media 本身），按选择器子串筛选。 */
+function ruleBlocks(cssText, selectorPart) {
+  return parseCssBlocks(cssText).filter(
+    (block) => !block.isAtRule && block.prelude.includes(selectorPart),
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -303,12 +360,31 @@ test('Settings.vue mobile nav: internal entry starts on the list, deep links ent
   assert.match(settings, /if \(mobileLayout\.value\) mobileShowNav\.value = false/)
   assert.match(settings, /@mobile-back="mobileShowNav = true"/)
 
-  // 站内入口（showSettingsModal=true）默认列表；外部直达 ?section=x 默认内容。
+  // CP3 F2：移动层级以 URL ?section= 为主判据并随其变化，不再用 showSettingsModal 推导。
+  assert.doesNotMatch(settings, /directToSection/)
   assert.match(
     settings,
-    /const directToSection = route\.path === '\/platform\/settings'[\s\S]*?!uiStore\.showSettingsModal[\s\S]*?typeof route\.query\.section === 'string'[\s\S]*?route\.query\.section !== ''/,
+    /watch\(\s*\(\) => \[visible\.value, route\.path, route\.query\.section\] as const,\s*\(\[isVisible, path, section\]\) => \{\s*if \(!isVisible \|\| path !== '\/platform\/settings'\) return\s*if \(!mobileLayout\.value\) return\s*mobileShowNav\.value = !\(typeof section === 'string' && section !== ''\)/,
   )
-  assert.match(settings, /mobileShowNav\.value = !directToSection/)
+  // 客户移动态没有 ?section= 时停在分区列表，不自动补默认分区（否则列表会被拉进内容）。
+  assert.match(
+    settings,
+    /if \(typeof section !== 'string'\) \{\s*\/\/[\s\S]*?if \(mobileLayout\.value\) return\s*syncSettingsRoute\(currentSection\.value \|\| 'general'\)/,
+  )
+})
+
+test('Settings.vue mobile nav items are keyboard / screen-reader operable (CP3 F4)', () => {
+  // 移动态补 role/tabindex/aria-current；桌面态全部 undefined（AC-21 / C6）。
+  assert.match(settings, /:role="mobileLayout \? 'button' : undefined"/)
+  assert.match(settings, /:tabindex="mobileLayout \? 0 : undefined"/)
+  assert.match(settings, /:aria-current="mobileLayout && currentSection === item\.key \? 'page' : undefined"/)
+  assert.match(settings, /@keydown="handleNavKeydown\(item, \$event\)"/)
+
+  // Enter / Space 等价于点击；桌面态直接返回，不影响管理端。
+  assert.match(
+    settings,
+    /const handleNavKeydown = \(item: NavItem, event: KeyboardEvent\) => \{\s*if \(!mobileLayout\.value\) return\s*if \(event\.key !== 'Enter' && event\.key !== ' '\) return\s*event\.preventDefault\(\)\s*handleNavClick\(item\)/,
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -322,7 +398,16 @@ test('ChatReferencesDrawer fills the viewport only on explicit opt-in (AC-12 / C
   )
   // 全屏时隐藏拖拽手柄；桌面 / embed 保持原宽度偏好与手柄。
   assert.match(references, /v-if="!fillViewport && maxPanelWidth > minPanelWidth"/)
-  assert.match(references, /width: fillViewport\.value \? '100vw' : `\$\{panelWidth\.value\}px`/)
+  // CP3 F3：全屏宽度用 100%，不用 100vw（根字号 zoom 会把 vw 再乘一次）。
+  assert.match(references, /width: fillViewport\.value \? '100%' : `\$\{panelWidth\.value\}px`/)
+  assert.doesNotMatch(references, /fillViewport\.value \? '100vw'/)
+
+  const overlayPanel = ruleBlocks(mobileCss, '.chat-references-panel.is-overlay')
+    .find((block) => block.body.includes('max-width: 100%;'))
+  assert.ok(overlayPanel, 'references overlay panel rule not found')
+  assert.match(overlayPanel.body, /width: 100%;/)
+  assert.match(overlayPanel.body, /max-width: 100%;/)
+  assert.doesNotMatch(overlayPanel.body, /100(vw|dvh)/)
 
   // 只有 chat 页传 overlay-breakpoint，且只在客户移动态传断点常量。
   assert.match(
@@ -368,4 +453,244 @@ test('mobile motion respects prefers-reduced-motion and dialogs are labelled (AC
   assert.match(shell, /role="dialog" aria-modal="true"/)
   assert.match(shell, /:aria-label="title"/)
   assert.match(references, /role="complementary"/)
+})
+
+// ---------------------------------------------------------------------------
+// 8. CP3 修复轮（F1-F15）守卫：zoom 视口单位、键盘可达、安全区、状态清理
+// ---------------------------------------------------------------------------
+
+test('CP3 F1: settings mobile panel fills its fixed overlay with 100% (no viewport units)', () => {
+  const panel = ruleBlocks(mobileCss, '.settings-modal--mobile')
+    .find((block) => block.body.includes('max-width: none;'))
+  assert.ok(panel, 'settings mobile panel rule not found')
+  assert.match(panel.body, /width: 100%;/)
+  assert.match(panel.body, /height: 100%;/)
+  assert.doesNotMatch(panel.body, /100(vw|dvh|vh)/)
+})
+
+test('CP3 F5: Login goes single-column with 16px inputs at <=1023 and keeps legacy breaks', () => {
+  const loginStyle = styleBlock(login)
+  const login1023 = mediaBlock(loginStyle, 'max-width: 1023px')
+
+  assert.match(login1023, /\.login-layout \{\s*flex-direction: column;/)
+  assert.match(login1023, /\.form-section \{\s*order: -1;/)
+  assert.match(
+    login1023,
+    /\.form-content :deep\(\.t-input \.t-input__inner\) \{\s*font-size: var\(--app-text-xl\);/,
+  )
+
+  // 既有 768 / 480 与 T05 的 360 段仍在，且顺序为 1023 → 768 → 480 → 360。
+  const order = ['max-width: 1023px', 'max-width: 768px', 'max-width: 480px', 'max-width: 360px']
+    .map((query) => loginStyle.indexOf(`@media (${query})`))
+  for (const [index, position] of order.entries()) {
+    assert.ok(position >= 0, `Login missing media block: ${order[index]}`)
+    if (index > 0) assert.ok(position > order[index - 1], `Login breakpoint order regressed at ${order[index]}`)
+  }
+})
+
+test('CP3 F6: customer mobile topbar / message list / input respect horizontal safe areas', () => {
+  const safeLeft = 'max(12px, var(--app-safe-left))'
+  const safeRight = 'max(12px, var(--app-safe-right))'
+  const targets = [
+    ['.customer-topbar', 'customer topbar'],
+    ['.chat.customer-shell.is-mobile .msg_list', 'message list'],
+    ['.answers-input.is-mobile', 'input column'],
+  ]
+  for (const [selector, label] of targets) {
+    const block = ruleBlocks(mobileCss, selector).find((item) => item.body.includes('padding-left'))
+    assert.ok(block, `${label} safe-area rule not found`)
+    assert.ok(block.body.includes(`padding-left: ${safeLeft};`), `${label} missing left safe area`)
+    assert.ok(block.body.includes(`padding-right: ${safeRight};`), `${label} missing right safe area`)
+  }
+})
+
+test('CP3 F7: welcome empty-state retry chip joins the 44px touch target rule', () => {
+  const welcomeStyle = styleBlock(welcome)
+  const touchRule = parseCssBlocks(welcomeStyle).find(
+    (block) => !block.isAtRule && block.prelude.includes('.customer-welcome__empty .sample-chip'),
+  )
+  assert.ok(touchRule, 'empty-state retry chip rule not found')
+  assert.match(touchRule.body, /min-height: 44px;/)
+})
+
+test('CP3 F8: useFont comments no longer instruct rebuilding media queries', () => {
+  assert.doesNotMatch(useFont, /重建按缩放/)
+  assert.doesNotMatch(useFont, /否则字号放大后断点会误判/)
+  assert.match(useFont, /字号变化只重测动态视口高度；\s*\/\/\s*断点固定 1023px，不随 zoom 重建媒体查询。/)
+  assert.match(useFont, /通知布局层重测动态视口高度；断点固定 1023px，不随 zoom 重建。/)
+})
+
+test('CP3 F9/F10: coarse pointer sync, viewport var cleanup and focus-trap reset', () => {
+  assert.match(responsive, /let activeInstances = 0/)
+  assert.match(
+    responsive,
+    /function onCoarsePointerChange\(event: MediaQueryListEvent\) \{\s*isCoarsePointer\.value = event\.matches\s*\}/,
+  )
+  assert.match(responsive, /coarseQuery\.addEventListener\('change', onCoarsePointerChange\)/)
+  assert.match(responsive, /coarseQuery\.removeEventListener\('change', onCoarsePointerChange\)/)
+  assert.match(responsive, /activeInstances = Math\.max\(0, activeInstances - 1\)/)
+  assert.match(
+    responsive,
+    /if \(activeInstances === 0\) \{\s*root\.style\.removeProperty\(VIEWPORT_HEIGHT_VAR\)\s*\}/,
+  )
+
+  // 焦点陷阱卸载时复位内部状态，避免复用实例残留。
+  const focusDispose = useFocusTrap.slice(useFocusTrap.indexOf('onScopeDispose('))
+  assert.match(
+    focusDispose,
+    /document\.removeEventListener\('keydown', onKeydown, true\)[\s\S]*?isActive = false\s*lastFocused = null/,
+  )
+})
+
+test('CP3 F11/F12/F14/F15: dead class gone, drawer closes on same-route nav, shell-only rules', () => {
+  // F11：死 class 已从全仓删除。
+  const srcRoot = fileURLToPath(new URL('../../', import.meta.url))
+  const deadClassOffenders = walkSourceFiles(srcRoot).filter((file) =>
+    readFileSync(file, 'utf8').includes('main--customer-mobile'),
+  )
+  assert.deepEqual(deadClassOffenders, [])
+
+  // F12：菜单与会话导航在同路径点击时也显式关抽屉。
+  const menuClick = menu.slice(
+    menu.indexOf('const handleMenuClick = async (path: string) => {'),
+    menu.indexOf('const getCurrentKbId'),
+  )
+  assert.ok(menuClick.includes('uiStore.closeMobileDrawer()'), 'handleMenuClick must close the drawer')
+  assert.ok(
+    menuClick.indexOf('uiStore.closeMobileDrawer()') < menuClick.indexOf("if (path === 'knowledge-bases')"),
+    'closeMobileDrawer must run before menu navigation',
+  )
+  const gotoPage = menu.slice(
+    menu.indexOf('const gotopage = async (path: string) => {'),
+    menu.indexOf('const gotopage = async (path: string) => {') + 800,
+  )
+  assert.ok(gotoPage.includes('uiStore.closeMobileDrawer()'), 'gotopage must close the drawer')
+  assert.ok(
+    gotoPage.indexOf('uiStore.closeMobileDrawer()') < gotoPage.indexOf("if (path === 'logout')"),
+    'closeMobileDrawer must run before session/logout handling',
+  )
+
+  // F14：客户移动态隐藏宿主项目目录栏，且只命中 customer-shell。
+  const projectDir = ruleBlocks(mobileCss, '.project-dir-bar')
+    .find((block) => block.body.includes('display: none;'))
+  assert.ok(projectDir, 'project-dir-bar hide rule not found')
+  assert.match(projectDir.prelude, /\.dialogue-wrap\.customer-shell \.project-dir-bar/)
+
+  // F15：免责声明改为静态占位，去掉固定 40px 预留。
+  const creatChatStyle = styleBlock(creatChat)
+  const creatChat1023 = mediaBlock(creatChatStyle, 'max-width: 1023px')
+  assert.match(
+    creatChat1023,
+    /\.dialogue-wrap\.customer-shell \.customer-disclaimer \{\s*position: static;/,
+  )
+  assert.match(
+    creatChat1023,
+    /padding: 6px max\(12px, var\(--app-safe-left\)\) max\(6px, var\(--app-safe-bottom\)\) max\(12px, var\(--app-safe-right\)\);/,
+  )
+  assert.doesNotMatch(creatChat1023, /position: absolute/)
+  assert.doesNotMatch(creatChatStyle, /padding-bottom: calc\(40px/)
+})
+
+// ---------------------------------------------------------------------------
+// 9. 组件级守卫（CP3 逻辑轴 L9）：移动类必须由客户条件派生
+// ---------------------------------------------------------------------------
+
+const router = read('../../router/index.ts')
+
+test('component-level L9: chat / Input-field mobile state is customer-derived', () => {
+  // chat：is-mobile 来自 customerMobile，而 customerMobile 必须同时要求客户 + 移动。
+  assert.match(chat, /const customerMobile = computed\(\(\) => isCustomer\.value && isMobileLayout\.value\)/)
+  assert.match(chat, /'customer-shell': isCustomer && !embeddedMode,\s*'is-mobile': customerMobile,/)
+  const chatStyle = styleBlock(chat)
+  const chatMobileSelectors = selectorsIn(chatStyle).filter((selector) => selector.includes('is-mobile'))
+  assert.ok(chatMobileSelectors.length >= 5, `expected mobile selectors, got ${chatMobileSelectors.length}`)
+  for (const selector of chatMobileSelectors) {
+    assert.match(
+      selector,
+      /^\.chat\.customer-shell\.is-mobile\b/,
+      `chat mobile selector must be customer-scoped: ${selector}`,
+    )
+  }
+
+  // Input-field：is-mobile 来自 isCustomerMobile（customerMode && isMobileLayout）。
+  assert.match(inputField, /const isCustomerMobile = computed\(\(\) => props\.customerMode && isMobileLayout\.value\)/)
+  assert.match(
+    inputField,
+    /<div class="answers-input" :class="\{ 'is-embedded': embeddedMode, 'is-compact': compact, 'is-mobile': isCustomerMobile \}"/,
+  )
+  const inputStyle = styleBlock(inputField)
+  const inputMobileAt = inputStyle.indexOf('is-mobile')
+  assert.ok(inputMobileAt > 0, 'Input-field mobile style rule not found')
+  assert.equal((inputStyle.match(/is-mobile/g) || []).length, 1)
+  assert.ok(
+    inputMobileAt > inputStyle.indexOf('.answers-input {'),
+    'Input-field mobile rule must nest under .answers-input',
+  )
+  assert.match(inputStyle.slice(inputMobileAt - 2, inputMobileAt + 10), /&\.is-mobile/)
+})
+
+test('component-level L9: welcome / creatChat / auth mobile blocks stay page-local', () => {
+  // CustomerWelcome 只在客户 creatChat 中渲染，不能出现在管理端页面。
+  assert.match(creatChat, /<CustomerWelcome v-if="isCustomer" @send="handleSampleQuestion" \/>/)
+  const srcRoot = fileURLToPath(new URL('../../', import.meta.url))
+  const welcomeConsumers = walkSourceFiles(srcRoot)
+    .filter((file) => !file.endsWith('CustomerWelcome.vue'))
+    .filter((file) => readFileSync(file, 'utf8').includes('CustomerWelcome'))
+    .map((file) => file.slice(srcRoot.length).replace(/\\/g, '/'))
+  assert.deepEqual(welcomeConsumers, ['views/creatChat/creatChat.vue'])
+
+  const welcome1023 = mediaBlock(styleBlock(welcome), 'max-width: 1023px')
+  const welcomeSelectors = selectorsIn(welcome1023)
+  assert.ok(welcomeSelectors.length >= 6, `expected welcome mobile rules, got ${welcomeSelectors.length}`)
+  for (const selector of welcomeSelectors) {
+    for (const part of selector.split(',')) {
+      assert.match(
+        part.trim(),
+        /^(\.customer-welcome|\.line-card)/,
+        `welcome mobile selector escapes component scope: ${part.trim()}`,
+      )
+    }
+  }
+
+  // creatChat 的 1023 段只作用于 customer-shell。
+  const creatChat1023 = mediaBlock(styleBlock(creatChat), 'max-width: 1023px')
+  for (const selector of selectorsIn(creatChat1023)) {
+    for (const part of selector.split(',')) {
+      assert.match(
+        part.trim(),
+        /^\.dialogue-wrap\.customer-shell\b/,
+        `creatChat mobile selector escapes customer shell: ${part.trim()}`,
+      )
+    }
+  }
+
+  // Login 的 1023 段只碰登录页自身类，不泄漏到共享壳。
+  const login1023 = mediaBlock(styleBlock(login), 'max-width: 1023px')
+  for (const selector of selectorsIn(login1023)) {
+    for (const part of selector.split(',')) {
+      const trimmed = part.trim()
+      assert.match(trimmed, /^(\.login-|\.showcase-|\.form-)/, `login mobile selector escapes auth page: ${trimmed}`)
+      assert.doesNotMatch(trimmed, /\.(chat|customer-shell|answers-input|settings-|aside_box|menu_)/)
+    }
+  }
+
+  // Onboarding 的 560 / 360 段同样只碰引导页自身类（该页没有 1023 段）。
+  const onboardingStyle = styleBlock(onboarding)
+  for (const query of ['max-width: 560px', 'max-width: 360px']) {
+    for (const selector of selectorsIn(mediaBlock(onboardingStyle, query))) {
+      for (const part of selector.split(',')) {
+        const trimmed = part.trim()
+        assert.match(
+          trimmed,
+          /^(\.workspace-|\.invite-only-notice|h1\b)/,
+          `onboarding mobile selector escapes auth page: ${trimmed}`,
+        )
+        assert.doesNotMatch(trimmed, /\.(chat|customer-shell|answers-input|settings-|aside_box|menu_)/)
+      }
+    }
+  }
+
+  // 两个认证页只挂在登录/引导路由上，不成为管理端页面。
+  assert.match(router, /path: "\/login",[\s\S]*?views\/auth\/Login\.vue/)
+  assert.match(router, /path: "\/onboarding\/workspace",[\s\S]*?views\/auth\/WorkspaceOnboarding\.vue/)
 })
