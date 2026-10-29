@@ -18,16 +18,19 @@ const menuVue = readFileSync(new URL('../menu.vue', import.meta.url), 'utf8')
 const loginVue = readFileSync(new URL('../../views/auth/Login.vue', import.meta.url), 'utf8')
 
 test('customer welcome renders agent title, visible line cards, samples and the empty state', () => {
-  // AC-21：标题改为「选择你的 agent」，不再拼接品牌名。
+  // AC-21：标题改为「选择你的 agent」字标（中文环境用图片，其他语言保留本地化文字）。
+  assert.match(welcome, /brand\/choose-agent-wordmark\.png/)
   assert.match(welcome, /t\('brand\.welcome\.chooseAgent'\)/)
   assert.doesNotMatch(welcome, /brandConfig\.productName/)
   // AC-12：卡片渲染折叠后的 visibleLines，而不是全量 lines。
   assert.match(welcome, /v-for="line in visibleLines"/)
   assert.match(welcome, /v-for="question in samples"/)
-  assert.match(welcome, /brandConfig\.chatDisclaimer/)
+  // 免责声明已移到 creatChat 输入框下方（用户反馈「放到最底部」），欢迎区不再渲染。
+  assert.doesNotMatch(welcome, /brandConfig\.chatDisclaimer/)
+  assert.match(creatChat, /customer-disclaimer/)
   // AC-10：空态只在已就绪且 0 条时出现；旧 productLinesFallback 提示已删除。
   assert.match(welcome, /const showEmptyState = computed\(\(\) => productLineStore\.ready && lines\.value\.length === 0\)/)
-  assert.match(welcome, /v-if="showEmptyState"[\s\S]*?role="status"/)
+  assert.match(welcome, /v-if="showEmptyState"/)
   assert.doesNotMatch(welcome, /productLinesFallback/)
   assert.match(welcome, /samples-swap/)
   assert.doesNotMatch(welcome, /WeKnora/)
@@ -106,7 +109,10 @@ test('customer shell swaps in CustomerTopBar on both new-chat and history chat p
   assert.match(chatView, /<CustomerTopBar v-if="!embeddedMode && isCustomer"/)
   // 客户页不再渲染 ChatHeader，避免双顶栏。
   assert.match(chatView, /<div v-else-if="!embeddedMode" class="chat-topbar">\s*<ChatHeader :session="currentSession" \/>/)
-  assert.match(topBar, /brandConfig\.productName/)
+  // 产品名改用字标图片，左侧小图标保留（用户反馈：不要去掉小图标）。
+  assert.match(topBar, /customer-topbar__product-icon/)
+  assert.match(topBar, /brand\/xiaoi-wordmark\.png/)
+  assert.doesNotMatch(topBar, /brandConfig\.productName/)
   for (const forbidden of ['WeKnora', 'weknora']) {
     assert.equal(topBar.includes(forbidden), false)
   }
