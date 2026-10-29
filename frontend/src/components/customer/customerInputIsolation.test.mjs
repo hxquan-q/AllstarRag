@@ -90,12 +90,12 @@ test('AC-11 customer menu exposes a direct agent line settings entry', () => {
     userMenu,
     /<div v-if="isCustomer" class="menu-item" @click="handleQuickNav\('agentlines'\)">/,
   )
-  // 文案复用产线分区标题，不另造 key。
+  // 菜单文案用独立 key（E2E 反馈：菜单显示「绑定 agent」，分区标题仍为「产线」）。
   const customerEntryBlock = userMenu.match(
     /<div v-if="isCustomer" class="menu-item" @click="handleQuickNav\('agentlines'\)">[\s\S]*?<\/div>/,
   )
   assert.ok(customerEntryBlock, 'customer agentlines menu item block not found')
-  assert.match(customerEntryBlock[0], /\{\{ \$t\('agentLineSettings\.title'\) \}\}/)
+  assert.match(customerEntryBlock[0], /\{\{ \$t\('agentLineSettings\.menuLabel'\) \}\}/)
   assert.doesNotMatch(customerEntryBlock[0], /v-if="!isCustomer"/)
   // 管理员侧看不到：全文只有这一处 agentlines 快捷导航，且它只对客户渲染
   // （没有任何「不带 v-if 的同类 menu-item」）。
