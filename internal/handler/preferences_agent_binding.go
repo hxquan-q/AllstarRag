@@ -72,18 +72,19 @@ func (h *AuthHandler) validateBoundAgentIDs(
 		agentCtx = context.WithValue(ctx, types.TenantIDContextKey, tenantID)
 	}
 
-	// 停用列表按工作区取一次。repo 为空（老测试 fixture）时按「没有停用」处理。
-	var disabledIDs map[string]struct{}
-	if h.disabledAgentRepo != nil {
-		disabled, err := h.disabledAgentRepo.ListDisabledOwnAgentIDs(ctx, tenantID)
-		if err != nil {
-			logger.Errorf(ctx, "Failed to list disabled agent IDs for workspace %d: %v", tenantID, err)
-			return nil, errors.NewInternalServerError("Failed to validate bound agents")
-		}
-		disabledIDs = make(map[string]struct{}, len(disabled))
-		for _, id := range disabled {
-			disabledIDs[id] = struct{}{}
-		}
+	// 停用列表按工作区取一次。repo 缺失（构造路径/测试装配漏注）时 fail-closed 返回 500，
+	// 与上面 customAgentService 缺失的语义一致：宁可拒绝绑定，也不放过被停用的 agent。
+	if h.disabledAgentRepo == nil {
+		return nil, errors.NewInternalServerError("Failed to validate bound agents")
+	}
+	disabled, err := h.disabledAgentRepo.ListDisabledOwnAgentIDs(ctx, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "Failed to list disabled agent IDs for workspace %d: %v", tenantID, err)
+		return nil, errors.NewInternalServerError("Failed to validate bound agents")
+	}
+	disabledIDs := make(map[string]struct{}, len(disabled))
+	for _, id := range disabled {
+		disabledIDs[id] = struct{}{}
 	}
 
 	for _, id := range unique {
