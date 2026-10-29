@@ -65,12 +65,12 @@
                         :aria-label="$t('createChat.clearProject')" @click="clearProjectDir">×</button>
                 </div>
                 <InputField ref="inputFieldRef" :customer-mode="isCustomer" @send-msg="sendMsg"></InputField>
-                <!-- 免责声明移到输入框下方居中（仅客户版） -->
-                <p v-if="isCustomer && brandConfig.chatDisclaimer" class="customer-disclaimer">
-                    {{ brandConfig.chatDisclaimer }}
-                </p>
             </div>
         </div>
+        <!-- 免责声明固定在页面最底部居中（仅客户版） -->
+        <p v-if="isCustomer && brandConfig.chatDisclaimer" class="customer-disclaimer">
+            {{ brandConfig.chatDisclaimer }}
+        </p>
     </div>
 
     <ContextualGuide tour="chat" :when="showChatContextualGuide" />
@@ -368,6 +368,7 @@ async function openProjectDir() {
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
+    position: relative;
     // 浅色网格背景（替换原来的纯白底）
     background-color: #F6F8FB;
     background-image:
@@ -375,11 +376,17 @@ async function openProjectDir() {
         repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
 }
 
+/* 固定在页面最底部的免责声明（绝对定位，不占布局高度） */
 .customer-disclaimer {
-    margin: 8px 0 0;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 6px;
+    margin: 0;
     text-align: center;
     color: var(--td-text-color-placeholder);
     font-size: var(--app-text-sm);
+    pointer-events: none;
 }
 
 .dialogue-wrap.customer-shell .dialogue-answers {
