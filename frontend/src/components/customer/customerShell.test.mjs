@@ -36,9 +36,9 @@ test('customer welcome renders agent title, visible line cards, samples and the 
   assert.doesNotMatch(welcome, /api\/|fetch\(|axios|knowledge-chat/)
 })
 
-test('customer welcome collapses cards above three and can expand/collapse in place', () => {
-  // AC-12：阈值 3、折叠切片、就地展开收起。
-  assert.match(welcome, /const COLLAPSED_LINE_COUNT = 3/)
+test('customer welcome collapses cards above four and can expand/collapse in place', () => {
+  // AC-12：阈值 4（E2E 反馈修订，>4 才折叠）、折叠切片、就地展开收起。
+  assert.match(welcome, /const COLLAPSED_LINE_COUNT = 4/)
   assert.match(welcome, /const hasOverflow = computed\(\(\) => lines\.value\.length > COLLAPSED_LINE_COUNT\)/)
   assert.match(
     welcome,
