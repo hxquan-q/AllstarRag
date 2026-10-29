@@ -213,6 +213,24 @@ func TestValidateBoundAgentIDsMapsInternalLookupErrorTo500(t *testing.T) {
 		"底层错误细节不得直接进响应文案")
 }
 
+func TestValidateBoundAgentIDsNilDisabledRepoFailsClosed(t *testing.T) {
+	// F4：disabledAgentRepo 缺失（测试装配漏注等）时必须 fail-closed 返回 500，
+	// 与 customAgentService 缺失同语义：宁可拒绝绑定，也不放过被停用的 agent；
+	// 且拒绝必须发生在任何 agent 查询之前（nil repo 不能先查 agent 再炸）。
+	h, _, agents := newBindingHandler(
+		map[uint64][]string{7: {"custom-a"}}, nil, types.UserPreferences{})
+	h.disabledAgentRepo = nil
+
+	_, err := h.validateBoundAgentIDs(tenantContext(7), 7, []string{"custom-a"})
+
+	require.Error(t, err)
+	var appErr *apperrors.AppError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, http.StatusInternalServerError, appErr.HTTPCode)
+	require.Equal(t, "Failed to validate bound agents", appErr.Message)
+	require.Empty(t, agents.calls, "fail-closed 必须在任何 agent 查询之前拒绝")
+}
+
 func TestValidateBoundAgentIDsRejectsDisabledAgent(t *testing.T) {
 	h, _, _ := newBindingHandler(
 		map[uint64][]string{7: {"custom-a"}},

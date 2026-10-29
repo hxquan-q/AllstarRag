@@ -51,7 +51,12 @@ interface SetupOptions {
   ensureAgentsError?: boolean
 }
 
-type Response = { success: boolean; data?: { bound_agent_ids_by_tenant?: Record<string, string[]> }; message?: string }
+type Response = {
+  success: boolean
+  data?: { bound_agent_ids_by_tenant?: Record<string, string[]> }
+  message?: string
+  errorCode?: string
+}
 
 function setup(tc: TestContext, options: SetupOptions = {}) {
   const f = fixture(tc)
@@ -221,6 +226,32 @@ test('server errors map to the five readable messages', async t => {
     assert.equal(ok, false)
     assert.ok(s.vm.errorMessage.startsWith(expected), `${message} -> ${s.vm.errorMessage}`)
   }
+  s.close()
+})
+
+test('server errors prefer the stable errorCode over message substrings (F15 / F5)', async t => {
+  // message 是与映射无关的文案：按 code 必须映射到对应本地化 key，
+  // 而不是落进 errorUnknown 兜底（措辞调整不得破坏前端映射）。
+  const codes: Array<[string, string]> = [
+    ['bound_agent_empty', 'agentLineSettings.errorEmpty'],
+    ['bound_agent_internal', 'agentLineSettings.errorInternal'],
+    ['bound_agent_disabled', 'agentLineSettings.errorDisabled'],
+    ['bound_agent_limit', 'agentLineSettings.errorLimit'],
+    ['bound_agent_not_found', 'agentLineSettings.errorNotFound'],
+  ]
+  const s = setup(t, { boundByTenant: { '1': [] } })
+  await flush()
+
+  for (const [code, expected] of codes) {
+    s.setResponse(() => ({ success: false, message: 'unrelated text', errorCode: code }))
+    const ok = await s.vm.saveBoundIds(['agent-a'])
+    assert.equal(ok, false)
+    assert.ok(s.vm.errorMessage.startsWith(expected), `${code} -> ${s.vm.errorMessage}`)
+  }
+  // 未知 code 仍退回 message 子串兜底（旧后端兼容路径）。
+  s.setResponse(() => ({ success: false, message: 'unexpected backend failure', errorCode: 'bound_agent_weird' }))
+  await s.vm.saveBoundIds(['agent-a'])
+  assert.ok(s.vm.errorMessage.startsWith('agentLineSettings.errorUnknown'))
   s.close()
 })
 

@@ -138,9 +138,11 @@ test('F6 agents fetch failure surfaces a retry in the welcome area (AC-10)', () 
     /function retryBootstrapAgents\(\): void \{[\s\S]*?bootstrapPromise = null[\s\S]*?bootstrapAgents\(\)/,
   )
   // 欢迎区：loadFailed 且没有任何产线时渲染「加载失败 + 重试」，重试走 store。
+  // F13：必须同时要求 !ready，与空态（ready && 0 条）在 ready 维度互斥，
+  // 否则「agents 已预取成功后二次 ensure 失败」会双空态块同现（role=status + role=alert）。
   assert.match(
     customerWelcome,
-    /const showLoadFailed = computed\(\(\) => productLineStore\.loadFailed && lines\.value\.length === 0\)/,
+    /const showLoadFailed = computed\(\s*\(\) => productLineStore\.loadFailed && !productLineStore\.ready && lines\.value\.length === 0,?\s*\)/,
   )
   assert.match(customerWelcome, /v-if="showLoadFailed"[^>]*role="alert"/)
   assert.match(customerWelcome, /\{\{ t\('brand\.welcome\.loadFailed'\) \}\}/)
