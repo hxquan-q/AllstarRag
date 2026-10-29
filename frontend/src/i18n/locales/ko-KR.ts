@@ -9343,6 +9343,8 @@ export default {
       collapseLines: '접기',
       emptyNotice: '아직 바인딩된 에이전트가 없습니다',
       emptyAction: '바인딩하러 가기',
+      loadFailed: '에이전트 목록을 불러오지 못했습니다',
+      retry: '다시 시도',
     },
     settings: {
       title: '일반',

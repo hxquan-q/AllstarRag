@@ -36,6 +36,12 @@ const visibleLines = computed(() =>
 )
 /** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
 const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
+/** agents 拉取失败且没有任何产线时给「加载失败 + 重试」，避免永久空窗（AC-10 失败兜底）。 */
+const showLoadFailed = computed(() => productLineStore.loadFailed && lines.value.length === 0)
+
+function retryLoadAgents(): void {
+  productLineStore.retryBootstrapAgents()
+}
 
 function toggleExpanded(): void {
   expanded.value = !expanded.value
@@ -84,6 +90,14 @@ function ask(question: string): void {
       <p class="customer-welcome__empty-text">{{ t('brand.welcome.emptyNotice') }}</p>
       <button type="button" class="sample-chip" @click="goBindAgents">
         {{ t('brand.welcome.emptyAction') }}
+      </button>
+    </div>
+
+    <!-- agents 拉取失败且无产线时给重试（AC-10 失败兜底）；复用空态容器与 sample-chip，不加新动效（C8）。 -->
+    <div v-if="showLoadFailed" class="customer-welcome__empty" role="alert">
+      <p class="customer-welcome__empty-text">{{ t('brand.welcome.loadFailed') }}</p>
+      <button type="button" class="sample-chip" @click="retryLoadAgents">
+        {{ t('brand.welcome.retry') }}
       </button>
     </div>
 

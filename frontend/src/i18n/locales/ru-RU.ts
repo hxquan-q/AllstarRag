@@ -9343,6 +9343,8 @@ export default {
       collapseLines: 'Свернуть',
       emptyNotice: 'Агенты ещё не привязаны',
       emptyAction: 'Перейти к привязке',
+      loadFailed: 'Не удалось загрузить список агентов',
+      retry: 'Повторить',
     },
     settings: {
       title: 'Основные',

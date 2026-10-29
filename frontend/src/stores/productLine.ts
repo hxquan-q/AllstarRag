@@ -139,6 +139,8 @@ export const useProductLineStore = defineStore('productLine', () => {
 
   /** agents 是否至少成功拉取过一次：空态只在 ready 且确实 0 条时出现（AC-10）。 */
   const ready = ref(chatResources.isLoaded('agents'))
+  /** 最近一次自举是否失败：失败且没有任何产线时，欢迎区显示「加载失败 + 重试」（AC-10 失败兜底）。 */
+  const loadFailed = ref(false)
   let bootstrapPromise: Promise<void> | null = null
 
   /**
@@ -148,16 +150,25 @@ export const useProductLineStore = defineStore('productLine', () => {
   function bootstrapAgents(): void {
     if (!authStore.currentUserId) return
     if (bootstrapPromise) return
+    loadFailed.value = false
     bootstrapPromise = chatResources
       .ensureAgents()
       .then(() => {
         ready.value = true
       })
       .catch((error) => {
-        // 拉取失败保持 ready=false：空态不显示，等下一次用户切换/重进页面再试。
+        // 拉取失败置 loadFailed（保持 ready=false：不显示空态）；bootstrapPromise 清掉，
+        // 欢迎区的重试按钮可以再拉一次。
         bootstrapPromise = null
+        loadFailed.value = true
         console.warn('[product-line] 拉取智能体列表失败，产线暂不可用:', error)
       })
+  }
+
+  /** 自举失败后的手动重试：清掉已结束的 promise 再拉一次（ensureAgents 失败不缓存，必然发新请求）。 */
+  function retryBootstrapAgents(): void {
+    bootstrapPromise = null
+    bootstrapAgents()
   }
 
   /** 懒加载示例问题：失败留空、不重试，不阻塞欢迎区渲染（D7）。 */
@@ -202,6 +213,7 @@ export const useProductLineStore = defineStore('productLine', () => {
     () => {
       ready.value = chatResources.isLoaded('agents')
       bootstrapPromise = null
+      loadFailed.value = false
       hydrate()
       bootstrapAgents()
     },
@@ -210,9 +222,11 @@ export const useProductLineStore = defineStore('productLine', () => {
   return {
     lines,
     ready,
+    loadFailed,
     currentLineId,
     currentLine,
     selectLine,
     hydrate,
+    retryBootstrapAgents,
   }
 })

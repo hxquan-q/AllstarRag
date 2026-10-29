@@ -9349,6 +9349,8 @@ export default {
       collapseLines: 'Show less',
       emptyNotice: 'No agents bound yet',
       emptyAction: 'Go to bind',
+      loadFailed: 'Failed to load the agent list',
+      retry: 'Retry',
     },
     settings: {
       title: 'General',

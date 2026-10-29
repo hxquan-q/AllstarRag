@@ -9343,6 +9343,8 @@ export default {
       collapseLines: '閉じる',
       emptyNotice: 'エージェントがまだバインドされていません',
       emptyAction: 'バインドへ',
+      loadFailed: 'エージェント一覧の読み込みに失敗しました',
+      retry: '再試行',
     },
     settings: {
       title: '一般',

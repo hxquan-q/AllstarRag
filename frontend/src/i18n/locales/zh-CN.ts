@@ -9342,6 +9342,8 @@ export default {
       collapseLines: '收起',
       emptyNotice: '还没有绑定智能体',
       emptyAction: '去绑定',
+      loadFailed: '智能体列表加载失败',
+      retry: '重试',
     },
     settings: {
       title: '常规',

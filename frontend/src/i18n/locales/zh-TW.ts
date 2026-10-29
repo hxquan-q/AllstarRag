@@ -9339,6 +9339,8 @@ export default {
       collapseLines: '收合',
       emptyNotice: '還沒有綁定智慧體',
       emptyAction: '去綁定',
+      loadFailed: '智慧體列表載入失敗',
+      retry: '重試',
     },
     settings: {
       title: '常規',
