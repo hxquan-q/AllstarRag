@@ -10,7 +10,7 @@
         :aria-label="panelTitle"
       >
         <PanelResizeHandle
-          v-if="maxPanelWidth > minPanelWidth"
+          v-if="!fillViewport && maxPanelWidth > minPanelWidth"
           :key="sourceTarget ? 'source' : 'list'"
           edge="left"
           :label="t('knowledgeStages.resizeDrawer')"
@@ -252,7 +252,12 @@ const panelWidth = computed(() => {
     : REFERENCES_PANEL_WIDTH
   return clampPanelWidth(preferred ?? initial)
 })
-const panelStyle = computed(() => ({ width: `${panelWidth.value}px` }))
+// 客户移动态由 chat 页显式传 overlayBreakpoint：铺满视口，不沿用桌面拖拽宽度偏好。
+// 管理端默认 <960 的覆盖层与 embed 不传该 prop，保持原有宽度逻辑（C6）。
+const fillViewport = computed(() => useOverlay.value && props.overlayBreakpoint !== undefined)
+const panelStyle = computed(() => ({
+  width: fillViewport.value ? '100vw' : `${panelWidth.value}px`,
+}))
 
 watchEffect(() => {
   if (drawer) drawer.panelWidth.value = panelWidth.value

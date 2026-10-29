@@ -1220,6 +1220,48 @@ onMounted(async () => {
   }
 }
 
+/* 320px 极窄屏补漏：768/480 两段既有规则保持原样，这里只补更窄一档，
+   收紧卡片内边距、把 logo 与语言切换压回可视区，输入框字号固定 16px。 */
+@media (max-width: 360px) {
+  .login-layout {
+    padding-top: 60px;
+  }
+
+  .header-logo {
+    top: 14px;
+    left: 16px;
+
+    .logo-image {
+      width: 64px;
+    }
+  }
+
+  .header-links {
+    top: 12px;
+    right: 12px;
+  }
+
+  .form-section {
+    padding: 16px;
+  }
+
+  .form-card {
+    padding: 24px 16px;
+  }
+
+  .form-title {
+    font-size: var(--app-text-2xl);
+  }
+
+  .form-content :deep(.t-input .t-input__inner) {
+    font-size: var(--app-text-xl);
+  }
+
+  .submit-button {
+    min-height: 44px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
 
   .knowledge-node,

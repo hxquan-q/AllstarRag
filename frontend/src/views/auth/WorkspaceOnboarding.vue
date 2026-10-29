@@ -242,4 +242,36 @@ h1 {
     grid-template-columns: 1fr;
   }
 }
+
+/* 320px 极窄屏补漏：卡片再收紧一档，长标题/描述/工作区名允许断行，
+   两个操作按钮保持单列且触控高度 ≥44px。 */
+@media (max-width: 360px) {
+  .workspace-onboarding {
+    padding: 20px 12px;
+  }
+
+  .workspace-card {
+    padding: 24px 16px;
+  }
+
+  h1 {
+    font-size: var(--app-text-2xl);
+    overflow-wrap: anywhere;
+  }
+
+  .workspace-description,
+  .workspace-help,
+  .invite-only-notice span {
+    overflow-wrap: anywhere;
+  }
+
+  .workspace-actions,
+  .workspace-actions--single {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-actions :deep(.t-button) {
+    min-height: 44px;
+  }
+}
 </style>

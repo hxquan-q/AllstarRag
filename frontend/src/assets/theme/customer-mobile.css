@@ -69,7 +69,7 @@ html[data-customer="true"] {
         max-width: 100%;
     }
 
-    /* 7. 引用面板窄屏全屏的辅助规则由 T05 细化，本票先留位置。 */
+    /* 7. 引用面板窄屏全屏规则见文件末尾的 T05 段落。 */
 }
 
 /* —— T02：客户移动外壳（遮罩 + 覆盖式侧栏抽屉）——
@@ -424,6 +424,89 @@ html[data-customer="true"] {
 
     html[data-customer="true"] .t-popup__content {
         max-width: calc(100vw - 24px);
+    }
+}
+
+/* —— T05：引用来源面板窄屏全屏 ——
+ * 面板在 overlay 模式会 Teleport 到 body，不在 .chat 内，所以用
+ * html[data-customer="true"] + .chat-references-panel.is-overlay 双作用域。
+ * 客户桌面（≥1024）不命中媒体查询，管理端不设置 data-customer，整段零命中。
+ */
+@media (max-width: 1023px) {
+    /* 铺满视口：宽度由组件的 panelStyle 写成 100vw，这里补齐四边定位与安全区。
+       客户移动态助手侧栏不挂载，--assistant-dock-width 恒为 0，right 归零。 */
+    html[data-customer="true"] .chat-references-panel.is-overlay {
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 100vw;
+        max-width: 100vw;
+        padding-bottom: var(--app-safe-bottom);
+        border-left: 0;
+    }
+
+    /* 顶部标题栏接安全区，返回/关闭按钮撑到 44×44 触控目标。 */
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__header {
+        height: auto;
+        min-height: calc(var(--app-chat-header-height) + var(--app-safe-top));
+        padding: calc(6px + var(--app-safe-top)) max(12px, var(--app-safe-right)) 6px max(12px, var(--app-safe-left));
+    }
+
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__back,
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__close {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__close {
+        width: 44px;
+        height: 44px;
+    }
+
+    /* 列表面板与原文预览各自滚动，滚到底不带动下层页面。 */
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__body,
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__source,
+    html[data-customer="true"] .chat-references-panel.is-overlay .reference-item__content {
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__body {
+        padding: 4px max(12px, var(--app-safe-right)) 24px max(12px, var(--app-safe-left));
+    }
+}
+
+/* —— T05：登录/注册、工作区引导窄屏通用触控 ——
+ * 更细的 320px 间距补漏写在各组件 scoped 样式里；这里只兜底触控高度与弹层宽度。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .login-layout .submit-button,
+    html[data-customer="true"] .workspace-onboarding .workspace-actions .t-button {
+        min-height: 44px;
+    }
+
+    html[data-customer="true"] .login-layout .language-dropdown {
+        max-width: calc(100vw - 24px);
+    }
+}
+
+/* —— T05：用户菜单在侧栏抽屉内滚动/触控 ——
+ * 下拉本身是绝对定位在 .user-menu 上，窄屏抽屉里高度受视口限制；
+ * 超过一屏时在菜单内部滚动，不裁掉设置/退出入口。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer .user-dropdown {
+        max-width: calc(100vw - 24px);
+        max-height: calc(100dvh - 96px);
+        margin-bottom: calc(6px + var(--app-safe-bottom));
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer .user-dropdown .menu-item,
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer .user-dropdown .dropdown-user-header {
+        min-height: 44px;
     }
 }
 
