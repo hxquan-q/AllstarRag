@@ -21,8 +21,8 @@ const { t } = useI18n()
 const router = useRouter()
 const productLineStore = useProductLineStore()
 
-/** 折叠阈值：超过 3 条才出现「查看更多」（AC-12）。 */
-const COLLAPSED_LINE_COUNT = 3
+/** 折叠阈值：超过 4 条才出现「查看更多」（AC-12，2026-10-29 用户 E2E 反馈由 3 改 4）。 */
+const COLLAPSED_LINE_COUNT = 4
 
 const lines = computed(() => productLineStore.lines)
 const currentLine = computed(() => productLineStore.currentLine)
@@ -84,7 +84,7 @@ function ask(question: string): void {
       </button>
     </div>
 
-    <!-- 超过 3 条时就地展开/收起，不跳页、不弹层（AC-12）；按钮沿用现有 sample-chip 样式。 -->
+    <!-- 超过 4 条时就地展开/收起，不跳页、不弹层（AC-12）；按钮沿用现有 sample-chip 样式。 -->
     <button v-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"
       :aria-expanded="expanded" aria-controls="customer-welcome-lines" @click="toggleExpanded">
       {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}

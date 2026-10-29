@@ -9334,7 +9334,7 @@ export default {
     },
     welcome: {
       title: 'こんにちは、{name}へようこそ',
-      subtitle: '製品ラインを選んで、そのまま質問できます',
+      subtitle: 'エージェント ID を入力して、そのまま質問できます',
       lineGroupLabel: '製品ライン',
       samplesLabel: '質問例',
       fallbackNotice: '製品ラインの設定に問題があるため、既定の製品ラインを使用しています',

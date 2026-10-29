@@ -9333,7 +9333,7 @@ export default {
     },
     welcome: {
       title: '你好，欢迎使用{name}',
-      subtitle: '选择产品线，然后直接提问',
+      subtitle: '输入 agentid，然后直接提问',
       lineGroupLabel: '产品线',
       samplesLabel: '示例问题',
       fallbackNotice: '产品线配置异常，已使用默认产线',

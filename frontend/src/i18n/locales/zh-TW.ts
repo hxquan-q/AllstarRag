@@ -9330,7 +9330,7 @@ export default {
     },
     welcome: {
       title: '你好，歡迎使用{name}',
-      subtitle: '選擇產品線，然後直接提問',
+      subtitle: '輸入 agentid，然後直接提問',
       lineGroupLabel: '產品線',
       samplesLabel: '範例問題',
       fallbackNotice: '產品線設定異常，已使用預設產品線',

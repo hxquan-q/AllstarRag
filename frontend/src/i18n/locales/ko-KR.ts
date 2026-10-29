@@ -9334,7 +9334,7 @@ export default {
     },
     welcome: {
       title: '안녕하세요, {name}에 오신 것을 환영합니다',
-      subtitle: '제품 라인을 선택한 뒤 바로 질문하세요',
+      subtitle: '에이전트 ID를 입력한 뒤 바로 질문하세요',
       lineGroupLabel: '제품 라인',
       samplesLabel: '예시 질문',
       fallbackNotice: '제품 라인 설정에 문제가 있어 기본 제품 라인을 사용합니다',

@@ -9340,7 +9340,7 @@ export default {
     },
     welcome: {
       title: 'Hi, welcome to {name}',
-      subtitle: 'Choose a product line, then ask away',
+      subtitle: 'Enter an agent id, then ask away',
       lineGroupLabel: 'Product lines',
       samplesLabel: 'Example questions',
       fallbackNotice: 'Product line configuration is invalid; using the default lines',
