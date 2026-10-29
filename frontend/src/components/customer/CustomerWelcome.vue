@@ -152,17 +152,17 @@ function ask(question: string): void {
   position: relative;
   display: inline-block;
   overflow: hidden;
-  width: 205px;
-  height: 55px;
+  width: 246px;
+  height: 66px;
   vertical-align: middle;
 }
 
 .customer-welcome__wordmark img {
   position: absolute;
   display: block;
-  width: 295px;
-  left: -48px;
-  top: -55px;
+  width: 354px;
+  left: -58px;
+  top: -66px;
   mix-blend-mode: multiply;
   pointer-events: none;
 }
