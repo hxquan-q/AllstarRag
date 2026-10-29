@@ -391,9 +391,10 @@ async function openProjectDir() {
 
 .dialogue-wrap.customer-shell .dialogue-answers {
     flex: 1;
-    // 用户反馈：内容整体上移贴近「选择你的 agent」字标，间距自适应；矮屏时整块可滚动
+    // 字标在欢迎区头部垂直居中（CustomerWelcome 内部 flex 实现），其余内容排在其下方；
+    // 矮屏时整块可滚动，输入框保持在内容流末尾。
     justify-content: flex-start;
-    padding-top: clamp(16px, 6vh, 56px);
+    padding-top: 0;
     gap: var(--app-space-4);
     margin: 0 auto;
     min-height: 0;

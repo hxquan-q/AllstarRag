@@ -71,53 +71,59 @@ function ask(question: string): void {
 
 <template>
   <section class="customer-welcome" aria-labelledby="customer-welcome-title">
-    <h1 id="customer-welcome-title" class="customer-welcome__title">
-      <!-- 中文环境用字标图片替换标题文案；其他语言保留本地化文字（图片是中文的） -->
-      <span v-if="isZhLocale" class="customer-welcome__wordmark" role="img" aria-label="选择你的 agent">
-        <img src="/brand/choose-agent-wordmark.png" alt="选择你的 agent" />
-      </span>
-      <template v-else>{{ t('brand.welcome.chooseAgent') }}</template>
-    </h1>
-    <p v-if="lines.length === 0" class="customer-welcome__subtitle">{{ t('brand.welcome.subtitle') }}</p>
-
-    <div id="customer-welcome-lines" class="customer-welcome__lines" role="group"
-      :aria-label="t('brand.welcome.lineGroupLabel')">
-      <button v-for="line in visibleLines" :key="line.id" type="button" class="line-card"
-        :class="{ 'is-active': line.id === currentLine?.id }" :aria-pressed="line.id === currentLine?.id"
-        @click="chooseLine(line)">
-        <span class="line-card__name">{{ line.name }}</span>
-        <span v-if="line.description" class="line-card__desc">{{ line.description }}</span>
-      </button>
+    <!-- 字标独立成「头部区域」，在剩余空间里垂直居中；其余内容全部排在其下方 -->
+    <div class="customer-welcome__head">
+      <h1 id="customer-welcome-title" class="customer-welcome__title">
+        <!-- 中文环境用字标图片替换标题文案；其他语言保留本地化文字（图片是中文的） -->
+        <span v-if="isZhLocale" class="customer-welcome__wordmark" role="img" aria-label="选择你的 agent">
+          <img src="/brand/choose-agent-wordmark.png" alt="选择你的 agent" />
+        </span>
+        <template v-else>{{ t('brand.welcome.chooseAgent') }}</template>
+      </h1>
     </div>
 
-    <!-- 超过 4 条时就地展开/收起，不跳页、不弹层（AC-12）；按钮沿用现有 sample-chip 样式。 -->
-    <button v-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"
-      :aria-expanded="expanded" aria-controls="customer-welcome-lines" @click="toggleExpanded">
-      {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}
-    </button>
+    <div class="customer-welcome__content">
+      <p v-if="lines.length === 0" class="customer-welcome__subtitle">{{ t('brand.welcome.subtitle') }}</p>
 
-    <!-- 未绑定：不单独提示「还没有绑定智能体」，去绑定沿用原来的 sample-chip 按钮样式，紧跟副标题 -->
-    <button v-if="showEmptyState" type="button" class="sample-chip customer-welcome__bind-btn" @click="goBindAgents">
-      {{ t('brand.welcome.emptyAction') }}
-    </button>
-
-    <!-- agents 拉取失败且无产线时给重试（AC-10 失败兜底）；复用空态容器与 sample-chip，不加新动效（C8）。 -->
-    <div v-if="showLoadFailed" class="customer-welcome__empty" role="alert">
-      <p class="customer-welcome__empty-text">{{ t('brand.welcome.loadFailed') }}</p>
-      <button type="button" class="sample-chip" @click="retryLoadAgents">
-        {{ t('brand.welcome.retry') }}
-      </button>
-    </div>
-
-    <!-- 切产线时用 out-in 过渡让示例问题先淡出再淡入；时长走 --app-motion-instant（120ms） -->
-    <Transition name="samples-swap" mode="out-in">
-      <div v-if="samples.length > 0" :key="currentLine?.id" class="customer-welcome__samples"
-        role="group" :aria-label="t('brand.welcome.samplesLabel')">
-        <button v-for="question in samples" :key="question" type="button" class="sample-chip" @click="ask(question)">
-          {{ question }}
+      <div id="customer-welcome-lines" class="customer-welcome__lines" role="group"
+        :aria-label="t('brand.welcome.lineGroupLabel')">
+        <button v-for="line in visibleLines" :key="line.id" type="button" class="line-card"
+          :class="{ 'is-active': line.id === currentLine?.id }" :aria-pressed="line.id === currentLine?.id"
+          @click="chooseLine(line)">
+          <span class="line-card__name">{{ line.name }}</span>
+          <span v-if="line.description" class="line-card__desc">{{ line.description }}</span>
         </button>
       </div>
-    </Transition>
+
+      <!-- 超过 4 条时就地展开/收起，不跳页、不弹层（AC-12）；按钮沿用现有 sample-chip 样式。 -->
+      <button v-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"
+        :aria-expanded="expanded" aria-controls="customer-welcome-lines" @click="toggleExpanded">
+        {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}
+      </button>
+
+      <!-- 未绑定：不单独提示「还没有绑定智能体」，去绑定沿用原来的 sample-chip 按钮样式，紧跟副标题 -->
+      <button v-if="showEmptyState" type="button" class="sample-chip customer-welcome__bind-btn" @click="goBindAgents">
+        {{ t('brand.welcome.emptyAction') }}
+      </button>
+
+      <!-- agents 拉取失败且无产线时给重试（AC-10 失败兜底）；复用空态容器与 sample-chip，不加新动效（C8）。 -->
+      <div v-if="showLoadFailed" class="customer-welcome__empty" role="alert">
+        <p class="customer-welcome__empty-text">{{ t('brand.welcome.loadFailed') }}</p>
+        <button type="button" class="sample-chip" @click="retryLoadAgents">
+          {{ t('brand.welcome.retry') }}
+        </button>
+      </div>
+
+      <!-- 切产线时用 out-in 过渡让示例问题先淡出再淡入；时长走 --app-motion-instant（120ms） -->
+      <Transition name="samples-swap" mode="out-in">
+        <div v-if="samples.length > 0" :key="currentLine?.id" class="customer-welcome__samples"
+          role="group" :aria-label="t('brand.welcome.samplesLabel')">
+          <button v-for="question in samples" :key="question" type="button" class="sample-chip" @click="ask(question)">
+            {{ question }}
+          </button>
+        </div>
+      </Transition>
+    </div>
 
     <!-- 产线 = 当前工作区绑定的 agent（无绑定时由上面的空态提示承担） -->
     <!-- 免责声明已移到输入框下方（creatChat 页面底部） -->
@@ -132,6 +138,24 @@ function ask(question: string): void {
   padding: 0 var(--app-space-4);
   box-sizing: border-box;
   text-align: center;
+  /* 占满剩余高度：字标在「头部区域」垂直居中，其余内容排在其下方 */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.customer-welcome__head {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  padding: var(--app-space-2) 0 0;
+}
+
+.customer-welcome__content {
+  flex: 0 0 auto;
 }
 
 .customer-welcome__title {
