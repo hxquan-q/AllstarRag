@@ -2,8 +2,10 @@ package handler
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -97,10 +99,16 @@ func (h *AuthHandler) validateBoundAgentIDs(
 				"agent %q is internal and cannot be bound", id)).WithDetails("bound_agent_internal")
 		}
 		if _, err := h.customAgentService.GetAgentByID(agentCtx, id); err != nil {
-			// 不存在与跨工作区给同一句话，不泄露别的租户有没有这个 agent。
-			return nil, errors.NewValidationError(fmt.Sprintf(
-				"agent %q does not exist or cannot be bound in this workspace",
-				id)).WithDetails("bound_agent_not_found")
+			if stderrors.Is(err, service.ErrAgentNotFound) {
+				// 不存在与跨工作区给同一句话，不泄露别的租户有没有这个 agent。
+				return nil, errors.NewValidationError(fmt.Sprintf(
+					"agent %q does not exist or cannot be bound in this workspace",
+					id)).WithDetails("bound_agent_not_found")
+			}
+			// 其余错误（DB 故障、租户上下文异常等）不是「agent 不存在」：记真实错误并
+			// 按 500 拒绝（F8），不能把内部故障误报成 400 的可绑定性结论（fail-closed）。
+			logger.Errorf(ctx, "Failed to get agent %q for workspace %d: %v", id, tenantID, err)
+			return nil, errors.NewInternalServerError("Failed to validate bound agents")
 		}
 		if _, disabled := disabledIDs[id]; disabled {
 			return nil, errors.NewValidationError(fmt.Sprintf(
