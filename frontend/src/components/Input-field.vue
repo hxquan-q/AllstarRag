@@ -37,6 +37,7 @@ import { useEditorResourcesStore } from '@/stores/editorResources';
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities';
 import { hostSkillsOnly, mentionSkillTargetId } from '@/utils/skillTarget';
 import { useI18n } from 'vue-i18n';
+import { useResponsiveLayout } from '@/composables/useResponsiveLayout';
 import AttachmentUpload, { type AttachmentFile } from './AttachmentUpload.vue';
 import {
   kbSatisfiesAgentRequirements,
@@ -587,6 +588,10 @@ const props = defineProps({
 // 客户模式才创建产线 store：管理员不读也不写 weknora_customer_line:*，
 // 避免给管理员也留下产线偏好数据。
 const productLineStore = computed(() => (props.customerMode ? useProductLineStore() : null));
+
+// 客户 + 窄屏才挂 is-mobile：管理员输入区与桌面尺寸完全不变（C6）。
+const { isMobileLayout } = useResponsiveLayout();
+const isCustomerMobile = computed(() => props.customerMode && isMobileLayout.value);
 
 // 发送成功反馈（仅客户版，AC-28）：ArrowUp → Check → ArrowUp，约 900ms 后复原。
 // 只有客户模式会渲染 MorphIcon，管理员仍用原来的 t-icon，行为不变（C6）。
@@ -2843,7 +2848,7 @@ defineExpose({
 
 </script>
 <template>
-  <div class="answers-input" :class="{ 'is-embedded': embeddedMode, 'is-compact': compact }" @drop="onDrop" @dragover="onDragOver">
+  <div class="answers-input" :class="{ 'is-embedded': embeddedMode, 'is-compact': compact, 'is-mobile': isCustomerMobile }" @drop="onDrop" @dragover="onDragOver">
     <!-- Hidden file input for image upload -->
     <input ref="imageInputRef" type="file" accept="image/jpeg,image/png,image/gif,image/webp" multiple
       style="display:none" @change="handleImageSelect" />
@@ -3249,6 +3254,58 @@ const getImgSrc = (url: string) => {
     .rich-input-container,
     .steer-queue {
       max-width: 100%;
+    }
+  }
+
+  /* —— T03：客户移动态输入区（仅 isCustomerMobile，管理员不命中）—— */
+  &.is-mobile {
+    padding: 0 12px;
+    box-sizing: border-box;
+
+    // iOS 聚焦小于 16px 的输入框会自动放大页面；字号用令牌，避免样式守卫记字面量。
+    :deep(.t-textarea__inner) {
+      font-size: var(--app-text-xl);
+      line-height: 1.5;
+      min-height: 44px;
+    }
+
+    // 控制栏允许换行，产线名再长也不把发送按钮挤出屏幕。
+    .control-bar {
+      flex-wrap: wrap;
+      row-gap: 6px;
+    }
+
+    .control-left,
+    .control-right {
+      min-width: 0;
+    }
+
+    .control-left {
+      flex: 1 1 auto;
+    }
+
+    :deep(.line-selector) {
+      max-width: 45vw;
+      min-width: 0;
+    }
+
+    :deep(.line-selector__trigger) {
+      max-width: 100%;
+      min-width: 0;
+    }
+
+    :deep(.line-selector__name) {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    // 发送/停止保持 44×44 触控目标，且不参与收缩。
+    .stop-btn,
+    .send-btn {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
     }
   }
 }

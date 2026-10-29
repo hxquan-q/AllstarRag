@@ -134,3 +134,58 @@ html[data-customer="true"] {
         transition: none;
     }
 }
+
+/* —— T03：客户对话消息内容窄屏 ——
+ * 只作用于客户对话页（.chat.customer-shell），仍然同时受
+ * html[data-customer="true"] 与 max-width:1023px 双重限定，管理员零命中。
+ */
+@media (max-width: 1023px) {
+    /* 表格默认按内容撑宽，只加 overflow-x 不会滚动；改为 display:block 后才在
+       自身容器内横向滚动。max-width:100% 防止整体顶宽页面。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list table,
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content table {
+        display: block;
+        width: max-content;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 代码块保持不换行，在块内横向滚动。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list pre {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        white-space: pre;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 公式块与 mermaid 同理，允许各自容器内横向滚动。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list .katex-display,
+    html[data-customer="true"] .chat.customer-shell .msg_list .chat-mermaid-block {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 图片不超出消息列。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list img {
+        max-width: 100%;
+        height: auto;
+    }
+
+    /* 长链接/连续长串可在任意位置断行，不撑破气泡。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content,
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content a,
+    html[data-customer="true"] .chat.customer-shell .msg_list .user_msg {
+        overflow-wrap: anywhere;
+    }
+
+    /* 引用标记是行内小标签，直接撑高会打乱行距；用透明伪元素扩大可点区域。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list .citation-kb::after,
+    html[data-customer="true"] .chat.customer-shell .msg_list .citation-web::after {
+        content: '';
+        position: absolute;
+        inset: -12px -4px;
+    }
+}

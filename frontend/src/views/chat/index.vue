@@ -2,6 +2,7 @@
     <div class="chat" :class="{
         'is-embedded': embeddedMode,
         'customer-shell': isCustomer && !embeddedMode,
+        'is-mobile': customerMobile,
         'has-references-panel': referencesDrawerVisible,
         'has-sandbox-panel': sandboxPanel.visible.value,
     }" :style="{
@@ -13,23 +14,26 @@
         <CustomerTopBar v-if="!embeddedMode && isCustomer" :title="currentSessionTitle">
             <template v-if="currentSessionTitle" #title>{{ currentSessionTitle }}</template>
             <template #actions>
-                <div v-if="!sandboxPanel.visible.value" class="sandbox-header-toggle">
-                    <t-tooltip placement="bottom">
-                        <template #content>{{ t('chatHeader.toggleSandboxPanel') }}</template>
-                        <button type="button" class="sandbox-header-toggle__btn"
-                            :aria-label="t('chatHeader.toggleSandboxPanel')" @click="sandboxPanel.open()">
-                            <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
-                                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                                <rect x="1.5" y="1.5" width="17" height="17" rx="3" stroke="currentColor"
-                                    stroke-width="1.2" />
-                                <line x1="12.5" y1="1.5" x2="12.5" y2="18.5" stroke="currentColor"
-                                    stroke-width="1.2" />
-                                <line x1="16" y1="7.5" x2="16" y2="12.5" stroke="currentColor" stroke-width="1.2"
-                                    stroke-linecap="round" />
-                            </svg>
-                        </button>
-                    </t-tooltip>
-                </div>
+                <!-- 窄屏隐藏沙箱入口（AC-13）：只裁界面，不改后端与权限（C4）。 -->
+                <template v-if="!customerMobile">
+                    <div v-if="!sandboxPanel.visible.value" class="sandbox-header-toggle">
+                        <t-tooltip placement="bottom">
+                            <template #content>{{ t('chatHeader.toggleSandboxPanel') }}</template>
+                            <button type="button" class="sandbox-header-toggle__btn"
+                                :aria-label="t('chatHeader.toggleSandboxPanel')" @click="sandboxPanel.open()">
+                                <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
+                                    xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <rect x="1.5" y="1.5" width="17" height="17" rx="3" stroke="currentColor"
+                                        stroke-width="1.2" />
+                                    <line x1="12.5" y1="1.5" x2="12.5" y2="18.5" stroke="currentColor"
+                                        stroke-width="1.2" />
+                                    <line x1="16" y1="7.5" x2="16" y2="12.5" stroke="currentColor" stroke-width="1.2"
+                                        stroke-linecap="round" />
+                                </svg>
+                            </button>
+                        </t-tooltip>
+                    </div>
+                </template>
             </template>
         </CustomerTopBar>
         <div v-else-if="!embeddedMode" class="chat-topbar">
@@ -242,7 +246,7 @@
     <KnowledgeBaseEditorModal v-if="!embeddedMode" :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
         :kb-id="uiStore.currentKBId || undefined" :initial-type="uiStore.kbEditorType"
         @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
-    <ChatReferencesDrawer />
+    <ChatReferencesDrawer :overlay-breakpoint="customerMobile ? MOBILE_LAYOUT_MAX_WIDTH : undefined" />
     <ChatAttachmentPreviewDrawer />
     <SandboxSidePanel v-if="!embeddedMode" :session-id="session_id"
         :agent-id="useSettingsStoreInstance.selectedAgentId"
@@ -323,6 +327,7 @@ import { useAssistantStore } from '@/stores/assistant';
 import { useAssistantPageContext } from '@/composables/useAssistantPageContext';
 import { respondToPageAction } from '@/utils/pageActionResponder';
 import { provideChatSandboxPanel } from '@/composables/useChatSandboxPanel';
+import { useResponsiveLayout, MOBILE_LAYOUT_MAX_WIDTH } from '@/composables/useResponsiveLayout';
 import SandboxSidePanel from '@/components/chat/SandboxSidePanel.vue';
 import BrowserTaskPreview from './components/BrowserTaskPreview.vue';
 import PendingPromptDock from './components/PendingPromptDock.vue';
@@ -410,6 +415,10 @@ const isAutomationSession = computed(() => currentSession.value?.kind === 'autom
 // 客户版顶栏只在 viewer 视角出现；角色未水合时按管理员处理（D8）
 const authStore = useAuthStore();
 const isCustomer = computed(() => isCustomerViewer(authStore));
+// 客户移动态：客户视角 + 窄屏（与 customer-mobile.css 同一断点）。
+// 管理员与 embedded 永远不加 is-mobile，桌面尺寸/交互不变（C6）。
+const { isMobileLayout } = useResponsiveLayout();
+const customerMobile = computed(() => isCustomer.value && isMobileLayout.value);
 const currentSessionTitle = computed(() => {
     const title = currentSession.value?.title;
     return typeof title === 'string' ? title.trim() : '';
@@ -2225,6 +2234,42 @@ onBeforeRouteUpdate((to, from, next) => {
     background-image:
         repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px),
         repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
+}
+
+/* —— T03：客户移动态（仅 .is-mobile，桌面与管理员分支不命中）—— */
+.chat.customer-shell.is-mobile {
+    // 消息列左右各 12px，320px 下仍有足够正文宽度。
+    --chat-content-inset: 12px;
+}
+
+.chat.customer-shell.is-mobile .chat_composer {
+    // 底部接安全区；动态视口高度由 T01 写在 <html> 上，键盘弹出时整壳收缩。
+    padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+}
+
+// 输入列的左右留白交给 Input-field 的 is-mobile，避免与消息列叠加成 24px。
+.chat.customer-shell.is-mobile .input-container:not(.is-embedded) {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+// 用户气泡在窄屏最多占 92%，长内容不把页面顶宽。
+.chat.customer-shell.is-mobile :deep(.user_msg) {
+    max-width: min(92%, 100%);
+}
+
+// 助手正文允许收缩，配合 customer-mobile.css 里的 overflow-wrap 生效。
+.chat.customer-shell.is-mobile :deep(.bot_msg),
+.chat.customer-shell.is-mobile :deep(.bot_msg .content-wrapper),
+.chat.customer-shell.is-mobile :deep(.bot_msg .markdown-content) {
+    min-width: 0;
+    max-width: 100%;
+}
+
+// 滚动到底按钮保持在输入区上方（bottom 相对 .input-container），只放大触控目标。
+.chat.customer-shell.is-mobile .scroll-to-bottom-btn {
+    width: 44px;
+    height: 44px;
 }
 
 .chat-topbar {

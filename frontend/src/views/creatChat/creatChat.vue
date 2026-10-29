@@ -512,6 +512,23 @@ async function openProjectDir() {
     }
 }
 
+/* —— T03：客户移动态窄屏；输入区与底部免责声明不重叠。 —— */
+@media (max-width: 1023px) {
+    .dialogue-wrap.customer-shell .dialogue-answers {
+        // 免责声明是绝对定位，给底部留出它的高度 + 安全区。
+        padding-bottom: calc(40px + env(safe-area-inset-bottom));
+    }
+
+    .dialogue-wrap.customer-shell .customer-disclaimer {
+        left: 12px;
+        right: 12px;
+        bottom: max(6px, env(safe-area-inset-bottom));
+        line-height: 1.4;
+        white-space: normal;
+        overflow-wrap: anywhere;
+    }
+}
+
 @import '../../components/css/suggested-questions.less';
 
 @keyframes skeletonFadeIn {

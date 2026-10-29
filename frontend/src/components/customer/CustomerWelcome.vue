@@ -308,6 +308,54 @@ function ask(question: string): void {
 
 /* 免责声明已移到输入框下方（creatChat 客户版底部），此文件不再渲染 */
 
+/* —— T03：客户移动态窄屏。只补尺寸/换行，不动 script 与模板结构。 —— */
+@media (max-width: 1023px) {
+  .customer-welcome {
+    max-width: 100%;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* 字标按比例缩放：容器宽度不足 246px 时等比缩小，裁切参数同步换成百分比。 */
+  .customer-welcome__wordmark {
+    width: min(246px, 100%);
+    height: auto;
+    aspect-ratio: 246 / 66;
+  }
+
+  .customer-welcome__wordmark img {
+    width: 143.9%; // 354 / 246
+    left: -23.58%; // -58 / 246
+    top: -100%; // -66 / 66
+  }
+
+  .customer-welcome__subtitle,
+  .customer-welcome__empty-text {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  /* 产线卡片占满一行，描述长文本允许换行。 */
+  .line-card {
+    width: 100%;
+  }
+
+  .line-card__name,
+  .line-card__desc {
+    overflow-wrap: anywhere;
+  }
+
+  /* 示例问题/折叠/去绑定按钮：可换行，触控目标 ≥44px。 */
+  .customer-welcome__samples .sample-chip,
+  .customer-welcome__toggle,
+  .customer-welcome__bind-btn {
+    max-width: 100%;
+    min-height: 44px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .line-card,
   .sample-chip,
