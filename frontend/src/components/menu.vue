@@ -175,7 +175,7 @@
 
                 <div v-else class="session-filtered-list">
                     <template
-                        v-if="activeBucket?.loading && !activeBucket.loaded && filteredGroupedSessions.length === 0">
+                        v-if="((activeBucket?.loading && !activeBucket.loaded) || customerLinesNotReady) && filteredGroupedSessions.length === 0">
                         <div v-for="n in 4" :key="'bucket-skel-' + n" class="submenu_item_p session-chat-row">
                             <div class="session-list-row session-list-row--flat">
                                 <t-skeleton animation="gradient" class="session-list-row__body"
@@ -659,14 +659,21 @@ const customerLineGroups = computed<ProductLineGroup<CustomerSessionRow>[]>(() =
     const bucket = activeBucket.value;
     if (!bucket?.items.length) return [];
     // 产线清单来自 productLine store（当前工作区绑定 agent 派生）；store 在这里懒调用，管理员不实例化（C6）
-    const lines = useProductLineStore().lines;
+    const productLineStore = useProductLineStore();
+    // agents 未就绪时不分组（AC-8.2）：groupSessionsByProductLine 会把产线清单之外的
+    // 会话全部塌进「历史」组，冷启动直达会话页时会话先返回、agents 后到，首帧会闪出整片历史组。
+    if (!productLineStore.ready) return [];
     const rows: CustomerSessionRow[] = bucket.items.map((item) => ({
         ...item,
         path: `chat/${item.id}`,
         title: item.title || '',
     }));
-    return groupSessionsByProductLine(rows, lines, new Date());
+    return groupSessionsByProductLine(rows, productLineStore.lines, new Date());
 });
+
+// 客户侧 agents 未就绪闸（AC-8.2）：此时会话区挂加载骨架，不显示「暂无会话」空态，
+// 也不渲染分组。短路保证管理员路径不实例化 productLine store（C6）。
+const customerLinesNotReady = computed(() => isCustomer.value && !useProductLineStore().ready);
 
 // 历史组是固定文案，不来自产线配置（A6）；产线组头直接用配置里的显示名
 const customerLineGroupLabel = (group: ProductLineGroup) => (group.isHistory ? t('time.history') : group.label);
