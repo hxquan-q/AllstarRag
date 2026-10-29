@@ -7,30 +7,30 @@ import { getRootZoom } from '@/utils/zoom'
  */
 export const MOBILE_LAYOUT_MAX_WIDTH = 1024
 
+/**
+ * 与 customer-mobile.css 的 @media (max-width: 1023px) 完全同口径。
+ * 不能用 zoom 换算查询：Chrome 里 html { zoom } 不改变 window.innerWidth，
+ * 也不改变媒体查询结果；再乘 zoom 会让 JS 与 CSS 判断分叉。
+ */
+export const MOBILE_LAYOUT_QUERY = '(max-width: 1023px)'
+
 /** useFont 在根字号真正变化后派发的事件名。 */
 const FONT_SCALE_EVENT = 'weknora:font-scale-change'
 
 /** 客户移动态写到 <html> 上的动态视口高度变量。 */
 const VIEWPORT_HEIGHT_VAR = '--app-visual-viewport-height'
 
-/** 把无效 zoom（0、NaN、负数）按 1 处理，避免除零和媒体查询写出非法值。 */
+/** 把无效 zoom（0、NaN、负数）按 1 处理，避免除零。 */
 function normalizeZoom(zoom: number): number {
   return Number.isFinite(zoom) && zoom > 0 ? zoom : 1
 }
 
 /**
- * 生成按根字号缩放换算后的媒体查询。
- * 例：baseline=1024、zoom=1.125 时返回 `(max-width: 1152px)`。
+ * 纯函数，便于单测：与媒体查询同口径，直接按视口宽度比较。
+ * zoom 只影响渲染尺寸，不参与断点判定。
  */
-export function scaledMaxWidthQuery(baselinePx: number, zoom: number): string {
-  return `(max-width: ${baselinePx * normalizeZoom(zoom)}px)`
-}
-
-/**
- * 纯函数，便于单测：把视觉宽度除以 zoom 换成 CSS px，再和断点比较。
- */
-export function resolveIsMobileLayout(width: number, zoom: number): boolean {
-  return width / normalizeZoom(zoom) < MOBILE_LAYOUT_MAX_WIDTH
+export function resolveIsMobileLayout(width: number): boolean {
+  return width < MOBILE_LAYOUT_MAX_WIDTH
 }
 
 export interface ResponsiveLayoutState {
@@ -43,8 +43,9 @@ export interface ResponsiveLayoutState {
 /**
  * 客户版移动布局/视口的唯一入口。
  *
- * - isMobileLayout：是否小于 1024 CSS px（已按根字号 zoom 换算）；
- * - viewportWidth / viewportHeight：CSS px，键盘弹出时高度会跟着 visualViewport 变；
+ * - isMobileLayout：以 matchMedia(MOBILE_LAYOUT_QUERY) 为准，与 CSS 媒体查询一致；
+ * - viewportWidth：window.innerWidth，与媒体查询同一口径；
+ * - viewportHeight：visualViewport 高度按根字号 zoom 换算成 CSS px，键盘弹出时跟着变；
  * - isCoarsePointer：触屏设备（可选判断，不参与布局）。
  *
  * 客户移动态会把实时高度写到 <html> 的 --app-visual-viewport-height，
@@ -78,15 +79,17 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
   }
 
   function measure() {
+    // 宽度与媒体查询同口径，不除以 zoom。
+    viewportWidth.value = window.innerWidth
     const zoom = normalizeZoom(getRootZoom())
-    viewportWidth.value = window.innerWidth / zoom
+    // 高度是 CSS 长度，需要除以 zoom 才是实际的 CSS px。
     const rawHeight =
       visualViewport && visualViewport.height > 0 ? visualViewport.height : window.innerHeight
     viewportHeight.value = rawHeight / zoom
     // 有 matchMedia 时以它为准；极端环境下退回纯函数计算。
     isMobileLayout.value = widthQuery
       ? widthQuery.matches
-      : resolveIsMobileLayout(window.innerWidth, zoom)
+      : resolveIsMobileLayout(window.innerWidth)
     syncViewportHeightVar()
   }
 
@@ -94,21 +97,11 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
     measure()
   }
 
-  /** 根字号变了，媒体查询里的缩放宽度也要重建。 */
-  function rebuildWidthQuery() {
-    if (widthQuery) {
-      widthQuery.removeEventListener('change', onViewportChange)
-      widthQuery = null
-    }
-    const zoom = normalizeZoom(getRootZoom())
-    if (typeof window.matchMedia === 'function') {
-      widthQuery = window.matchMedia(scaledMaxWidthQuery(MOBILE_LAYOUT_MAX_WIDTH, zoom))
-      widthQuery.addEventListener('change', onViewportChange)
-    }
-    measure()
+  if (typeof window.matchMedia === 'function') {
+    widthQuery = window.matchMedia(MOBILE_LAYOUT_QUERY)
+    widthQuery.addEventListener('change', onViewportChange)
   }
-
-  rebuildWidthQuery()
+  measure()
 
   if (typeof window.matchMedia === 'function') {
     coarseQuery = window.matchMedia('(pointer: coarse)')
@@ -121,13 +114,14 @@ export function useResponsiveLayout(): ResponsiveLayoutState {
   customerObserver.observe(root, { attributes: true, attributeFilter: ['data-customer'] })
 
   window.addEventListener('resize', onViewportChange)
-  window.addEventListener(FONT_SCALE_EVENT, rebuildWidthQuery)
+  // 根字号变化只影响高度换算，断点查询不重建（见 MOBILE_LAYOUT_QUERY 注释）。
+  window.addEventListener(FONT_SCALE_EVENT, onViewportChange)
   visualViewport?.addEventListener('resize', onViewportChange)
   visualViewport?.addEventListener('scroll', onViewportChange)
 
   function cleanup() {
     window.removeEventListener('resize', onViewportChange)
-    window.removeEventListener(FONT_SCALE_EVENT, rebuildWidthQuery)
+    window.removeEventListener(FONT_SCALE_EVENT, onViewportChange)
     visualViewport?.removeEventListener('resize', onViewportChange)
     visualViewport?.removeEventListener('scroll', onViewportChange)
     if (widthQuery) {
