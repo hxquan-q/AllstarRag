@@ -65,6 +65,10 @@
                         :aria-label="$t('createChat.clearProject')" @click="clearProjectDir">×</button>
                 </div>
                 <InputField ref="inputFieldRef" :customer-mode="isCustomer" @send-msg="sendMsg"></InputField>
+                <!-- 免责声明移到输入框下方居中（仅客户版） -->
+                <p v-if="isCustomer && brandConfig.chatDisclaimer" class="customer-disclaimer">
+                    {{ brandConfig.chatDisclaimer }}
+                </p>
             </div>
         </div>
     </div>
@@ -100,6 +104,7 @@ import { isCustomerViewer } from '@/config/customerAccess';
 import { useProductLineStore } from '@/stores/productLine';
 import CustomerTopBar from '@/components/customer/CustomerTopBar.vue';
 import CustomerWelcome from '@/components/customer/CustomerWelcome.vue';
+import { brandConfig } from '@/brand';
 
 const router = useRouter();
 const route = useRoute();
@@ -363,6 +368,18 @@ async function openProjectDir() {
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
+    // 浅色网格背景（替换原来的纯白底）
+    background-color: #F6F8FB;
+    background-image:
+        repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px),
+        repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
+}
+
+.customer-disclaimer {
+    margin: 8px 0 0;
+    text-align: center;
+    color: var(--td-text-color-placeholder);
+    font-size: var(--app-text-sm);
 }
 
 .dialogue-wrap.customer-shell .dialogue-answers {

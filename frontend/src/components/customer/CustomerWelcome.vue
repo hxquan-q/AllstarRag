@@ -2,7 +2,6 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
-import { brandConfig } from '@/brand'
 import type { ProductLine } from '@/brand/types'
 import { useProductLineStore } from '@/stores/productLine'
 
@@ -17,9 +16,12 @@ const emit = defineEmits<{
   send: [question: string]
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const productLineStore = useProductLineStore()
+
+/** 字标图片是中文的：只有中文环境替换标题文字，其他语言保留本地化文案。 */
+const isZhLocale = computed(() => String(locale.value).toLowerCase().startsWith('zh'))
 
 /** 折叠阈值：超过 4 条才出现「查看更多」（AC-12，2026-10-29 用户 E2E 反馈由 3 改 4）。 */
 const COLLAPSED_LINE_COUNT = 4
@@ -70,7 +72,11 @@ function ask(question: string): void {
 <template>
   <section class="customer-welcome" aria-labelledby="customer-welcome-title">
     <h1 id="customer-welcome-title" class="customer-welcome__title">
-      {{ t('brand.welcome.chooseAgent') }}
+      <!-- 中文环境用字标图片替换标题文案；其他语言保留本地化文字（图片是中文的） -->
+      <span v-if="isZhLocale" class="customer-welcome__wordmark" role="img" aria-label="选择你的 agent">
+        <img src="/brand/choose-agent-wordmark.png" alt="选择你的 agent" />
+      </span>
+      <template v-else>{{ t('brand.welcome.chooseAgent') }}</template>
     </h1>
     <p class="customer-welcome__subtitle">{{ t('brand.welcome.subtitle') }}</p>
 
@@ -117,10 +123,7 @@ function ask(question: string): void {
     </Transition>
 
     <!-- 产线 = 当前工作区绑定的 agent（无绑定时由上面的空态提示承担） -->
-
-    <p v-if="brandConfig.chatDisclaimer" class="customer-welcome__disclaimer">
-      {{ brandConfig.chatDisclaimer }}
-    </p>
+    <!-- 免责声明已移到输入框下方（creatChat 页面底部） -->
   </section>
 </template>
 
@@ -141,6 +144,27 @@ function ask(question: string): void {
   font-size: var(--app-text-4xl);
   font-weight: 600;
   line-height: 1.35;
+}
+
+/* 字标裁切容器：原图 2048×1152 白底，裁到文字主体（约 36px 视觉高度）；
+   白底用 multiply 融进浅色背景，正式素材透明化后可移除。 */
+.customer-welcome__wordmark {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  width: 205px;
+  height: 55px;
+  vertical-align: middle;
+}
+
+.customer-welcome__wordmark img {
+  position: absolute;
+  display: block;
+  width: 295px;
+  left: -48px;
+  top: -55px;
+  mix-blend-mode: multiply;
+  pointer-events: none;
 }
 
 .customer-welcome__subtitle {
@@ -263,11 +287,7 @@ function ask(question: string): void {
   opacity: 0;
 }
 
-.customer-welcome__disclaimer {
-  margin: var(--app-space-6) 0 0;
-  color: var(--td-text-color-placeholder);
-  font-size: var(--app-text-sm);
-}
+/* 免责声明已移到输入框下方（creatChat 客户版底部），此文件不再渲染 */
 
 @media (prefers-reduced-motion: reduce) {
   .line-card,

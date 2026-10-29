@@ -1,6 +1,7 @@
 <template>
     <div class="chat" :class="{
         'is-embedded': embeddedMode,
+        'customer-shell': isCustomer && !embeddedMode,
         'has-references-panel': referencesDrawerVisible,
         'has-sandbox-panel': sandboxPanel.visible.value,
     }" :style="{
@@ -2122,8 +2123,7 @@ onBeforeRouteUpdate((to, from, next) => {
     padding: 0;
     --chat-content-inset: 20px;
     box-sizing: border-box;
-    flex: 1;
-    // The parent .platform-route-outlet is a flex column with min-height:0
+    flex: 1;    // The parent .platform-route-outlet is a flex column with min-height:0
     // and overflow:hidden — we also need min-height:0 here so that our
     // own flex:1 child (.chat_thread) can shrink below its content height.
     min-height: 0;
@@ -2215,6 +2215,14 @@ onBeforeRouteUpdate((to, from, next) => {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+/* 客户版浅色网格背景（替换纯白底）；管理员路径不带 customer-shell，保持原样（C6） */
+.chat.customer-shell {
+    background-color: #F6F8FB;
+    background-image:
+        repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px),
+        repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
 }
 
 .chat-topbar {
