@@ -391,14 +391,23 @@ async function openProjectDir() {
 
 .dialogue-wrap.customer-shell .dialogue-answers {
     flex: 1;
-    // 字标在欢迎区头部垂直居中（CustomerWelcome 内部 flex 实现），其余内容排在其下方；
-    // 矮屏时整块可滚动，输入框保持在内容流末尾。
-    justify-content: flex-start;
-    padding-top: 0;
+    // 整个欢迎块（字标 + 选择卡片 + 示例问题 + 输入框）作为一块整体垂直居中：
+    // 字标在中间偏上，选择框与输入框紧挨其下，不留底部大空隙；矮屏时可滚动不裁切。
+    display: flex;
+    flex-direction: column;
     gap: var(--app-space-4);
+    padding: var(--app-space-4) 0;
     margin: 0 auto;
     min-height: 0;
     overflow-y: auto;
+}
+
+.dialogue-wrap.customer-shell .dialogue-answers > :first-child {
+    margin-top: auto;
+}
+
+.dialogue-wrap.customer-shell .dialogue-answers > :last-child {
+    margin-bottom: auto;
 }
 
 .dialogue-answers {

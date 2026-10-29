@@ -138,20 +138,13 @@ function ask(question: string): void {
   padding: 0 var(--app-space-4);
   box-sizing: border-box;
   text-align: center;
-  /* 占满剩余高度：字标在「头部区域」垂直居中，其余内容排在其下方 */
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
 }
 
 .customer-welcome__head {
-  flex: 1 1 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 0;
-  padding: var(--app-space-2) 0 0;
+  padding: 0 0 var(--app-space-2);
 }
 
 .customer-welcome__content {
