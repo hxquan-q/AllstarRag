@@ -1625,6 +1625,7 @@ definitions:
     - rbac.member_removed
     - rbac.member_role_changed
     - rbac.member_left
+    - rbac.member_password_reset
     - rbac.access_denied
     - rbac.invitation_sent
     - rbac.invitation_accepted
@@ -1689,6 +1690,7 @@ definitions:
     - AuditActionMemberRemoved
     - AuditActionMemberRoleChanged
     - AuditActionMemberLeft
+    - AuditActionMemberPasswordReset
     - AuditActionAccessDenied
     - AuditActionInvitationSent
     - AuditActionInvitationAccepted
@@ -7956,6 +7958,12 @@ definitions:
       pinned_at:
         description: PinnedAt records when the session was pinned; nil when not pinned.
         type: string
+      product_line:
+        description: |-
+          ProductLine 记录会话创建时所属的产线 id（来自前端 config.js 的产线清单）。
+          与 kind 一样只在创建时落定、此后不可改（PUT 白名单不含它）；fork 会继承。
+          空串 = 无产线标记，存量会话由此归入前端「历史」分组。
+        type: string
       sandbox_config_id:
         description: |-
           SandboxConfigID pins which sandbox config this session's CURRENT live
@@ -8105,6 +8113,12 @@ definitions:
         type: string
       pinned_at:
         description: PinnedAt records when the session was pinned; nil when not pinned.
+        type: string
+      product_line:
+        description: |-
+          ProductLine 记录会话创建时所属的产线 id（来自前端 config.js 的产线清单）。
+          与 kind 一样只在创建时落定、此后不可改（PUT 白名单不含它）；fork 会继承。
+          空串 = 无产线标记，存量会话由此归入前端「历史」分组。
         type: string
       sandbox_config_id:
         description: |-
@@ -13741,6 +13755,24 @@ definitions:
     required:
     - role
     type: object
+  internal_handler.createMemberAccountRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      role:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole'
+      username:
+        maxLength: 50
+        minLength: 2
+        type: string
+    required:
+    - email
+    - password
+    - role
+    - username
+    type: object
   internal_handler.createTenantRequest:
     properties:
       description:
@@ -13866,6 +13898,13 @@ definitions:
     - password
     - token
     - username
+    type: object
+  internal_handler.resetMemberPasswordRequest:
+    properties:
+      new_password:
+        type: string
+    required:
+    - new_password
     type: object
   internal_handler.resolveAncestorsRequest:
     properties:
@@ -14246,6 +14285,12 @@ definitions:
         enum:
         - ""
         - assistant
+        type: string
+      product_line:
+        description: |-
+          ProductLine 可选，创建时携带的产线 id（config.js 产线清单里的 id，最长 64）。
+          只在创建时落定，PUT 不接受修改；缺省为空串（归「历史」组）。
+        maxLength: 64
         type: string
       project_dir:
         description: |-
@@ -28937,6 +28982,117 @@ paths:
       security:
       - Bearer: []
       summary: 修改空间成员角色
+      tags:
+      - 空间成员
+  /tenants/{id}/members/{user_id}/reset-password:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，
+        Admin 只能重置 contributor/viewer；不能重置与自己同级或更高级的成员，也不能重置本人。
+        目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。
+        成功后旧密码立即失效，该用户所有已签发 token 被吊销。
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 新密码
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.resetMemberPasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 已重置（响应不含密码）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 参数或密码不合规 / 重置本人
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 角色越权
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标不是本空间成员
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 重置成员密码
+      tags:
+      - 空间成员
+  /tenants/{id}/members/create:
+    post:
+      consumes:
+      - application/json
+      description: |-
+        工作区 Owner（系统管理员按 Owner 处理）可创建 admin/contributor/viewer，
+        Admin 只能创建 viewer；任何人都不能创建 owner。一次请求完成建号与入组。
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 建号请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.createMemberAccountRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: 成员已创建（响应不含密码）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 参数或密码不合规 / 试图创建 owner
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 角色越权
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 邮箱或用户名已注册
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 创建成员账号并加入空间
       tags:
       - 空间成员
   /tenants/all:

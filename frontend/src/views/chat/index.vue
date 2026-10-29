@@ -7,7 +7,31 @@
         '--sandbox-panel-width': `${sandboxPanel.width.value}px`,
         '--references-panel-width': `${referencesPanelWidth}px`,
     }">
-        <div v-if="!embeddedMode" class="chat-topbar">
+        <!-- 客户版顶栏与 .chat-topbar 同高同边框，直接替换 ChatHeader，避免出现两条顶栏；
+             沙箱开关沿用原控件放进右侧 actions 插槽。管理员分支的 props/事件完全不变（C6）。 -->
+        <CustomerTopBar v-if="!embeddedMode && isCustomer" :title="currentSessionTitle">
+            <template v-if="currentSessionTitle" #title>{{ currentSessionTitle }}</template>
+            <template #actions>
+                <div v-if="!sandboxPanel.visible.value" class="sandbox-header-toggle">
+                    <t-tooltip placement="bottom">
+                        <template #content>{{ t('chatHeader.toggleSandboxPanel') }}</template>
+                        <button type="button" class="sandbox-header-toggle__btn"
+                            :aria-label="t('chatHeader.toggleSandboxPanel')" @click="sandboxPanel.open()">
+                            <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
+                                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                <rect x="1.5" y="1.5" width="17" height="17" rx="3" stroke="currentColor"
+                                    stroke-width="1.2" />
+                                <line x1="12.5" y1="1.5" x2="12.5" y2="18.5" stroke="currentColor"
+                                    stroke-width="1.2" />
+                                <line x1="16" y1="7.5" x2="16" y2="12.5" stroke="currentColor" stroke-width="1.2"
+                                    stroke-linecap="round" />
+                            </svg>
+                        </button>
+                    </t-tooltip>
+                </div>
+            </template>
+        </CustomerTopBar>
+        <div v-else-if="!embeddedMode" class="chat-topbar">
             <ChatHeader :session="currentSession" />
             <div v-if="!sandboxPanel.visible.value" class="sandbox-header-toggle">
                 <t-tooltip placement="bottom">
@@ -30,7 +54,7 @@
         <div v-show="!childTabs.activeId.value" class="chat_thread" :style="{ '--chat-composer-height': `${composerHeight}px`, '--chat-scrollbar-gutter': `${scrollbarGutter}px` }">
             <div ref="scrollContainer" class="chat_scroll_box" @scroll="handleScroll">
                 <div class="chat_scroll_content">
-                    <div class="msg_list" :class="{ 'is-embedded': embeddedMode }">
+                    <div class="msg_list" :class="{ 'is-embedded': embeddedMode, 'customer-session-leaving': customerSessionLeaving }">
                         <!-- 消息列表骨架屏 -->
                         <div v-if="historyLoading && messagesList.length === 0" class="msg-skeleton-list">
                             <div class="msg-skeleton msg-skeleton-user">
@@ -134,7 +158,7 @@
                                     :follow-up-loading="Boolean(session.suggestionLoading && !session.suggestionSet?.questions?.length)"
                                     :can-fork="!embeddedMode && forkAffordanceOf(session.id).canFork"
                                     :can-rewind="canRewindMessage(session.id)"
-                                    :can-ask-assistant="!embeddedMode"
+                                    :can-ask-assistant="!embeddedMode && !isCustomer"
                                     @fork="handleFork"
                                     @rewind="handleRewind"
                                     @ask-assistant="handleAskAssistant"
@@ -181,6 +205,7 @@
                         <span>{{ t('automation.conversationNotice') }}</span>
                     </div>
                     <InputField v-else-if="embeddedMode || currentSession" ref="inputFieldRef" :auto-focus="focusComposerOnMount" compact
+                        :customer-mode="isCustomer"
                         @send-msg="(query, modelId, mentionedItems, imageFiles, attachmentFiles, options) => sendMsg(query, modelId, mentionedItems, imageFiles, attachmentFiles, options)"
                         @steer-msg="(query, mentionedItems, delivery) => handleSteerMsg(query, mentionedItems, delivery)"
                         @promote-steer="handlePromoteSteer"
@@ -247,7 +272,7 @@ import {
 } from './components/hostApproval';
 import botmsg from './components/botmsg.vue';
 import usermsg from './components/usermsg.vue';
-import { getMessageList, getSession, forkSession, rewindSession } from "@/api/chat/index";
+import { getMessageList, getSession, forkSession, rewindSession, stopSession } from "@/api/chat/index";
 import { resolveForkAffordance } from './forkPoint';
 import { rewindSkipMessage } from './rewindNotice';
 import { rewindPrefillText, rewindBlockedByOutgoingWork, canReplaceRewindTranscript, shouldApplyRewindLocally, rewindHistoryHasMore, keepMessagesThroughRewindPoint, rewindableMessageIds, rewindHttpConflictCode, rewindConflictI18nKey } from './rewindView';
@@ -277,6 +302,10 @@ import ChatQuestionMinimap from '@/components/chat/ChatQuestionMinimap.vue';
 import { shouldShowConversationTimestamp } from '@/utils/messageTimestamp';
 import { historyHasMoreAfterAttempt } from '@/utils/historyPagination';
 import ChatHeader from '@/components/ChatHeader.vue';
+import CustomerTopBar from '@/components/customer/CustomerTopBar.vue';
+import { useAuthStore } from '@/stores/auth';
+import { isCustomerViewer } from '@/config/customerAccess';
+import { useProductLineStore } from '@/stores/productLine';
 import {
     notifySessionMutation,
     SESSION_MUTATION_EVENT,
@@ -377,6 +406,13 @@ const session_id = ref(props.session_id || route.params.chatid);
 watch(session_id, () => childTabs.reset(), { flush: 'sync' });
 const currentSession = ref(null);
 const isAutomationSession = computed(() => currentSession.value?.kind === 'automation');
+// 客户版顶栏只在 viewer 视角出现；角色未水合时按管理员处理（D8）
+const authStore = useAuthStore();
+const isCustomer = computed(() => isCustomerViewer(authStore));
+const currentSessionTitle = computed(() => {
+    const title = currentSession.value?.title;
+    return typeof title === 'string' ? title.trim() : '';
+});
 const backgroundItems = ref([]);
 const viewingWorkId = ref('');
 const workOutputVisible = ref(false);
@@ -482,6 +518,8 @@ useAssistantPageContext(() => {
     return { page: 'chat', chatSessionId: asked.sessionId, messageId: asked.messageId };
 });
 function handleAskAssistant(messageId) {
+    // 客户版不提供 WeKnora 助手入口（H2）；即使外部触发也不打开面板。
+    if (isCustomer.value) return;
     askedMessage.value = { sessionId: props.session_id, messageId };
     assistant.restorePageContext();
     assistant.open();
@@ -522,7 +560,9 @@ const composerApprovals = computed(() =>
 )
 
 const composerLocked = computed(() =>
-    isAutomationSession.value || (rewindInFlight.value && String(session_id.value || '') === rewindLockSessionId.value)
+    isAutomationSession.value
+    || sessionSwitching.value
+    || (rewindInFlight.value && String(session_id.value || '') === rewindLockSessionId.value)
 )
 
 function stashForkLanding(sessionId, text) {
@@ -757,6 +797,28 @@ watch([activitySessionId, isReplying, isImRecovering, currentAssistantMessageId]
     sessionActivity.update(activitySessionId.value, isReplying.value || isImRecovering.value, currentAssistantMessageId.value);
 }, { flush: 'sync' });
 const historyLoading = ref(true);
+
+// 客户版历史会话切换（AC-27）：旧消息先淡出再清空，新会话加载后自然淡入。
+// 淡出时长从 CSS 令牌 --app-motion-instant 读取，避免 JS/CSS 各写一份时长。
+const customerSessionLeaving = ref(false);
+let sessionSwitchSeq = 0;
+// 会话切换的淡出窗口（约 120ms）内 session_id 还指向旧会话，
+// 这段时间禁止发送/停止，避免请求打到旧会话（M9）。
+const sessionSwitching = ref(false);
+
+function motionTokenMs(token) {
+    if (typeof window === 'undefined') return 0;
+    const raw = getComputedStyle(document.documentElement).getPropertyValue(token).trim();
+    const value = Number.parseFloat(raw);
+    if (!Number.isFinite(value)) return 0;
+    return raw.endsWith('ms') ? value : value * 1000;
+}
+
+function prefersReducedMotion() {
+    return typeof window !== 'undefined'
+        && typeof window.matchMedia === 'function'
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 watch(activitySessionId, (id) => {
     if (!props.embeddedMode) sessionActivity.setViewing(id);
 }, { flush: 'sync' });
@@ -979,37 +1041,58 @@ watch([() => route.params], async (newvalue) => {
     // The host owns an embedded view's session; the route belongs to the page behind it.
     if (props.embeddedMode) return;
     isFirstEnter.value = true;
-    if (newvalue[0].chatid) {
-        if (!firstQuery.value) {
-            scrollLock.value = false;
+    const switchSeq = ++sessionSwitchSeq;
+    // 淡出窗口内 session_id 仍是旧会话：先锁住发送/停止，切换完成再解锁（M9）。
+    sessionSwitching.value = true;
+    try {
+        if (newvalue[0].chatid) {
+            if (!firstQuery.value) {
+                scrollLock.value = false;
+            }
+            // 客户版：旧内容先淡出 120ms（--app-motion-instant）再替换；
+            // 管理员、嵌入模式和“减少动态效果”下直接换，不额外等待。
+            if (isCustomer.value && messagesList.length > 0 && !prefersReducedMotion()) {
+                customerSessionLeaving.value = true;
+                await new Promise((resolve) => setTimeout(resolve, motionTokenMs('--app-motion-instant')));
+                if (switchSeq !== sessionSwitchSeq) return;
+            }
+            // 切换历史会话时默认展开会话列表（AC-29 / M5）。
+            // persist:false 只改内存态，不覆盖管理员的折叠偏好（C6 / M4）。
+            if (isCustomer.value && uiStore.sidebarCollapsed) {
+                uiStore.expandSidebar({ persist: false });
+            }
+            messagesList.splice(0);
+            customerSessionLeaving.value = false;
+            steerQueue.value = [];
+            session_id.value = newvalue[0].chatid;
+            currentSession.value = null;
+            clearCitationChunkCache();
+
+            // 切换会话时，重置状态
+            historyLoading.value = true;
+            historyLoadingMore.value = false;
+            hasMoreHistory.value = true;
+            created_at.value = '';
+            loading.value = false;
+            isReplying.value = false;
+            currentAssistantMessageId.value = '';
+            userHasScrolledUp.value = false;
+
+            // 跨会话切换：先把旧会话覆盖前的全局默认还原，再让新会话重新拍快照
+            // 并应用自己的 last_request_state（在 loadSessionAndHydrate 内部完成）。
+            useSettingsStoreInstance.restoreDefaultsIfSnapshotted();
+
+            await loadSessionAndHydrate(session_id.value);
+            let data = {
+                session_id: session_id.value,
+                created_at: '',
+                limit: limit.value
+            }
+            getmsgList(data);
         }
-        messagesList.splice(0);
-        steerQueue.value = [];
-        session_id.value = newvalue[0].chatid;
-        currentSession.value = null;
-        clearCitationChunkCache();
-
-        // 切换会话时，重置状态
-        historyLoading.value = true;
-        historyLoadingMore.value = false;
-        hasMoreHistory.value = true;
-        created_at.value = '';
-        loading.value = false;
-        isReplying.value = false;
-        currentAssistantMessageId.value = '';
-        userHasScrolledUp.value = false;
-
-        // 跨会话切换：先把旧会话覆盖前的全局默认还原，再让新会话重新拍快照
-        // 并应用自己的 last_request_state（在 loadSessionAndHydrate 内部完成）。
-        useSettingsStoreInstance.restoreDefaultsIfSnapshotted();
-
-        await loadSessionAndHydrate(session_id.value);
-        let data = {
-            session_id: session_id.value,
-            created_at: '',
-            limit: limit.value
-        }
-        getmsgList(data);
+    } finally {
+        // 被更新的切换顶掉时，由最新那次负责解锁。
+        if (switchSeq === sessionSwitchSeq) sessionSwitching.value = false;
     }
 });
 const scrollFollow = useChatScrollFollow(scrollContainer, userHasScrolledUp, computed(() => !childTabs.activeId.value));
@@ -1251,6 +1334,8 @@ const getmsgList = (data, isScrollType = false, scrollHeight) => {
 // 发送消息
 // 处理停止生成事件 - 立即清除 loading 状态
 const handleStopGeneration = () => {
+    // 切换窗口内 stopStream 仍指向旧会话，直接忽略（M9）。
+    if (sessionSwitching.value) return;
     console.log('[Stop Generation] Immediately clearing loading state');
     stopStream();
     loading.value = false;
@@ -1269,6 +1354,28 @@ const handleStopFailed = () => {
     isReplying.value = true;
     loading.value = true;
 };
+
+// ===== 客户态：会话详情页切产线 = 自动开新会话（customer-model-lines AC-13 / AC-14）=====
+// 懒创建产线 store（与 useCustomerAgent 同口径）：管理员不实例化，不留任何产线数据。
+const productLineStore = computed(() => (isCustomer.value ? useProductLineStore() : null));
+watch(() => productLineStore.value?.currentLineId, (lineId, prevLineId) => {
+    if (!isCustomer.value || props.embeddedMode) return;
+    // 首次观测（角色水合晚于挂载、store 才创建时 oldValue 为 undefined）只记基线，不跳转。
+    if (prevLineId === undefined || lineId === prevLineId) return;
+    // 生成中先按「停止」按钮同路径中止：前端立即停 + 后端停生成，不留写原会话的孤儿流（AC-14）。
+    if (loading.value || isReplying.value) {
+        handleStopGeneration();
+        const stoppingSessionId = String(session_id.value || '');
+        const stoppingMessageId = currentAssistantMessageId.value;
+        if (stoppingSessionId && stoppingMessageId) {
+            // 不 await：跳转不被停止请求卡住；失败只记录，不阻断切线。
+            stopSession(stoppingSessionId, stoppingMessageId).catch((error) => {
+                console.warn('[product-line] 停止原会话生成失败，继续切线:', error);
+            });
+        }
+    }
+    router.push('/platform/creatChat');
+});
 
 const dropSteerQueueItem = (steerId) => {
     if (!steerId) return;
@@ -1555,6 +1662,8 @@ const attachSteerFollowUp = async (completedAssistantId) => {
 };
 
 const sendMsg = async (value, modelId = '', mentionedItems = [], imageFiles = [], attachmentFiles = [], options = {}) => {
+    // 会话切换淡出窗口内 session_id 还是旧会话，直接丢弃这次发送（M9）。
+    if (sessionSwitching.value) return;
     if (!props.embeddedMode && !currentSession.value) {
         await loadSessionAndHydrate(session_id.value);
         if (!currentSession.value) return;

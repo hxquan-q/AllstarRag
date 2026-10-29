@@ -644,6 +644,7 @@ export default {
         'rbac.member_removed': '移除成員',
         'rbac.member_role_changed': '角色變更',
         'rbac.member_left': '成員退出',
+        'rbac.member_password_reset': '重設成員密碼',
         'rbac.access_denied': '存取被拒',
         'rbac.invitation_sent': '發出邀請',
         'rbac.invitation_accepted': '接受邀請',
@@ -691,6 +692,58 @@ export default {
       emailLabel: '電子信箱',
       emailPlaceholder: 'invitee{\'@\'}example.com',
       roleLabel: '角色'
+    },
+    create: {
+      button: '建立帳號',
+      dialogTitle: '建立新帳號',
+      description: '該電子信箱尚未註冊。填寫資訊即可建立帳號並加入目前空間。',
+      usernameLabel: '使用者名稱',
+      usernamePlaceholder: '2–50 個字元',
+      emailLabel: '電子信箱',
+      emailPlaceholder: 'invitee{\'@\'}example.com',
+      passwordLabel: '初始密碼',
+      passwordPlaceholder: '8–32 個字元',
+      roleLabel: '角色',
+      submit: '建立帳號',
+      success: '帳號已建立並加入目前工作區，請將初始密碼轉交對方。',
+      errors: {
+        usernameRequired: '請輸入使用者名稱',
+        usernameLength: '使用者名稱須為 2–50 個字元',
+        emailRequired: '請輸入電子信箱',
+        emailFormat: '電子信箱格式不正確',
+        passwordRequired: '請輸入初始密碼',
+        passwordLength: '密碼須為 8–32 個字元',
+        roleRequired: '請選擇角色',
+        emailExists: '電子信箱已註冊，可直接邀請/加入',
+        usernameExists: '使用者名稱已被使用',
+        invalidInput: '提交的參數不符規定，請檢查使用者名稱、電子信箱和角色',
+        passwordPolicy: '密碼不符要求（8–32 位；開啟複雜密碼時需包含大小寫字母、數字和特殊字元）',
+        forbidden: '目前角色無權建立該角色的帳號',
+        generic: '操作失敗，請稍後重試。'
+      }
+    },
+    resetPassword: {
+      button: '重設密碼',
+      dialogTitle: '重設成員密碼',
+      description: '為 {name} 設定新密碼。重設後對方的舊密碼和已登入的工作階段將立即失效。',
+      newPasswordLabel: '新密碼',
+      newPasswordPlaceholder: '8–32 個字元',
+      confirmPasswordLabel: '確認密碼',
+      confirmPasswordPlaceholder: '再次輸入新密碼',
+      submit: '重設密碼',
+      success: '密碼已重設，請將新密碼轉交對方。',
+      errors: {
+        passwordRequired: '請輸入新密碼',
+        passwordLength: '密碼須為 8–32 個字元',
+        confirmRequired: '請再次輸入新密碼',
+        passwordMismatch: '兩次輸入的密碼不一致',
+        passwordPolicy: '密碼不符要求（8–32 位；開啟複雜密碼時需包含大小寫字母、數字和特殊字元）',
+        cannotResetSelf: '不能在管理端重設自己的密碼，請使用「修改密碼」。',
+        forbidden: '目前角色無權重設該成員的密碼',
+        notFound: '該使用者不是目前空間的成員',
+        invalidInput: '提交的參數不符規定，請檢查後重試',
+        generic: '操作失敗，請稍後重試。'
+      }
     },
     role: {
       owner: '所有者',
@@ -4020,7 +4073,8 @@ export default {
     last30Days: '近30天',
     lastYear: '近1年',
     earlier: '更早',
-    pinned: '已置頂'
+    pinned: '已置頂',
+    history: '歷史'
   },
   platform: {
     subtitle: '大型語言模型驅動的企業級知識框架',
@@ -9254,6 +9308,36 @@ export default {
         },
       },
       description: '先觀察圖片特徵並進行圖片描述，再根據圖片特徵決定是否呼叫 OCR 對圖片進行辨識，以節省模型呼叫次數並提升解析速度。當辨識到圖片為可校正的文件或標籤頁照片時，會在辨識前自動擺正並裁切頁面，以提升 OCR 準確率；若校正失敗則直接使用原圖。',
+    },
+  },
+  brand: {
+    sidebarShow: '顯示會話清單',
+    loginHint: '帳號由管理員建立，忘記密碼請聯繫管理員',
+    emailLabel: '電子郵件',
+    emailPlaceholder: '輸入電子郵件地址',
+    passwordLabel: '密碼',
+    passwordPlaceholder: '輸入密碼',
+    loginButton: '登入',
+    loggingIn: '登入中...',
+    featureKnowledge: '企業知識，隨時可問',
+    featureInstant: '基於知識庫的準確回答',
+    featureAdmin: '帳號由管理員統一管理',
+    lineSelector: {
+      changeLine: '切換產品線',
+      currentLine: '目前產品線',
+      listLabel: '產品線清單',
+      empty: '暫無可用產品線',
+    },
+    welcome: {
+      title: '你好，歡迎使用{name}',
+      subtitle: '選擇產品線，然後直接提問',
+      lineGroupLabel: '產品線',
+      samplesLabel: '範例問題',
+      fallbackNotice: '產品線設定異常，已使用預設產品線',
+    },
+    settings: {
+      title: '常規',
+      description: '設定介面語言與外觀',
     },
   },
 }

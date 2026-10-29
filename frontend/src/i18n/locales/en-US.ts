@@ -5618,7 +5618,8 @@ export default {
       last30Days: 'Last 30 Days',
       lastYear: 'Last Year',
       earlier: 'Earlier',
-      pinned: 'Pinned'
+      pinned: 'Pinned',
+      history: 'History'
     },
     upload: {
       uploadDocument: 'Upload Document',
@@ -8955,6 +8956,58 @@ export default {
       emailPlaceholder: 'invitee{\'@\'}example.com',
       roleLabel: 'Role'
     },
+    create: {
+      button: 'New account',
+      dialogTitle: 'Create account',
+      description: 'This email is not registered yet. Fill in the details to create an account and add it to this workspace.',
+      usernameLabel: 'Username',
+      usernamePlaceholder: '2–50 characters',
+      emailLabel: 'Email',
+      emailPlaceholder: 'invitee{\'@\'}example.com',
+      passwordLabel: 'Initial password',
+      passwordPlaceholder: '8–32 characters',
+      roleLabel: 'Role',
+      submit: 'Create account',
+      success: 'Account created and added to this workspace. Please give the initial password to the user.',
+      errors: {
+        usernameRequired: 'Username is required',
+        usernameLength: 'Username must be 2–50 characters',
+        emailRequired: 'Email is required',
+        emailFormat: 'Invalid email address',
+        passwordRequired: 'Initial password is required',
+        passwordLength: 'Password must be 8–32 characters',
+        roleRequired: 'Role is required',
+        emailExists: 'This email is already registered; invite or add the existing user instead.',
+        usernameExists: 'This username is already taken.',
+        invalidInput: 'Invalid input. Check the username, email, and role.',
+        passwordPolicy: 'Password does not meet the policy (8–32 characters; with complexity enabled it needs uppercase, lowercase, digit and special character).',
+        forbidden: 'Your role cannot create an account with this role.',
+        generic: 'Something went wrong. Please try again.'
+      }
+    },
+    resetPassword: {
+      button: 'Reset password',
+      dialogTitle: 'Reset member password',
+      description: 'Set a new password for {name}. After reset, their old password and all signed-in sessions stop working immediately.',
+      newPasswordLabel: 'New password',
+      newPasswordPlaceholder: '8–32 characters',
+      confirmPasswordLabel: 'Confirm password',
+      confirmPasswordPlaceholder: 'Enter the new password again',
+      submit: 'Reset password',
+      success: 'Password reset. Please give the new password to the user.',
+      errors: {
+        passwordRequired: 'New password is required',
+        passwordLength: 'Password must be 8–32 characters',
+        confirmRequired: 'Please confirm the new password',
+        passwordMismatch: 'The two passwords do not match',
+        passwordPolicy: 'Password does not meet the policy (8–32 characters; with complexity enabled it needs uppercase, lowercase, digit and special character).',
+        cannotResetSelf: 'You cannot reset your own password here; use "Change password" instead.',
+        forbidden: 'Your role cannot reset this member\'s password.',
+        notFound: 'This user is not a member of this workspace.',
+        invalidInput: 'Invalid input. Please check and try again.',
+        generic: 'Something went wrong. Please try again.'
+      }
+    },
     remove: {
       button: 'Remove',
       confirmBody: 'Are you sure you want to remove {name} from this workspace? They will lose access immediately.',
@@ -9002,6 +9055,7 @@ export default {
         'rbac.member_removed': 'Member removed',
         'rbac.member_role_changed': 'Role changed',
         'rbac.member_left': 'Member left',
+        'rbac.member_password_reset': 'Member password reset',
         'rbac.access_denied': 'Access denied',
         'rbac.invitation_sent': 'Invitation sent',
         'rbac.invitation_accepted': 'Invitation accepted',
@@ -9265,5 +9319,35 @@ export default {
       description:
         'Observe the image attributes and describe the image first, then decide from the attributes whether to run OCR, saving model calls and speeding up parsing. When the image is recognised as a photograph of a correctable page or label, it is straightened and cropped before recognition to improve OCR accuracy; if that fails, the original image is used.'
     }
-  }
+  },
+  brand: {
+    sidebarShow: 'Show conversation list',
+    loginHint: 'Accounts are created by the administrator. Contact the administrator if you forgot your password.',
+    emailLabel: 'Email',
+    emailPlaceholder: 'Enter your email address',
+    passwordLabel: 'Password',
+    passwordPlaceholder: 'Enter your password',
+    loginButton: 'Log in',
+    loggingIn: 'Logging in...',
+    featureKnowledge: 'Enterprise knowledge, ready when you ask',
+    featureInstant: 'Accurate answers grounded in the knowledge base',
+    featureAdmin: 'Accounts are managed centrally by the administrator',
+    lineSelector: {
+      changeLine: 'Switch product line',
+      currentLine: 'Current product line',
+      listLabel: 'Product line list',
+      empty: 'No product line available',
+    },
+    welcome: {
+      title: 'Hi, welcome to {name}',
+      subtitle: 'Choose a product line, then ask away',
+      lineGroupLabel: 'Product lines',
+      samplesLabel: 'Example questions',
+      fallbackNotice: 'Product line configuration is invalid; using the default lines',
+    },
+    settings: {
+      title: 'General',
+      description: 'Set the interface language and appearance',
+    },
+  },
 }

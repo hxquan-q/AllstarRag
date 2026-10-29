@@ -5618,7 +5618,8 @@ export default {
       last30Days: '過去30日間',
       lastYear: '過去1年',
       earlier: 'それ以前',
-      pinned: 'ピン留め'
+      pinned: 'ピン留め',
+      history: '履歴'
     },
     upload: {
       uploadDocument: 'ドキュメントをアップロード',
@@ -8955,6 +8956,58 @@ export default {
       emailPlaceholder: 'invitee{\'@\'}example.com',
       roleLabel: 'ロール'
     },
+    create: {
+      button: 'アカウント作成',
+      dialogTitle: '新しいアカウントを作成',
+      description: 'このメールアドレスはまだ登録されていません。情報を入力すると、アカウントを作成してこのワークスペースに追加します。',
+      usernameLabel: 'ユーザー名',
+      usernamePlaceholder: '2〜50文字',
+      emailLabel: 'メールアドレス',
+      emailPlaceholder: 'invitee{\'@\'}example.com',
+      passwordLabel: '初期パスワード',
+      passwordPlaceholder: '8〜32文字',
+      roleLabel: 'ロール',
+      submit: 'アカウントを作成',
+      success: 'アカウントを作成し、このワークスペースに追加しました。初期パスワードを本人に伝えてください。',
+      errors: {
+        usernameRequired: 'ユーザー名は必須です',
+        usernameLength: 'ユーザー名は2〜50文字で入力してください',
+        emailRequired: 'メールアドレスは必須です',
+        emailFormat: 'メールアドレスの形式が正しくありません',
+        passwordRequired: '初期パスワードは必須です',
+        passwordLength: 'パスワードは8〜32文字で入力してください',
+        roleRequired: 'ロールは必須です',
+        emailExists: 'このメールアドレスは既に登録されています。既存ユーザーを招待または追加してください。',
+        usernameExists: 'このユーザー名は既に使われています。',
+        invalidInput: '入力内容が正しくありません。ユーザー名・メールアドレス・ロールを確認してください。',
+        passwordPolicy: 'パスワードがポリシーを満たしていません（8〜32文字。複雑なパスワードが有効な場合は大文字・小文字・数字・記号が必要です）。',
+        forbidden: '現在のロールではこのロールのアカウントを作成できません。',
+        generic: '問題が発生しました。もう一度お試しください。'
+      }
+    },
+    resetPassword: {
+      button: 'パスワードをリセット',
+      dialogTitle: 'メンバーのパスワードをリセット',
+      description: '{name} の新しいパスワードを設定します。リセット後、相手の旧パスワードとログイン中のセッションはすぐに無効になります。',
+      newPasswordLabel: '新しいパスワード',
+      newPasswordPlaceholder: '8〜32文字',
+      confirmPasswordLabel: 'パスワードの確認',
+      confirmPasswordPlaceholder: '新しいパスワードをもう一度入力',
+      submit: 'パスワードをリセット',
+      success: 'パスワードをリセットしました。新しいパスワードを本人に伝えてください。',
+      errors: {
+        passwordRequired: '新しいパスワードは必須です',
+        passwordLength: 'パスワードは8〜32文字で入力してください',
+        confirmRequired: '確認用パスワードを入力してください',
+        passwordMismatch: 'パスワードが一致しません',
+        passwordPolicy: 'パスワードがポリシーを満たしていません（8〜32文字。複雑なパスワードが有効な場合は大文字・小文字・数字・記号が必要です）。',
+        cannotResetSelf: '管理画面から自分のパスワードはリセットできません。「パスワード変更」を使用してください。',
+        forbidden: '現在のロールではこのメンバーのパスワードをリセットできません。',
+        notFound: 'このユーザーは現在のワークスペースのメンバーではありません。',
+        invalidInput: '入力内容が正しくありません。確認してもう一度お試しください。',
+        generic: '問題が発生しました。もう一度お試しください。'
+      }
+    },
     remove: {
       button: '削除',
       confirmBody: '{name}をこのワークスペースから削除してもよろしいですか？このユーザはすぐにアクセスできなくなります。',
@@ -9002,6 +9055,7 @@ export default {
         'rbac.member_removed': 'メンバー削除',
         'rbac.member_role_changed': 'ロール変更',
         'rbac.member_left': 'メンバー退出',
+        'rbac.member_password_reset': 'メンバーのパスワードをリセット',
         'rbac.access_denied': 'アクセス拒否',
         'rbac.invitation_sent': '招待送信',
         'rbac.invitation_accepted': '招待承諾',
@@ -9259,5 +9313,35 @@ export default {
       description:
         'まず画像の特徴を観察して説明を生成し、その特徴に基づいて OCR を実行するかどうかを判断します。モデル呼び出しを節約し、解析速度を向上させます 画像が補正可能な書類やラベルの写真と判定された場合、認識前にページを傾き補正・トリミングして OCR 精度を高めます。補正に失敗した場合は元の画像を使用します。'
     }
-  }
+  },
+  brand: {
+    sidebarShow: '会話リストを表示',
+    loginHint: 'アカウントは管理者が作成します。パスワードをお忘れの場合は管理者にお問い合わせください。',
+    emailLabel: 'メールアドレス',
+    emailPlaceholder: 'メールアドレスを入力',
+    passwordLabel: 'パスワード',
+    passwordPlaceholder: 'パスワードを入力',
+    loginButton: 'ログイン',
+    loggingIn: 'ログイン中...',
+    featureKnowledge: '企業の知識を、いつでも質問',
+    featureInstant: 'ナレッジベースに基づく正確な回答',
+    featureAdmin: 'アカウントは管理者が一元管理',
+    lineSelector: {
+      changeLine: '製品ラインを切り替え',
+      currentLine: '現在の製品ライン',
+      listLabel: '製品ライン一覧',
+      empty: '利用可能な製品ラインがありません',
+    },
+    welcome: {
+      title: 'こんにちは、{name}へようこそ',
+      subtitle: '製品ラインを選んで、そのまま質問できます',
+      lineGroupLabel: '製品ライン',
+      samplesLabel: '質問例',
+      fallbackNotice: '製品ラインの設定に問題があるため、既定の製品ラインを使用しています',
+    },
+    settings: {
+      title: '一般',
+      description: '画面の言語と外観を設定します',
+    },
+  },
 }

@@ -644,6 +644,7 @@ export default {
         'rbac.member_removed': '移除成员',
         'rbac.member_role_changed': '角色变更',
         'rbac.member_left': '成员退出',
+        'rbac.member_password_reset': '重置成员密码',
         'rbac.access_denied': '访问被拒',
         'rbac.invitation_sent': '发出邀请',
         'rbac.invitation_accepted': '接受邀请',
@@ -691,6 +692,58 @@ export default {
       emailLabel: '邮箱',
       emailPlaceholder: 'invitee{\'@\'}example.com',
       roleLabel: '角色'
+    },
+    create: {
+      button: '新建账号',
+      dialogTitle: '创建新账号',
+      description: '该邮箱尚未注册。填写信息即可创建账号并加入当前空间。',
+      usernameLabel: '用户名',
+      usernamePlaceholder: '2–50 个字符',
+      emailLabel: '邮箱',
+      emailPlaceholder: 'invitee{\'@\'}example.com',
+      passwordLabel: '初始密码',
+      passwordPlaceholder: '8–32 个字符',
+      roleLabel: '角色',
+      submit: '创建账号',
+      success: '账号已创建并加入当前工作区，请将初始密码转交对方。',
+      errors: {
+        usernameRequired: '请输入用户名',
+        usernameLength: '用户名须为 2–50 个字符',
+        emailRequired: '请输入邮箱',
+        emailFormat: '邮箱格式不正确',
+        passwordRequired: '请输入初始密码',
+        passwordLength: '密码须为 8–32 个字符',
+        roleRequired: '请选择角色',
+        emailExists: '邮箱已注册，可直接邀请/添加',
+        usernameExists: '用户名已被占用',
+        invalidInput: '提交的参数不合规，请检查用户名、邮箱和角色',
+        passwordPolicy: '密码不符合要求（8–32 位；开启复杂密码时需包含大小写字母、数字和特殊字符）',
+        forbidden: '当前角色无权创建该角色的账号',
+        generic: '操作失败，请稍后重试。'
+      }
+    },
+    resetPassword: {
+      button: '重置密码',
+      dialogTitle: '重置成员密码',
+      description: '为 {name} 设置新密码。重置后对方的旧密码和已登录会话将立即失效。',
+      newPasswordLabel: '新密码',
+      newPasswordPlaceholder: '8–32 个字符',
+      confirmPasswordLabel: '确认密码',
+      confirmPasswordPlaceholder: '再次输入新密码',
+      submit: '重置密码',
+      success: '密码已重置，请将新密码转交对方。',
+      errors: {
+        passwordRequired: '请输入新密码',
+        passwordLength: '密码须为 8–32 个字符',
+        confirmRequired: '请再次输入新密码',
+        passwordMismatch: '两次输入的密码不一致',
+        passwordPolicy: '密码不符合要求（8–32 位；开启复杂密码时需包含大小写字母、数字和特殊字符）',
+        cannotResetSelf: '不能在管理端重置自己的密码，请使用「修改密码」。',
+        forbidden: '当前角色无权重置该成员的密码',
+        notFound: '该用户不是当前空间的成员',
+        invalidInput: '提交的参数不合规，请检查后重试',
+        generic: '操作失败，请稍后重试。'
+      }
     },
     role: {
       owner: '所有者',
@@ -4020,7 +4073,8 @@ export default {
     last30Days: '近30天',
     lastYear: '近1年',
     earlier: '更早',
-    pinned: '已置顶'
+    pinned: '已置顶',
+    history: '历史'
   },
   platform: {
     subtitle: '大模型驱动的企业级知识框架',
@@ -9258,5 +9312,35 @@ export default {
       },
       description: '先观察图片特征并进行图片描述，再根据图片特征决定是否调用OCR对图片进行识别，以节省模型调用次数并提升解析速度。当识别到图片为可校正的文档或标签页照片时，会在识别前自动摆正并裁剪页面，以提升 OCR 准确率；若校正失败则直接使用原图。'
     }
-  }
+  },
+  brand: {
+    sidebarShow: '显示会话列表',
+    loginHint: '账号由管理员创建，忘记密码请联系管理员',
+    emailLabel: '邮箱',
+    emailPlaceholder: '输入邮箱地址',
+    passwordLabel: '密码',
+    passwordPlaceholder: '输入密码',
+    loginButton: '登录',
+    loggingIn: '登录中...',
+    featureKnowledge: '企业知识，随时可问',
+    featureInstant: '基于知识库的准确回答',
+    featureAdmin: '账号由管理员统一管理',
+    lineSelector: {
+      changeLine: '切换产品线',
+      currentLine: '当前产品线',
+      listLabel: '产品线列表',
+      empty: '暂无可用产品线',
+    },
+    welcome: {
+      title: '你好，欢迎使用{name}',
+      subtitle: '选择产品线，然后直接提问',
+      lineGroupLabel: '产品线',
+      samplesLabel: '示例问题',
+      fallbackNotice: '产品线配置异常，已使用默认产线',
+    },
+    settings: {
+      title: '常规',
+      description: '设置界面语言与外观',
+    },
+  },
 }

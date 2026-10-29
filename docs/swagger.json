@@ -22716,6 +22716,81 @@
                 }
             }
         },
+        "/tenants/{id}/members/create": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "工作区 Owner（系统管理员按 Owner 处理）可创建 admin/contributor/viewer，\nAdmin 只能创建 viewer；任何人都不能创建 owner。一次请求完成建号与入组。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "创建成员账号并加入空间",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "建号请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.createMemberAccountRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "成员已创建（响应不含密码）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "参数或密码不合规 / 试图创建 owner",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "邮箱或用户名已注册",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/tenants/{id}/members/{user_id}": {
             "put": {
                 "security": [
@@ -22803,6 +22878,88 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/members/{user_id}/reset-password": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，\nAdmin 只能重置 contributor/viewer；不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "重置成员密码",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "新密码",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.resetMemberPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "已重置（响应不含密码）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "参数或密码不合规 / 重置本人",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标不是本空间成员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -26270,6 +26427,7 @@
                 "rbac.member_removed",
                 "rbac.member_role_changed",
                 "rbac.member_left",
+                "rbac.member_password_reset",
                 "rbac.access_denied",
                 "rbac.invitation_sent",
                 "rbac.invitation_accepted",
@@ -26334,6 +26492,7 @@
                 "AuditActionMemberRemoved",
                 "AuditActionMemberRoleChanged",
                 "AuditActionMemberLeft",
+                "AuditActionMemberPasswordReset",
                 "AuditActionAccessDenied",
                 "AuditActionInvitationSent",
                 "AuditActionInvitationAccepted",
@@ -34145,6 +34304,10 @@
                     "description": "PinnedAt records when the session was pinned; nil when not pinned.",
                     "type": "string"
                 },
+                "product_line": {
+                    "description": "ProductLine 记录会话创建时所属的产线 id（来自前端 config.js 的产线清单）。\n与 kind 一样只在创建时落定、此后不可改（PUT 白名单不含它）；fork 会继承。\n空串 = 无产线标记，存量会话由此归入前端「历史」分组。",
+                    "type": "string"
+                },
                 "sandbox_config_id": {
                     "description": "SandboxConfigID pins which sandbox config this session's CURRENT live\nsandbox was created on. Empty means no live sandbox;\nSandboxConfigIDGlobalDefault means the deployment-wide default config.\n\nThis is an ephemeral pin that dies with the sandbox, not a permanent\nowner: sessions outlive sandboxes by months, so treating it as\npermanent would make \"no session references this config\" never true.",
                     "type": "string"
@@ -34304,6 +34467,10 @@
                 },
                 "pinned_at": {
                     "description": "PinnedAt records when the session was pinned; nil when not pinned.",
+                    "type": "string"
+                },
+                "product_line": {
+                    "description": "ProductLine 记录会话创建时所属的产线 id（来自前端 config.js 的产线清单）。\n与 kind 一样只在创建时落定、此后不可改（PUT 白名单不含它）；fork 会继承。\n空串 = 无产线标记，存量会话由此归入前端「历史」分组。",
                     "type": "string"
                 },
                 "sandbox_config_id": {
@@ -41810,6 +41977,31 @@
                 }
             }
         },
+        "internal_handler.createMemberAccountRequest": {
+            "type": "object",
+            "required": [
+                "email",
+                "password",
+                "role",
+                "username"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "role": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole"
+                },
+                "username": {
+                    "type": "string",
+                    "maxLength": 50,
+                    "minLength": 2
+                }
+            }
+        },
         "internal_handler.createTenantRequest": {
             "type": "object",
             "required": [
@@ -41986,6 +42178,17 @@
                     "type": "string"
                 },
                 "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handler.resetMemberPasswordRequest": {
+            "type": "object",
+            "required": [
+                "new_password"
+            ],
+            "properties": {
+                "new_password": {
                     "type": "string"
                 }
             }
@@ -42504,6 +42707,11 @@
                         "",
                         "assistant"
                     ]
+                },
+                "product_line": {
+                    "description": "ProductLine 可选，创建时携带的产线 id（config.js 产线清单里的 id，最长 64）。\n只在创建时落定，PUT 不接受修改；缺省为空串（归「历史」组）。",
+                    "type": "string",
+                    "maxLength": 64
                 },
                 "project_dir": {
                     "description": "ProjectDir is an optional Lite host-sandbox binding. When set it must\nbe an absolute path already present in the user-approved ProjectDirs\nlist. Empty means the session gets an auto-allocated workspace.",
