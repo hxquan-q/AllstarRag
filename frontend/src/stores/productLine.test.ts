@@ -107,10 +107,12 @@ interface HarnessOptions {
 interface StoreShape {
   lines: { value: Array<{ id: string; agentId: string; name: string; description: string; samples: string[] }> }
   ready: { value: boolean }
+  loadFailed: { value: boolean }
   currentLineId: { value: string }
   currentLine: { value: { id: string; name: string } | null }
   selectLine: (id: string) => void
   hydrate: () => void
+  retryBootstrapAgents: () => void
 }
 
 function createStore(options: HarnessOptions = {}) {
@@ -144,7 +146,9 @@ function createStore(options: HarnessOptions = {}) {
     loaded: options.agentsLoaded ?? true,
     ensureAgentsCalls: 0,
   })
-  const ensure = deferred()
+  // 每次调用发一个新的 deferred：失败后 store 会重试（F6），
+  // 重试必须拿到新的 pending promise，而不是复用已 rejected 的旧 promise。
+  const ensures: Deferred[] = []
   const samplesRequests: string[] = []
   const fakeChatResources = {
     get agents() {
@@ -156,7 +160,9 @@ function createStore(options: HarnessOptions = {}) {
     isLoaded: () => resources.loaded,
     ensureAgents: () => {
       resources.ensureAgentsCalls += 1
-      return ensure.promise
+      const pending = deferred()
+      ensures.push(pending)
+      return pending.promise
     },
   }
   const defineStore = (_id: string, setup: () => unknown) => setup
@@ -191,8 +197,8 @@ function createStore(options: HarnessOptions = {}) {
     authState,
     samplesRequests,
     ensureAgentsCalls: () => resources.ensureAgentsCalls,
-    resolveAgents: () => ensure.resolve(),
-    rejectAgents: (error: Error) => ensure.reject(error),
+    resolveAgents: () => ensures.at(-1)?.resolve(),
+    rejectAgents: (error: Error) => ensures.at(-1)?.reject(error),
     close: () => {
       stops.forEach((stop) => stop())
       storage.restore()
@@ -372,6 +378,63 @@ test('a failed agents fetch keeps ready=false so the empty state stays hidden (A
     await flush()
     assert.equal(h.store.ready.value, false)
     assert.deepEqual(plain(h.store.lines.value), [])
+  } finally {
+    h.close()
+  }
+})
+
+test('a failed agents fetch sets loadFailed so the welcome area can offer retry (AC-10 / F6)', async () => {
+  const h = defaultHarness({ agents: [], agentsLoaded: false })
+  try {
+    await flush()
+    h.rejectAgents(new Error('agents unavailable'))
+    await flush()
+    assert.equal(h.store.ready.value, false, 'failure must not flip ready')
+    assert.equal(h.store.loadFailed.value, true, 'failure must be observable for the retry UI')
+    assert.deepEqual(plain(h.store.lines.value), [])
+  } finally {
+    h.close()
+  }
+})
+
+test('retryBootstrapAgents re-fetches and flips ready after a failure (AC-10 / F6)', async () => {
+  const h = defaultHarness({ agents: [], agentsLoaded: false })
+  try {
+    await flush()
+    h.rejectAgents(new Error('agents unavailable'))
+    await flush()
+    assert.equal(h.store.loadFailed.value, true)
+
+    h.store.retryBootstrapAgents()
+    assert.equal(h.ensureAgentsCalls(), 2, 'retry must issue a fresh agents request')
+    h.resources.agents = [AGENT_A, AGENT_B]
+    h.resources.loaded = true
+    h.resolveAgents()
+    await flush()
+
+    assert.equal(h.store.ready.value, true)
+    assert.equal(h.store.loadFailed.value, false, 'a successful retry clears the failure flag')
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-a', 'agent-b'])
+  } finally {
+    h.close()
+  }
+})
+
+test('switching accounts resets loadFailed and re-bootstraps (AC-10 / F6)', async () => {
+  const h = defaultHarness({ agents: [], agentsLoaded: false })
+  try {
+    await flush()
+    h.rejectAgents(new Error('agents unavailable'))
+    await flush()
+    assert.equal(h.store.loadFailed.value, true)
+
+    h.authState.user = {
+      id: 'user-2',
+      preferences: { bound_agent_ids_by_tenant: { '1': ['agent-a'] } },
+    }
+    await flush()
+    assert.equal(h.store.loadFailed.value, false, 'a new account starts from a clean failure state')
+    assert.equal(h.ensureAgentsCalls(), 2, 'the new account bootstraps its own agents')
   } finally {
     h.close()
   }

@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
+	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/gin-gonic/gin"
@@ -20,17 +23,23 @@ import (
 
 type bindingAgentService struct {
 	interfaces.CustomAgentService
-	agents map[uint64]map[string]*types.CustomAgent
-	calls  []string
+	agents    map[uint64]map[string]*types.CustomAgent
+	calls     []string
+	hardError error
 }
 
 func (s *bindingAgentService) GetAgentByID(ctx context.Context, id string) (*types.CustomAgent, error) {
 	tenantID, _ := types.TenantIDFromContext(ctx)
 	s.calls = append(s.calls, fmt.Sprintf("%d/%s", tenantID, id))
+	if s.hardError != nil {
+		return nil, s.hardError
+	}
 	if agent, ok := s.agents[tenantID][id]; ok {
 		return agent, nil
 	}
-	return nil, fmt.Errorf("agent %q not found", id)
+	// 不存在（含属于其他工作区）返回 sentinel（F8 契约）：
+	// handler 据此把「查不到」映射 400，其余错误映射 500。
+	return nil, service.ErrAgentNotFound
 }
 
 type bindingDisabledRepo struct {
@@ -175,9 +184,33 @@ func TestValidateBoundAgentIDsRejectsCrossTenantAndUnknown(t *testing.T) {
 	_, err := h.validateBoundAgentIDs(tenantContext(7), 7, []string{"other-tenant-agent"})
 
 	require.Error(t, err)
+	// 不存在/跨工作区走 sentinel → 400 校验错误（F8：与内部错误的 500 区分开）。
+	var appErr *apperrors.AppError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, http.StatusBadRequest, appErr.HTTPCode)
 	require.Contains(t, err.Error(), "other-tenant-agent")
 	require.NotContains(t, err.Error(), "workspace 8")
 	require.NotContains(t, err.Error(), "tenant 8")
+}
+
+func TestValidateBoundAgentIDsMapsInternalLookupErrorTo500(t *testing.T) {
+	// F8：GetAgentByID 的内部错误（DB 故障等）不是「agent 不存在」，必须按 500
+	// fail-closed 拒绝，不能误报成 400 的可绑定性结论，也不得把内部错误当文案透出。
+	h, _, agents := newBindingHandler(
+		map[uint64][]string{7: {"db-down-agent"}}, nil, types.UserPreferences{})
+	agents.hardError = fmt.Errorf("connection refused")
+
+	_, err := h.validateBoundAgentIDs(tenantContext(7), 7, []string{"db-down-agent"})
+
+	require.Error(t, err)
+	var appErr *apperrors.AppError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, http.StatusInternalServerError, appErr.HTTPCode)
+	require.Equal(t, "Failed to validate bound agents", appErr.Message)
+	require.NotContains(t, err.Error(), "db-down-agent",
+		"内部错误不得误报成带 agent id 的不存在/不可绑定话术")
+	require.NotContains(t, err.Error(), "connection refused",
+		"底层错误细节不得直接进响应文案")
 }
 
 func TestValidateBoundAgentIDsRejectsDisabledAgent(t *testing.T) {
@@ -219,9 +252,9 @@ func TestUpdateMyPreferencesWritesOnlyActiveTenantBinding(t *testing.T) {
 	require.Empty(t, c.Errors)
 	require.Equal(t, 1, users.calls)
 	require.Equal(t, "u-1", users.updatedID)
-	// 活动工作区 7 被整批覆盖；工作区 8 原样保留（AC-1 跨工作区不互相覆盖）。
-	require.Equal(t, []string{"c"}, users.patch.BoundAgentIDsByTenant["7"])
-	require.Equal(t, []string{"b"}, users.patch.BoundAgentIDsByTenant["8"])
+	// F3 新契约：handler 只传当前活动工作区一个键，不再回传整张合并 map——
+	// 工作区 8 的保留由 service 重读 user 行后逐键合并完成（断言在 service 层测试）。
+	require.Equal(t, map[string][]string{"7": {"c"}}, users.patch.BoundAgentIDsByTenant)
 	require.NotNil(t, users.patch.LastActiveTenantID)
 	require.Equal(t, uint64(7), *users.patch.LastActiveTenantID)
 	// 实现不得原地改写用户对象里的旧 map。
@@ -239,9 +272,9 @@ func TestUpdateMyPreferencesEmptyArrayClearsOnlyActiveTenant(t *testing.T) {
 	require.Equal(t, 200, w.Code)
 	require.Empty(t, c.Errors)
 	require.Equal(t, 1, users.calls)
-	_, kept := users.patch.BoundAgentIDsByTenant["7"]
-	require.False(t, kept, "空数组必须删除该工作区的键，不留空数组")
-	require.Equal(t, []string{"b"}, users.patch.BoundAgentIDsByTenant["8"])
+	// F3 新契约：空数组也显式传当前工作区键（键必须在），「删键」由 service
+	// 逐键合并完成；其他工作区键不出现在 patch 里。
+	require.Equal(t, map[string][]string{"7": {}}, users.patch.BoundAgentIDsByTenant)
 }
 
 func TestUpdateMyPreferencesMissingKeyLeavesAllTenantsUntouched(t *testing.T) {

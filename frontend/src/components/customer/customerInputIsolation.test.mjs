@@ -16,6 +16,12 @@ const userMenu = readFileSync(new URL('../UserMenu.vue', import.meta.url), 'utf8
 const chatView = readFileSync(new URL('../../views/chat/index.vue', import.meta.url), 'utf8')
 const platformView = readFileSync(new URL('../../views/platform/index.vue', import.meta.url), 'utf8')
 const settingsView = readFileSync(new URL('../../views/settings/Settings.vue', import.meta.url), 'utf8')
+const customerWelcome = readFileSync(new URL('./CustomerWelcome.vue', import.meta.url), 'utf8')
+const productLineStore = readFileSync(new URL('../../stores/productLine.ts', import.meta.url), 'utf8')
+const locales = ['zh-CN', 'zh-TW', 'en-US', 'ja-JP', 'ko-KR', 'ru-RU'].map((lang) => ({
+  lang,
+  source: readFileSync(new URL(`../../i18n/locales/${lang}.ts`, import.meta.url), 'utf8'),
+}))
 
 test('M7 customer send drops hidden KB / file / MCP selections', () => {
   // 发送与 steer 两条路径都按客户模式清空提及与附件。
@@ -100,4 +106,58 @@ test('AC-11 customer menu exposes a direct agent line settings entry', () => {
     userMenu,
     /const handleQuickNav = \(section: string\) => \{[\s\S]*?router\.push\(\{ path: '\/platform\/settings', query: \{ section \} \}\)/,
   )
+})
+
+test('F1 customer sidebar gates line grouping on agents readiness (AC-8.2)', () => {
+  // 未就绪时 customerLineGroups 必须返回空：分组助手会把产线清单之外的会话
+  // 全部塌进「历史」组，所以 ready 闸要放在调用 groupSessionsByProductLine 之前。
+  const groupsStart = menuVue.indexOf('const customerLineGroups = computed')
+  const groupsCall = menuVue.indexOf('groupSessionsByProductLine(rows', groupsStart)
+  assert.ok(groupsStart >= 0, 'customerLineGroups computed must exist')
+  assert.ok(groupsCall > groupsStart, 'customerLineGroups must call the grouping helper')
+  const groupsBlock = menuVue.slice(groupsStart, groupsCall)
+  assert.match(
+    groupsBlock,
+    /if \(!productLineStore\.ready\) return \[\]/,
+    'not-ready must yield no groups (no collapse into the history group)',
+  )
+  // 骨架闸：未就绪时会话区挂加载骨架，不落「暂无会话」空态；短路保证管理员不实例化 store（C6）。
+  assert.match(
+    menuVue,
+    /const customerLinesNotReady = computed\(\(\) => isCustomer\.value && !useProductLineStore\(\)\.ready\)/,
+  )
+  assert.match(menuVue, /\|\| customerLinesNotReady\) && filteredGroupedSessions\.length === 0/)
+})
+
+test('F6 agents fetch failure surfaces a retry in the welcome area (AC-10)', () => {
+  // store：失败可观测（loadFailed 置位）且可重试（清 promise 再拉新请求）。
+  assert.match(productLineStore, /const loadFailed = ref\(false\)/)
+  assert.match(productLineStore, /\.catch\(\(error\) => \{[\s\S]*?loadFailed\.value = true/)
+  assert.match(
+    productLineStore,
+    /function retryBootstrapAgents\(\): void \{[\s\S]*?bootstrapPromise = null[\s\S]*?bootstrapAgents\(\)/,
+  )
+  // 欢迎区：loadFailed 且没有任何产线时渲染「加载失败 + 重试」，重试走 store。
+  assert.match(
+    customerWelcome,
+    /const showLoadFailed = computed\(\(\) => productLineStore\.loadFailed && lines\.value\.length === 0\)/,
+  )
+  assert.match(customerWelcome, /v-if="showLoadFailed"[^>]*role="alert"/)
+  assert.match(customerWelcome, /\{\{ t\('brand\.welcome\.loadFailed'\) \}\}/)
+  assert.match(customerWelcome, /\{\{ t\('brand\.welcome\.retry'\) \}\}/)
+  assert.match(
+    customerWelcome,
+    /function retryLoadAgents\(\): void \{[\s\S]*?productLineStore\.retryBootstrapAgents\(\)/,
+  )
+})
+
+test('F6 welcome loadFailed / retry i18n keys exist in all six locales', () => {
+  // 键位对齐由 npm run check-i18n 兜底；这里直接钉住六个语言文件里
+  // brand.welcome 块（以 chooseAgent 为锚，避开其他同名 welcome 块）都补齐了两个新 key。
+  for (const { lang, source } of locales) {
+    const block = source.match(/welcome: \{[^}]*chooseAgent[^}]*\}/)
+    assert.ok(block, `brand.welcome block (anchored on chooseAgent) not found in ${lang}`)
+    assert.match(block[0], /loadFailed["']?\s*:/, `${lang} must define brand.welcome.loadFailed`)
+    assert.match(block[0], /retry["']?\s*:/, `${lang} must define brand.welcome.retry`)
+  }
 })
