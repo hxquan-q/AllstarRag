@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import test from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -767,4 +768,111 @@ test('component-level L9: welcome / creatChat / auth mobile blocks stay page-loc
   // 两个认证页只挂在登录/引导路由上，不成为管理端页面。
   assert.match(router, /path: "\/login",[\s\S]*?views\/auth\/Login\.vue/)
   assert.match(router, /path: "\/onboarding\/workspace",[\s\S]*?views\/auth\/WorkspaceOnboarding\.vue/)
+})
+
+// ---------------------------------------------------------------------------
+// 10. F21 / F22：≤360 字标规则必须在全局作用域
+//
+// F21 根因（真机 320/360 整页只有 146px 宽）：scoped 样式里的
+// `:global(html[data-customer="true"]) .customer-topbar__wordmark { width: ... }`
+// 被 Vue 编译成只剩 `html[data-customer="true"] { width: ... }`，后代被丢弃，
+// 于是 360px 以下整页被套上 146px 宽的规则。修复是把规则移到全局
+// customer-mobile.css，并在此加源码级 + 编译级守卫。
+// ---------------------------------------------------------------------------
+
+/** 去掉 HTML / CSS 块 / Less 行注释，只留可执行代码，避免注释误报。 */
+function stripSourceComments(source) {
+  return stripCssComments(source.replace(/<!--[\s\S]*?-->/g, '')).replace(/(^|\s)\/\/[^\n]*/g, '$1')
+}
+
+test('F22: no .vue file uses :global(html[...]) descendant selectors (F21 regression guard)', () => {
+  const srcRoot = fileURLToPath(new URL('../../', import.meta.url))
+  const offenders = walkSourceFiles(srcRoot)
+    .filter((file) => file.endsWith('.vue'))
+    .filter((file) => stripSourceComments(readFileSync(file, 'utf8')).includes(':global(html['))
+    .map((file) => file.slice(srcRoot.length).replace(/\\/g, '/'))
+
+  // 现阶段应有 0 处代码用法；仅注释里可以出现（注释已被 stripSourceComments 剔除）。
+  // 后续若需要 html 级规则，放进 customer-mobile.css 的全局作用域，不要回到 scoped :global。
+  assert.deepEqual(offenders, [])
+})
+
+test('F22: <=360 wordmark shrink rules live in customer-mobile.css with descendant kept', () => {
+  const wordmark360 = ruleBlocks(mobileCss, '.customer-topbar__wordmark').filter(
+    (block) => block.parentPrelude === '@media (max-width: 360px)',
+  )
+
+  const boxRule = wordmark360.find(
+    (block) => block.prelude === 'html[data-customer="true"] .customer-topbar__wordmark',
+  )
+  assert.ok(boxRule, '<=360 wordmark box rule missing from customer-mobile.css')
+  assert.match(boxRule.body, /width:\s*88px;/)
+  assert.match(boxRule.body, /height:\s*26px;/)
+  assert.match(boxRule.body, /flex:\s*0 0 88px;/)
+
+  const imgRule = wordmark360.find(
+    (block) => block.prelude === 'html[data-customer="true"] .customer-topbar__wordmark img',
+  )
+  assert.ok(imgRule, '<=360 wordmark img rule missing from customer-mobile.css')
+  assert.match(imgRule.body, /width:\s*146px;/)
+  assert.match(imgRule.body, /left:\s*-30px;/)
+  assert.match(imgRule.body, /top:\s*-27px;/)
+
+  // 守卫自身不空转：这两条规则必须真的落在 @media (max-width: 360px) 里。
+  assert.equal(wordmark360.length, 2, 'expected exactly two wordmark rules inside <=360 media block')
+})
+
+test('F22: CustomerTopBar scoped style no longer carries the <=360 wordmark overrides', () => {
+  const topBarStyle = stripStyleComments(styleBlock(topBar))
+  assert.ok(topBarStyle.length > 0, 'CustomerTopBar style block not found')
+  assert.doesNotMatch(topBarStyle, /:global\(html\[/)
+
+  // 将来若真在组件里加 360 媒体查询，也不得再放字标缩放规则（应写进全局 CSS）。
+  const at360 = topBarStyle.indexOf('@media (max-width: 360px)')
+  if (at360 >= 0) {
+    const block360 = extractBalancedBlock(topBarStyle, topBarStyle.indexOf('{', at360))
+    assert.doesNotMatch(block360, /customer-topbar__wordmark/)
+  }
+})
+
+test('F22: compiled CustomerTopBar scoped CSS has no bare html[data-customer] selector', (t) => {
+  const requireFromHere = createRequire(import.meta.url)
+  let compiler
+  try {
+    compiler = requireFromHere('@vue/compiler-sfc')
+  } catch (error) {
+    t.skip(`@vue/compiler-sfc unavailable: ${error.code || error.message}`)
+    return
+  }
+
+  const styleTag = topBar.match(/<style[^>]*>/)
+  const preprocessLang = styleTag ? /\blang="(\w+)"/.exec(styleTag[0])?.[1] : undefined
+  if (preprocessLang === 'less') {
+    try {
+      requireFromHere('less')
+    } catch (error) {
+      t.skip(`less preprocessor unavailable: ${error.code || error.message}`)
+      return
+    }
+  }
+
+  const result = compiler.compileStyle({
+    filename: 'CustomerTopBar.vue',
+    id: 'data-v-f22',
+    source: styleBlock(topBar),
+    scoped: true,
+    preprocessLang,
+  })
+  assert.deepEqual(result.errors, [], 'compileStyle reported errors')
+
+  // 防假绿：确认确实编译出了组件选择器（不是空产物）。
+  assert.match(result.code, /\.customer-topbar__wordmark\[data-v-f22\]/)
+
+  // F21 的编译产物形状是 `html[data-customer='true'] { width: 146px; ... }`；
+  // 这里要求 scoped 产物完全不含裸 html 选择器——此类规则只允许在 customer-mobile.css。
+  assert.doesNotMatch(
+    result.code,
+    /html\[data-customer/,
+    'scoped style compiled into a bare html[data-customer] selector (descendant dropped, F21)',
+  )
 })
