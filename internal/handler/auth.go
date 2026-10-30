@@ -205,6 +205,7 @@ func (h *SystemHandler) complexPasswordEnabled(ctx context.Context) bool {
 // @Success      201      {object}  types.RegisterResponse
 // @Failure      400      {object}  errors.AppError  "请求参数错误"
 // @Failure      403      {object}  errors.AppError  "注册功能已禁用"
+// @Failure      429      {object}  errors.AppError  "too many requests"
 // @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -285,6 +286,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // @Param        request  body      types.LoginRequest  true  "登录请求参数"
 // @Success      200      {object}  types.LoginResponse
 // @Failure      401      {object}  errors.AppError  "认证失败"
+// @Failure      429      {object}  errors.AppError  "too many requests"
 // @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	ctx := c.Request.Context()
