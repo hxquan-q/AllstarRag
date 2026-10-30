@@ -2159,6 +2159,11 @@ const createSession = async (
   delivery: 'inject' | 'after' = 'after',
   options: SendMessageOptions = {},
 ) => {
+  // 客户未绑定 agent：不发送、不建会话，先弹提示（W7）；关闭后可再次触发。
+  if (props.customerMode && productLineStore.value?.ready && (productLineStore.value?.lines.length ?? 0) === 0) {
+    uiStore.openCustomerNoAgentDialog();
+    return;
+  }
   if (props.composerLocked) {
     return;
   }

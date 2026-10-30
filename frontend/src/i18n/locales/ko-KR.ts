@@ -9346,6 +9346,10 @@ export default {
       loadFailed: '에이전트 목록을 불러오지 못했습니다',
       retry: '다시 시도',
     },
+    noAgent: {
+      title: '에이전트가 연결되지 않았습니다',
+      desc: '설정에서 에이전트를 연결한 후 질문하세요.',
+    },
     settings: {
       title: '일반',
       description: '인터페이스 언어와 모양을 설정합니다',

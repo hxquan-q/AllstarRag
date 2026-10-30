@@ -9342,6 +9342,10 @@ export default {
       loadFailed: '智慧體列表載入失敗',
       retry: '重試',
     },
+    noAgent: {
+      title: '尚未綁定 agent',
+      desc: '請先在設定中綁定 agent，然後就可以開始提問了。',
+    },
     settings: {
       title: '常規',
       description: '設定介面語言與外觀',

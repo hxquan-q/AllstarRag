@@ -30,6 +30,8 @@
         </div>
         <!-- 全局设置模态框，供所有 platform 子路由使用 -->
         <Settings />
+        <!-- 客户未绑定 agent 提示弹窗：只挂客户壳，管理端任意宽度都不渲染（C6 / W10）。 -->
+        <CustomerNoAgentDialog v-if="isCustomer" />
         <!-- 全局命令面板 (⌘K)，随 platform 路由存活 -->
         <GlobalCommandPalette />
         <!-- 知识库文件上传进度浮层：上传队列放在 store 里，切换页面不中断 -->
@@ -52,6 +54,7 @@ import AssistantLauncher from '@/components/assistant/AssistantLauncher.vue'
 import AssistantPageBridge from '@/components/assistant/AssistantPageBridge.vue'
 import UploadTasksPanel from '@/components/upload-tasks/UploadTasksPanel.vue'
 import NewUserGuide from '@/components/NewUserGuide.vue'
+import CustomerNoAgentDialog from '@/components/customer/CustomerNoAgentDialog.vue'
 import { useCommandPaletteStore } from '@/stores/commandPalette'
 import { useChatResourcesStore } from '@/stores/chatResources'
 import { useUIStore } from '@/stores/ui'
@@ -335,6 +338,8 @@ onUnmounted(() => {
 // 避免下次进入时遮罩/锁定状态残留。
 onBeforeUnmount(() => {
     uiStore.closeMobileDrawer();
+    // 未绑定弹窗也是内存态：退出平台壳时收掉，避免下次进入残留可见。
+    uiStore.closeCustomerNoAgentDialog();
     if (typeof document !== 'undefined') {
         document.documentElement.classList.remove('customer-mobile-drawer-open');
     }

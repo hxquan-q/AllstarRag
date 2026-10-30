@@ -9345,6 +9345,10 @@ export default {
       loadFailed: '智能体列表加载失败',
       retry: '重试',
     },
+    noAgent: {
+      title: '还没有绑定 agent',
+      desc: '请先在设置中绑定 agent，然后就可以开始提问了。',
+    },
     settings: {
       title: '常规',
       description: '设置界面语言与外观',

@@ -9352,6 +9352,10 @@ export default {
       loadFailed: 'Failed to load the agent list',
       retry: 'Retry',
     },
+    noAgent: {
+      title: 'No agent bound',
+      desc: 'Bind an agent in settings before asking questions.',
+    },
     settings: {
       title: 'General',
       description: 'Set the interface language and appearance',

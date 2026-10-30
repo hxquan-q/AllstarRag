@@ -9346,6 +9346,10 @@ export default {
       loadFailed: 'エージェント一覧の読み込みに失敗しました',
       retry: '再試行',
     },
+    noAgent: {
+      title: 'エージェントが未設定です',
+      desc: '設定でエージェントを紐付けてから質問してください。',
+    },
     settings: {
       title: '一般',
       description: '画面の言語と外観を設定します',

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useRouter } from 'vue-router'
 import type { ProductLine } from '@/brand/types'
 import { useProductLineStore } from '@/stores/productLine'
+import { useUIStore } from '@/stores/ui'
 
 /**
  * 客户新对话欢迎区：欢迎语 + 产线卡片 + 当前产线示例问题 + 底部提示。
@@ -17,8 +17,8 @@ const emit = defineEmits<{
 }>()
 
 const { t, locale } = useI18n()
-const router = useRouter()
 const productLineStore = useProductLineStore()
+const uiStore = useUIStore()
 
 /** 字标图片是中文的：只有中文环境替换标题文字，其他语言保留本地化文案。 */
 const isZhLocale = computed(() => String(locale.value).toLowerCase().startsWith('zh'))
@@ -39,6 +39,18 @@ const visibleLines = computed(() =>
 /** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
 const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
 /**
+ * 未绑定 agent 时进入欢迎页自动弹提示（W5）。
+ * 只在 agents 已就绪且确实 0 条时弹；加载失败走既有重试，不弹。
+ * 关闭后 store 不变不会重开；重新进入页面组件重挂载会再弹（W6）。
+ */
+watch(
+  () => [productLineStore.ready, productLineStore.loadFailed, lines.value.length] as const,
+  ([ready, failed, len]) => {
+    if (ready && !failed && len === 0) uiStore.openCustomerNoAgentDialog()
+  },
+  { immediate: true },
+)
+/**
  * agents 拉取失败且没有任何产线时给「加载失败 + 重试」，避免永久空窗（AC-10 失败兜底）。
  * 要求 !ready：与上面的空态（ready 且 0 条）严格互斥，不出现「空态 + 失败态」双块同现。
  */
@@ -52,10 +64,6 @@ function retryLoadAgents(): void {
 
 function toggleExpanded(): void {
   expanded.value = !expanded.value
-}
-
-function goBindAgents(): void {
-  void router.push({ path: '/platform/settings', query: { section: 'agentlines' } })
 }
 
 function chooseLine(line: ProductLine): void {
@@ -83,8 +91,6 @@ function ask(question: string): void {
     </div>
 
     <div class="customer-welcome__content">
-      <p v-if="lines.length === 0" class="customer-welcome__subtitle">{{ t('brand.welcome.subtitle') }}</p>
-
       <div id="customer-welcome-lines" class="customer-welcome__lines" role="group"
         :aria-label="t('brand.welcome.lineGroupLabel')">
         <button v-for="line in visibleLines" :key="line.id" type="button" class="line-card"
@@ -101,10 +107,7 @@ function ask(question: string): void {
         {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}
       </button>
 
-      <!-- 未绑定：不单独提示「还没有绑定智能体」，去绑定沿用原来的 sample-chip 按钮样式，紧跟副标题 -->
-      <button v-if="showEmptyState" type="button" class="sample-chip customer-welcome__bind-btn" @click="goBindAgents">
-        {{ t('brand.welcome.emptyAction') }}
-      </button>
+      <!-- 未绑定时不再在欢迎区显示副标题/去绑定按钮，改由可关闭弹窗承接（W5–W9）。 -->
 
       <!-- agents 拉取失败且无产线时给重试（AC-10 失败兜底）；复用空态容器与 sample-chip，不加新动效（C8）。 -->
       <div v-if="showLoadFailed" class="customer-welcome__empty" role="alert">
@@ -182,17 +185,6 @@ function ask(question: string): void {
   transform-origin: center center;
   mix-blend-mode: multiply;
   pointer-events: none;
-}
-
-.customer-welcome__subtitle {
-  margin: 0 0 var(--app-space-6);
-  color: var(--td-text-color-secondary);
-  font-size: var(--app-text-base);
-}
-
-/* 空态去绑定：沿用原 sample-chip 按钮外观，只收紧与副标题的间距 */
-.customer-welcome__bind-btn {
-  margin: calc(-1 * var(--app-space-3)) 0 var(--app-space-4);
 }
 
 .customer-welcome__lines {
@@ -343,7 +335,6 @@ function ask(question: string): void {
     top: -100%; // -66 / 66
   }
 
-  .customer-welcome__subtitle,
   .customer-welcome__empty-text {
     max-width: 100%;
     overflow-wrap: anywhere;
@@ -359,12 +350,11 @@ function ask(question: string): void {
     overflow-wrap: anywhere;
   }
 
-  /* 示例问题/折叠/去绑定按钮：可换行，触控目标 ≥44px。 */
+  /* 示例问题/折叠/重试按钮：可换行，触控目标 ≥44px。 */
   /* CP3 F7：加载失败态的「重试」也复用 sample-chip，一并纳入 44px 规则。 */
   .customer-welcome__samples .sample-chip,
   .customer-welcome__empty .sample-chip,
-  .customer-welcome__toggle,
-  .customer-welcome__bind-btn {
+  .customer-welcome__toggle {
     max-width: 100%;
     min-height: 44px;
     white-space: normal;
