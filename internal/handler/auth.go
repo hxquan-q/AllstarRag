@@ -67,6 +67,10 @@ type AuthHandler struct {
 	// 其余 auth 接口不受影响。
 	customAgentService interfaces.CustomAgentService
 	disabledAgentRepo  interfaces.TenantDisabledSharedAgentRepository
+	// memberService 用于判定「被移除空间」的账号(access_revoked)。
+	// nil(部分单测/局部 DI)时按未撤销处理,不影响登录;
+	// POST /tenants 的硬拦截在 TenantHandler 里独立执行。
+	memberService interfaces.TenantMemberService
 }
 
 // NewAuthHandler creates a new auth handler instance with the provided services
@@ -87,6 +91,7 @@ func NewAuthHandler(configInfo *config.Config,
 	invitationSvc interfaces.TenantInvitationService,
 	customAgentService interfaces.CustomAgentService,
 	disabledAgentRepo interfaces.TenantDisabledSharedAgentRepository,
+	memberService interfaces.TenantMemberService,
 ) *AuthHandler {
 	// Boot-time guard: a nil-or-empty Auth section silently disables the
 	// invite_only gate (see Register below). Emit a loud one-shot log
@@ -106,6 +111,7 @@ func NewAuthHandler(configInfo *config.Config,
 		invitationSvc:      invitationSvc,
 		customAgentService: customAgentService,
 		disabledAgentRepo:  disabledAgentRepo,
+		memberService:      memberService,
 	}
 }
 
@@ -333,8 +339,40 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// User is already in the correct format from service
 
+	// 能力投影:被移出所有空间的账号即使部署允许自建也不能再建空间。
+	accessRevoked := h.resolveAccessRevoked(ctx, response.User)
+	canCreateTenant := response.User != nil && response.User.CanAccessAllTenants
+	if !canCreateTenant {
+		canCreateTenant = resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
+	}
+	if accessRevoked {
+		canCreateTenant = false
+	}
+	response.Capabilities = &types.LoginCapabilities{
+		CanCreateTenant: canCreateTenant,
+		AccessRevoked:   accessRevoked,
+	}
+
 	logger.Infof(ctx, "User logged in successfully, email: %s", email)
 	c.JSON(http.StatusOK, dto.NewAuthLoginResponse(response))
+}
+
+// resolveAccessRevoked 判断账号是否已被移出所有空间。memberService 未注入
+// 时按未撤销处理;查询失败只记日志并按未撤销处理——这里只驱动 UI 提示,
+// POST /tenants 的硬拦截在 TenantHandler 内独立判定。
+func (h *AuthHandler) resolveAccessRevoked(ctx context.Context, user *types.User) bool {
+	if h.memberService == nil || user == nil {
+		return false
+	}
+	if user.IsSystemAdmin || user.CanAccessAllTenants {
+		return false
+	}
+	revoked, err := h.memberService.HasRevokedAccess(ctx, user.ID)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to resolve workspace access revocation for user %s: %v", user.ID, err)
+		return false
+	}
+	return revoked
 }
 
 // GetOIDCAuthorizationURL godoc
@@ -689,8 +727,14 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	// 同步返回当前用户的 memberships，让前端在页面刷新（仅命中 /auth/me）
 	// 后也能恢复 currentTenantRole，避免角色信息只在 login 那一刻可用。
 	memberships := h.userService.BuildLoginMemberships(ctx, user, tenant)
+	// 被移出所有空间的账号:即使部署允许自建,也不再投影创建能力;
+	// access_revoked 供前端隐藏入口并展示提示卡片。
+	accessRevoked := h.resolveAccessRevoked(ctx, user)
 	canCreateTenant := user.CanAccessAllTenants ||
 		resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
+	if accessRevoked {
+		canCreateTenant = false
+	}
 	autoAcceptInvitation := h.systemSettingSvc != nil &&
 		h.systemSettingSvc.GetBool(ctx, "tenant.auto_accept_invitation", "WEKNORA_TENANT_AUTO_ACCEPT_INVITATION", false)
 	c.JSON(http.StatusOK, gin.H{
@@ -704,6 +748,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 			"capabilities": gin.H{
 				"can_create_tenant":      canCreateTenant,
 				"auto_accept_invitation": autoAcceptInvitation,
+				"access_revoked":         accessRevoked,
 			},
 		},
 	})

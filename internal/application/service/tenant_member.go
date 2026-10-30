@@ -331,6 +331,42 @@ func (s *tenantMemberService) HasAnyMembers(ctx context.Context, tenantID uint64
 	return s.repo.HasAnyMembers(ctx, tenantID)
 }
 
+// HasRevokedAccess 判断用户是否被移出了所有曾加入的空间:
+// 活跃成员关系为 0,但存在至少一条软删成员关系。
+//
+// 系统管理员与跨租户超管不受该限制(CreateTenant 对他们本就走
+// catalog 管理路径);任一活跃成员关系存在也立即返回 false。
+// userRepo 未注入(部分单测/局部 DI)时跳过超管豁免,只按成员关系判断。
+func (s *tenantMemberService) HasRevokedAccess(ctx context.Context, userID string) (bool, error) {
+	if strings.TrimSpace(userID) == "" {
+		return false, nil
+	}
+
+	if s.userRepo != nil {
+		user, err := s.userRepo.GetUserByID(ctx, userID)
+		if err != nil {
+			return false, err
+		}
+		if user != nil && (user.IsSystemAdmin || user.CanAccessAllTenants) {
+			return false, nil
+		}
+	}
+
+	active, err := s.repo.ListByUser(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if len(active) > 0 {
+		return false, nil
+	}
+
+	deleted, err := s.repo.CountDeletedByUser(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return deleted > 0, nil
+}
+
 // UpdateRole enforces the "cannot demote the last Owner" invariant before
 // delegating to the repository. Re-promoting an existing Owner is a no-op
 // from the invariant's perspective.

@@ -275,6 +275,22 @@ type LoginResponse struct {
 	Memberships  []Membership `json:"memberships"`
 	Token        string       `json:"token,omitempty"`
 	RefreshToken string       `json:"refresh_token,omitempty"`
+	// Capabilities mirrors the capabilities object on GET /auth/me so the
+	// client can gate the create-workspace UI right after login, before
+	// the first /auth/me round-trip. Omitted on the non-success paths.
+	Capabilities *LoginCapabilities `json:"capabilities,omitempty"`
+}
+
+// LoginCapabilities is the capability projection returned with a successful
+// login. Keep it in sync with the capabilities object on GET /auth/me.
+type LoginCapabilities struct {
+	// CanCreateTenant is the effective permission to create a workspace,
+	// already folded with access_revoked (revoked users always get false).
+	CanCreateTenant bool `json:"can_create_tenant"`
+	// AccessRevoked is true when the user was removed from every workspace
+	// they used to belong to. The client hides creation/invitation entry
+	// points; the backend independently rejects POST /tenants.
+	AccessRevoked bool `json:"access_revoked"`
 }
 
 // RegisterResponse represents a registration response

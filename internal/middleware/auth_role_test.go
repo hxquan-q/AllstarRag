@@ -139,6 +139,11 @@ func (f *fakeMemberService) RemoveMember(ctx context.Context, userID string, ten
 	return nil
 }
 
+// HasRevokedAccess stub: the auth-role middleware never consults this flag.
+func (f *fakeMemberService) HasRevokedAccess(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 var _ interfaces.TenantMemberService = (*fakeMemberService)(nil)
 
 func cfgWithRBAC(enabled bool) *config.Config {

@@ -44,6 +44,14 @@ type TenantMemberService interface {
 	// to Owner.
 	HasAnyMembers(ctx context.Context, tenantID uint64) (bool, error)
 
+	// HasRevokedAccess reports whether the user was removed from every
+	// workspace they used to belong to: zero active memberships but at
+	// least one soft-deleted membership. System administrators and
+	// cross-tenant superusers are never considered revoked. Used to gate
+	// self-service workspace creation and to project the
+	// capabilities.access_revoked flag on login / auth-me.
+	HasRevokedAccess(ctx context.Context, userID string) (bool, error)
+
 	// UpdateRole changes the role of an existing membership while
 	// enforcing the "cannot demote the last active Owner" invariant.
 	UpdateRole(ctx context.Context, userID string, tenantID uint64, newRole types.TenantRole) error

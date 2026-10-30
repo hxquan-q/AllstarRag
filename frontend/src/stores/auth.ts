@@ -59,6 +59,12 @@ export const useAuthStore = defineStore('auth', () => {
   // deployment never briefly flashes a create action the backend would
   // then reject with 403/2005.
   const canCreateTenant = ref(false)
+  // accessRevoked mirrors capabilities.access_revoked from /auth/me
+  // (and the login response). True means the user was removed from every
+  // workspace: the onboarding page hides create/invite entry points and
+  // the backend rejects POST /tenants. Kept UI-only; the server is the
+  // authority (same caveat as canCreateTenant).
+  const accessRevoked = ref(false)
 
   const autoAcceptInvitation = ref(false)
 
@@ -309,6 +315,10 @@ export const useAuthStore = defineStore('auth', () => {
     canCreateTenant.value = allowed
   }
 
+  const setAccessRevoked = (revoked: boolean) => {
+    accessRevoked.value = revoked === true
+  }
+
   const setAutoAcceptInvitation = (enabled: boolean) => {
     autoAcceptInvitation.value = enabled
   }
@@ -401,6 +411,8 @@ export const useAuthStore = defineStore('auth', () => {
       setCanCreateTenant(createCapability)
     }
 
+    setAccessRevoked(response.data?.capabilities?.access_revoked === true)
+
     setAutoAcceptInvitation(response.data?.capabilities?.auto_accept_invitation === true)
 
     authMeSynced = true
@@ -456,6 +468,7 @@ export const useAuthStore = defineStore('auth', () => {
     memberships.value = []
     pendingInvitationCount.value = 0
     canCreateTenant.value = false
+    accessRevoked.value = false
     autoAcceptInvitation.value = false
     authMeSynced = false
     // 飞行中的 /auth/me 作废：登出之后才返回的响应不能再 setUser / setTenant。
@@ -583,6 +596,7 @@ export const useAuthStore = defineStore('auth', () => {
     memberships,
     pendingInvitationCount,
     canCreateTenant,
+    accessRevoked,
     autoAcceptInvitation,
 
     // 计算属性
@@ -610,6 +624,7 @@ export const useAuthStore = defineStore('auth', () => {
     setMemberships,
     setPendingInvitationCount,
     setCanCreateTenant,
+    setAccessRevoked,
     setAutoAcceptInvitation,
     fetchPendingInvitationCount,
     refreshFromAuthMe,

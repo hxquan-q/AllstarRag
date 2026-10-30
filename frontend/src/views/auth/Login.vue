@@ -334,6 +334,16 @@ const persistLoginResponse = async (response: any, skipRedirect = false) => {
     if (Array.isArray(response.memberships)) {
       authStore.setMemberships(response.memberships)
     }
+    // Capabilities are also carried on the login response so the
+    // onboarding page can hide create/invite entry points before the
+    // follow-up /auth/me refresh completes.
+    const capabilities = response.capabilities
+    if (typeof capabilities?.can_create_tenant === 'boolean') {
+      authStore.setCanCreateTenant(capabilities.can_create_tenant)
+    }
+    if (typeof capabilities?.access_revoked === 'boolean') {
+      authStore.setAccessRevoked(capabilities.access_revoked)
+    }
     // If the backend dropped us into a non-home tenant (honoured a
     // remembered "last active tenant" preference), set the override so
     // subsequent requests carry X-Tenant-ID and the UI stays consistent.

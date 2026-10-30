@@ -272,6 +272,19 @@ func (r *tenantMemberRepository) RemoveOwnerAtomically(
 	})
 }
 
+// CountDeletedByUser counts the user's soft-deleted membership rows.
+// Unscoped is required: GORM's soft-delete filter would otherwise hide
+// exactly the rows we need to detect (user removed from a workspace).
+func (r *tenantMemberRepository) CountDeletedByUser(ctx context.Context, userID string) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Unscoped().
+		Model(&types.TenantMember{}).
+		Where("user_id = ? AND deleted_at IS NOT NULL", userID).
+		Count(&count).Error
+	return count, err
+}
+
 // HasAnyMembers reports whether the tenant has at least one active
 // membership row. Uses a LIMIT 1 SELECT (instead of COUNT(*)) so the query
 // short-circuits after the first match — important because this is on the

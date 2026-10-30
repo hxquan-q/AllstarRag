@@ -58,6 +58,13 @@ type TenantMemberRepository interface {
 	// auto-promote the first authenticating human in an API-key-only tenant.
 	HasAnyMembers(ctx context.Context, tenantID uint64) (bool, error)
 
+	// CountDeletedByUser counts the user's soft-deleted membership rows.
+	// The normal ListByUser deliberately hides those (GORM soft-delete
+	// filter), so this query must run Unscoped. Used together with an
+	// empty active-membership list to detect "the user was removed from
+	// every workspace" (access revoked).
+	CountDeletedByUser(ctx context.Context, userID string) (int64, error)
+
 	// DemoteOwnerAtomically demotes an Owner to a non-Owner role inside
 	// a transaction that holds an UPDATE lock on the tenant's other
 	// active Owners, fixing the TOCTOU race where two concurrent

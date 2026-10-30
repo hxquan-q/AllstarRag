@@ -3049,7 +3049,8 @@ export default {
       inviteOnlyDescription: 'Personal workspace creation is disabled. View and accept an invitation from a workspace administrator.',
       inviteOnlyNotice: 'This account can only join an existing workspace by invitation',
       help: 'You can create a workspace now or return later to accept an invitation.',
-      inviteOnlyHelp: 'No invitation yet? Send your registered email address to a workspace administrator and ask them to invite you.'
+      inviteOnlyHelp: 'No invitation yet? Send your registered email address to a workspace administrator and ask them to invite you.',
+      accessRevoked: 'Sorry, you have been removed from your workspace and no longer have access.'
     }
   },
   authStore: {

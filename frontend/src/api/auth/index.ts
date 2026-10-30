@@ -52,6 +52,9 @@ export interface LoginResponse {
   memberships?: MembershipInfo[]
   token?: string
   refresh_token?: string
+  // Capability projection returned by a successful login so the onboarding
+  // page can gate create/invite entry points before the first /auth/me.
+  capabilities?: AuthCapabilities
 }
 
 export interface OIDCAuthURLResponse {
@@ -352,6 +355,10 @@ export interface MembershipInfo {
 export interface AuthCapabilities {
   can_create_tenant: boolean
   auto_accept_invitation: boolean
+  // True when the user was removed from every workspace they belonged to.
+  // The onboarding page then hides create/invite entry points and shows
+  // the access-revoked notice; the backend independently rejects creation.
+  access_revoked?: boolean
 }
 
 export async function getCurrentUser(): Promise<{ success: boolean; data?: { user: UserInfo; tenant?: TenantInfo | null; memberships?: MembershipInfo[]; tenant_required?: boolean; capabilities?: AuthCapabilities; preference_defaults?: { browser_search_instructions: string } }; message?: string }> {

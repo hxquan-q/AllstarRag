@@ -4,77 +4,87 @@
       <div class="workspace-mark" aria-hidden="true">
         <t-icon name="system-sum" size="30px" />
       </div>
-      <h1 v-if="authStore.canCreateTenant">{{ $t('auth.workspaceOnboarding.title') }}</h1>
-      <h1 v-else>{{ $t('auth.workspaceOnboarding.inviteOnlyTitle') }}</h1>
-      <p v-if="authStore.canCreateTenant" class="workspace-description">
-        {{ $t('auth.workspaceOnboarding.description') }}
-      </p>
-      <p v-else class="workspace-description">
-        {{ $t('auth.workspaceOnboarding.inviteOnlyDescription') }}
-      </p>
 
-      <div v-if="policyLoading" class="policy-loading">
-        <t-loading size="small" />
-        <span>{{ $t('auth.workspaceOnboarding.loadingPolicy') }}</span>
-      </div>
-      <div v-else-if="policyLoadFailed" class="policy-error" role="alert">
+      <div v-if="surfaces.showAccessRevoked" class="access-revoked-notice" role="alert">
         <t-icon name="error-circle" size="20px" aria-hidden="true" />
-        <span>{{ $t('auth.workspaceOnboarding.policyLoadFailed') }}</span>
-        <t-button size="small" variant="text" @click="loadPolicy">
-          {{ $t('auth.workspaceOnboarding.retry') }}
-        </t-button>
+        <span>{{ $t('auth.workspaceOnboarding.accessRevoked') }}</span>
       </div>
 
       <template v-else>
-        <div v-if="!authStore.canCreateTenant" class="invite-only-notice">
-          <t-icon name="lock-on" size="20px" aria-hidden="true" />
-          <span>{{ $t('auth.workspaceOnboarding.inviteOnlyNotice') }}</span>
+        <h1 v-if="surfaces.showCreate">{{ $t('auth.workspaceOnboarding.title') }}</h1>
+        <h1 v-else>{{ $t('auth.workspaceOnboarding.inviteOnlyTitle') }}</h1>
+        <p v-if="surfaces.showCreate" class="workspace-description">
+          {{ $t('auth.workspaceOnboarding.description') }}
+        </p>
+        <p v-else class="workspace-description">
+          {{ $t('auth.workspaceOnboarding.inviteOnlyDescription') }}
+        </p>
+
+        <div v-if="policyLoading" class="policy-loading">
+          <t-loading size="small" />
+          <span>{{ $t('auth.workspaceOnboarding.loadingPolicy') }}</span>
+        </div>
+        <div v-else-if="policyLoadFailed" class="policy-error" role="alert">
+          <t-icon name="error-circle" size="20px" aria-hidden="true" />
+          <span>{{ $t('auth.workspaceOnboarding.policyLoadFailed') }}</span>
+          <t-button size="small" variant="text" @click="loadPolicy">
+            {{ $t('auth.workspaceOnboarding.retry') }}
+          </t-button>
         </div>
 
-        <div class="workspace-actions" :class="{ 'workspace-actions--single': !authStore.canCreateTenant }">
-          <t-button v-if="authStore.canCreateTenant" theme="primary" size="large" @click="createVisible = true">
-            <template #icon><t-icon name="add" /></template>
-            {{ $t('auth.workspaceOnboarding.create') }}
-          </t-button>
-          <t-button
-            :theme="authStore.canCreateTenant ? 'default' : 'primary'"
-            :variant="authStore.canCreateTenant ? 'outline' : 'base'"
-            size="large"
-            @click="invitationsVisible = true"
-          >
-            <template #icon><t-icon name="mail" /></template>
-            {{ $t('auth.workspaceOnboarding.invitations') }}
-            <template v-if="authStore.pendingInvitationCount > 0">
-              ({{ authStore.pendingInvitationCount }})
-            </template>
-          </t-button>
-        </div>
+        <template v-else>
+          <div v-if="!surfaces.showCreate" class="invite-only-notice">
+            <t-icon name="lock-on" size="20px" aria-hidden="true" />
+            <span>{{ $t('auth.workspaceOnboarding.inviteOnlyNotice') }}</span>
+          </div>
+
+          <div class="workspace-actions" :class="{ 'workspace-actions--single': !surfaces.showCreate }">
+            <t-button v-if="surfaces.showCreate" theme="primary" size="large" @click="createVisible = true">
+              <template #icon><t-icon name="add" /></template>
+              {{ $t('auth.workspaceOnboarding.create') }}
+            </t-button>
+            <t-button
+              :theme="surfaces.showCreate ? 'default' : 'primary'"
+              :variant="surfaces.showCreate ? 'outline' : 'base'"
+              size="large"
+              @click="invitationsVisible = true"
+            >
+              <template #icon><t-icon name="mail" /></template>
+              {{ $t('auth.workspaceOnboarding.invitations') }}
+              <template v-if="authStore.pendingInvitationCount > 0">
+                ({{ authStore.pendingInvitationCount }})
+              </template>
+            </t-button>
+          </div>
+        </template>
+
+        <p v-if="!policyLoading && !policyLoadFailed && surfaces.showCreate" class="workspace-help">
+          {{ $t('auth.workspaceOnboarding.help') }}
+        </p>
+        <p v-else-if="!policyLoading && !policyLoadFailed" class="workspace-help">
+          {{ $t('auth.workspaceOnboarding.inviteOnlyHelp') }}
+        </p>
       </template>
 
-      <p v-if="!policyLoading && !policyLoadFailed && authStore.canCreateTenant" class="workspace-help">
-        {{ $t('auth.workspaceOnboarding.help') }}
-      </p>
-      <p v-else-if="!policyLoading && !policyLoadFailed" class="workspace-help">
-        {{ $t('auth.workspaceOnboarding.inviteOnlyHelp') }}
-      </p>
       <button class="logout-link" type="button" @click="handleLogout">
         {{ $t('auth.logout') }}
       </button>
     </section>
 
-    <CreateTenantDialog v-model:visible="createVisible" @created="onTenantCreated" />
-    <MyInvitationsDialog v-model:visible="invitationsVisible" />
+    <CreateTenantDialog v-if="!surfaces.showAccessRevoked" v-model:visible="createVisible" @created="onTenantCreated" />
+    <MyInvitationsDialog v-if="!surfaces.showAccessRevoked" v-model:visible="invitationsVisible" />
   </main>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import CreateTenantDialog from '@/components/CreateTenantDialog.vue'
 import MyInvitationsDialog from '@/components/MyInvitationsDialog.vue'
 import { logout as logoutApi } from '@/api/auth'
 import type { TenantInfo } from '@/api/tenant'
 import { useAuthStore } from '@/stores/auth'
+import { resolveOnboardingSurfaces } from './workspaceOnboarding'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -82,6 +92,11 @@ const createVisible = ref(false)
 const invitationsVisible = ref(false)
 const policyLoading = ref(true)
 const policyLoadFailed = ref(false)
+
+// 被移出所有空间时只保留退出登录;正常用户的创建/邀请分支与之前完全一致。
+const surfaces = computed(() =>
+  resolveOnboardingSurfaces(authStore.canCreateTenant, authStore.accessRevoked)
+)
 
 async function loadPolicy() {
   policyLoading.value = true
@@ -214,6 +229,24 @@ h1 {
 .invite-only-notice :deep(.t-icon) {
   flex: 0 0 auto;
   color: var(--td-text-color-secondary);
+}
+
+/* 被移除空间的提示:复用现有错误提示配色,不引入动效。 */
+.access-revoked-notice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 16px;
+  border-radius: var(--app-radius-lg);
+  color: var(--td-error-color);
+  background: var(--td-error-color-light);
+  line-height: 1.5;
+}
+
+.access-revoked-notice :deep(.t-icon) {
+  flex: 0 0 auto;
 }
 
 .workspace-help {
