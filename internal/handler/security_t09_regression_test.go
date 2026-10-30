@@ -219,6 +219,10 @@ func t09Login(t *testing.T, r *gin.Engine, remoteAddr, forwardedFor, email strin
 }
 
 func TestT09_Login_SpoofedXFFDoesNotChangeKey(t *testing.T) {
+	// 包级 limiter 跨 `go test -count=N` 保留状态,固定邮箱第二轮会直接 429;
+	// 先重置只清状态,不改变下面的断言。
+	resetLoginAccountLimiterForTest()
+	t.Cleanup(resetLoginAccountLimiterForTest)
 	// 只信任回环代理:来自不可信来源的 XFF 必须被忽略,同一账号依旧共享
 	// 一个「邮箱|真实来源 IP」桶,6 次后 429(防止伪造 XFF 绕过限速)。
 	us := &t09LoginStub{}
@@ -250,6 +254,9 @@ func TestT09_Login_SpoofedXFFDoesNotChangeKey(t *testing.T) {
 }
 
 func TestT09_Login_TrustedProxyXFFSeparatesAccounts(t *testing.T) {
+	// 同样隔离包级 limiter,保证 -count>1 时预算从零开始。
+	resetLoginAccountLimiterForTest()
+	t.Cleanup(resetLoginAccountLimiterForTest)
 	// 受信代理(回环)转发的真实客户端 IP 应形成不同 key:同一邮箱从不同
 	// 真实 IP 登录不会互相连坐。6 次不同 XFF 不应触发 429。
 	us := &t09LoginStub{}

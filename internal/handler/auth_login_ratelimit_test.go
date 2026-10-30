@@ -62,6 +62,8 @@ func newLoginTestHandler(login func(context.Context, *types.LoginRequest) (*type
 }
 
 func TestLogin_SameAccountAndIPThrottled(t *testing.T) {
+	resetLoginAccountLimiterForTest()
+	t.Cleanup(resetLoginAccountLimiterForTest)
 	h, us := newLoginTestHandler(func(context.Context, *types.LoginRequest) (*types.LoginResponse, error) {
 		return nil, context.DeadlineExceeded // 任意失败,模拟密码错误
 	})
@@ -88,6 +90,8 @@ func TestLogin_SameAccountAndIPThrottled(t *testing.T) {
 }
 
 func TestLogin_DifferentAccountsSameIPIndependent(t *testing.T) {
+	resetLoginAccountLimiterForTest()
+	t.Cleanup(resetLoginAccountLimiterForTest)
 	h, _ := newLoginTestHandler(func(context.Context, *types.LoginRequest) (*types.LoginResponse, error) {
 		return nil, context.DeadlineExceeded
 	})
@@ -112,6 +116,8 @@ func TestLogin_DifferentAccountsSameIPIndependent(t *testing.T) {
 }
 
 func TestLogin_SuccessfulLoginsAlsoCount(t *testing.T) {
+	resetLoginAccountLimiterForTest()
+	t.Cleanup(resetLoginAccountLimiterForTest)
 	h, us := newLoginTestHandler(func(context.Context, *types.LoginRequest) (*types.LoginResponse, error) {
 		return &types.LoginResponse{Success: true}, nil
 	})
