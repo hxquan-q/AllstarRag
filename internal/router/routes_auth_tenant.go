@@ -224,9 +224,11 @@ func RegisterMyEnvVarRoutes(r *gin.RouterGroup, h *handler.MeEnvVarHandler) {
 
 // RegisterAuthRoutes registers authentication routes
 func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rbacGuards) {
-	// 登录/注册是公开的无认证入口,按 IP 限速:登录 5 次/分钟挡住撞库,
-	// 注册 3 次/小时挡住批量建号。两者各自独立计数,不共享预算。
-	loginRL := middleware.PublicAuthRateLimitWith(60*time.Second, 5, "auth-login")
+	// 登录/注册是公开的无认证入口,按 IP 限速:注册 3 次/小时挡住批量建号。
+	// 登录的账号维度(邮箱+IP,5 次/分)在 handler 内计数(网关不传真实
+	// 客户端 IP,纯 IP 桶会全员共享);这里保留 30 次/分的 IP 总闸,
+	// 仅用于挡住高基数的洪水流量。两者各自独立计数,不共享预算。
+	loginRL := middleware.PublicAuthRateLimitWith(60*time.Second, 30, "auth-login-ip")
 	registerRL := middleware.PublicAuthRateLimitWith(time.Hour, 3, "auth-register")
 	r.POST("/auth/register", registerRL, handler.Register)
 	// Share-link surfaces are unauthenticated and accept a plaintext

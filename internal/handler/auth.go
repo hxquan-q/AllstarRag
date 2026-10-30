@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -19,12 +20,25 @@ import (
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/handler/dto"
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/middleware"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
 )
 
 var liteSetupToken string
+
+// 登录账号维度限速:同一「邮箱+客户端 IP」每分钟最多 5 次尝试。
+// 演示区网关不转发真实客户端 IP,所有公网用户共享同一个 IP 桶,纯 IP
+// 限速会让任何人 5 次错误登录就锁死全站,所以按账号再切一层;路由层的
+// IP 总闸(auth-login-ip,30 次/分)仍然保留,只负责挡住高基数的滥用流量。
+const (
+	loginAccountRateLimitWindow = time.Minute
+	loginAccountRateLimitMax    = 5
+)
+
+var loginAccountLimiter = middleware.NewKeyedRateLimiter(
+	loginAccountRateLimitWindow, loginAccountRateLimitMax)
 
 // SetLiteSetupToken is called by the native desktop host before serving requests.
 // Web deployments leave it empty and cannot issue anonymous administrator tokens.
@@ -278,6 +292,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
+
+	// 账号维度限速:不存在的邮箱也走同一路径计数,避免用 429 与否反推账号
+	// 是否存在;成功登录同样计数(不清零),让爆破者无法用一次正确密码重置
+	// 预算,计数随滑窗自然过期。
+	loginKey := strings.ToLower(strings.TrimSpace(req.Email)) + "|" + c.ClientIP()
+	if !loginAccountLimiter.Allow(loginKey) {
+		logger.Warnf(ctx,
+			"[auth-login-ratelimit] account=%s exceeded %d attempts per %s",
+			loginKey, loginAccountRateLimitMax, loginAccountRateLimitWindow)
+		c.Error(errors.NewTooManyRequestsError("too many requests; please retry shortly"))
+		return
+	}
+
 	email := secutils.SanitizeForLog(req.Email)
 
 	// Validate required fields

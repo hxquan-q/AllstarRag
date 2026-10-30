@@ -226,6 +226,23 @@ func PublicAuthRateLimitWith(window time.Duration, max int, name string) gin.Han
 	}
 }
 
+// KeyedRateLimiter 用任意字符串作为桶 key 的滑窗限速器(登录账户维度)。
+// 内部复用 ipRateLimiter 的滑窗、桶数上限与清理逻辑,key 由调用方决定;
+// 空 key 落到 "_unknown_" 共享桶,与 IP 版本的空值语义一致。
+type KeyedRateLimiter struct{ inner *ipRateLimiter }
+
+// NewKeyedRateLimiter 创建按 key 计数的限速器:同一 key 在 window 内最多
+// 放行 max 次。调用方通常只构造一次并包级复用,这样计数才能跨请求保留。
+func NewKeyedRateLimiter(window time.Duration, max int) *KeyedRateLimiter {
+	return &KeyedRateLimiter{inner: newIPRateLimiter(window, max)}
+}
+
+// Allow 返回该 key 是否仍在预算内。空 key 与空 IP 一样使用共享桶,
+// 避免调用方漏传 key 时静默放行。
+func (l *KeyedRateLimiter) Allow(key string) bool {
+	return l.inner.allow(key)
+}
+
 // PublicAuthRateLimit 保留旧行为:共享链接端点 30 次/分钟/IP。
 // 调用方在路由注册时只调用一次,把返回的 handler 同时挂到
 // register-by-invite 与 lookup 上,即可保持两个端点共用预算。
