@@ -876,3 +876,35 @@ test('F22: compiled CustomerTopBar scoped CSS has no bare html[data-customer] se
     'scoped style compiled into a bare html[data-customer] selector (descendant dropped, F21)',
   )
 })
+
+// ---------------------------------------------------------------------------
+// 11. T10c：移动端输入框 sticky 钉底（替代 T09 的 absolute + 180px 预留）
+// ---------------------------------------------------------------------------
+
+test('T10c: mobile composer is pinned sticky, absolute pinning and 180px reserve removed', () => {
+  // sticky 钉底：内容短跟内容后，内容长贴滚动区可视底；必须落在 <=1023 媒体查询内。
+  const composer = ruleBlocks(mobileCss, '.create-chat-composer').find(
+    (block) =>
+      block.prelude.trim() ===
+      'html[data-customer="true"] .dialogue-wrap.customer-shell .create-chat-composer',
+  )
+  assert.ok(composer, 'composer sticky rule not found')
+  assert.equal(composer.parentPrelude, '@media (max-width: 1023px)', 'sticky rule must live in the mobile media query')
+  assert.match(composer.body, /position:\s*sticky;/)
+  assert.match(composer.body, /bottom:\s*0;/)
+
+  // 旧钉底写法不许回潮：composer 规则不再用 absolute，全文件不再有 180px 预留
+  // （T09 把 padding-bottom:180 挂在 .dialogue-answers 上给 absolute 钉底腾位，T10c 整段删除）。
+  for (const block of ruleBlocks(mobileCss, '.create-chat-composer')) {
+    assert.doesNotMatch(block.body, /position:\s*absolute/, 'composer must not fall back to absolute pinning')
+  }
+  assert.doesNotMatch(mobileCss, /padding-bottom:\s*180px/, 'T09 180px scroll reserve must stay deleted')
+  assert.doesNotMatch(mobileCss, /\b180px\b/, 'no 180px literal may remain in customer-mobile.css')
+
+  // T09 wrap 收口仍在：.dialogue-wrap 允许收缩，滚动收敛在 .dialogue-answers 内。
+  const wrap = ruleBlocks(mobileCss, '.dialogue-wrap.customer-shell').find(
+    (block) => block.body.includes('min-height: 0;'),
+  )
+  assert.ok(wrap, 'dialogue-wrap min-height: 0 collapse rule not found')
+  assert.equal(wrap.parentPrelude, '@media (max-width: 1023px)', 'wrap collapse must stay in the mobile media query')
+})
