@@ -110,20 +110,8 @@ onMounted(() => {
     }
 }
 
-/* ≤360px：字标按比例缩到 88px，标题继续省略。 */
-@media (max-width: 360px) {
-    :global(html[data-customer="true"]) .customer-topbar__wordmark {
-        width: 88px;
-        height: 26px;
-        flex-basis: 88px;
-    }
-
-    :global(html[data-customer="true"]) .customer-topbar__wordmark img {
-        width: 146px;
-        left: -30px;
-        top: -27px;
-    }
-}
+/* ≤360px：字标缩小规则放在全局 customer-mobile.css（F21），
+ * 因为 scoped 样式里的 `:global(html[...]) .class` 会被编译丢弃后代选择器。 */
 
 .customer-topbar__product {
     display: inline-flex;

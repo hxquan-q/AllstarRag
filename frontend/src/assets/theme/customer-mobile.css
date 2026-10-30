@@ -551,3 +551,21 @@ html[data-customer="true"] {
     }
 }
 
+
+/* —— CP3 F21：≤360 字标缩小 ——
+ * 必须写在全局移动 CSS 里：scoped 样式中的 `:global(html[...]) .class`
+ * 会被编译丢到只剩 html 选择器，导致 ≤360 时整页被压成 146px 宽。
+ */
+@media (max-width: 360px) {
+    html[data-customer="true"] .customer-topbar__wordmark {
+        width: 88px;
+        height: 26px;
+        flex: 0 0 88px;
+    }
+
+    html[data-customer="true"] .customer-topbar__wordmark img {
+        width: 146px;
+        left: -30px;
+        top: -27px;
+    }
+}
