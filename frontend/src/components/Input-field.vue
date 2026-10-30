@@ -3382,6 +3382,7 @@ const getImgSrc = (url: string) => {
   position: relative;
   width: 100%;
   max-width: 960px;
+  box-sizing: border-box;
   background: var(--td-bg-color-container);
   border-radius: var(--app-radius-xl);
   border: 1px solid var(--td-component-stroke);

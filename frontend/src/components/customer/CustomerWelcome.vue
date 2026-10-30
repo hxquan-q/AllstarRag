@@ -177,6 +177,9 @@ function ask(question: string): void {
   width: 354px;
   left: -58px;
   top: -66px;
+  /* 原图基线左高右低约 2°，反向轻转 -1.5° 让文字视觉水平 */
+  transform: rotate(-1.5deg);
+  transform-origin: center center;
   mix-blend-mode: multiply;
   pointer-events: none;
 }
@@ -225,6 +228,9 @@ function ask(question: string): void {
   gap: var(--app-space-1);
   width: 320px;
   max-width: 100%;
+  /* 等高：固定高度并算进内边距/边框，名称或描述为空时也不塌陷 */
+  height: 104px;
+  box-sizing: border-box;
   padding: var(--app-space-4) var(--app-space-5);
   border: 1px solid var(--td-component-stroke);
   border-radius: var(--app-radius-xl);
@@ -254,11 +260,19 @@ function ask(question: string): void {
 }
 
 .line-card__name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: var(--app-text-lg);
   font-weight: 600;
 }
 
 .line-card__desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
   color: var(--td-text-color-secondary);
   font-size: var(--app-text-md);
 }

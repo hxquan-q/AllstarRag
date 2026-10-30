@@ -552,6 +552,18 @@ html[data-customer="true"] {
 }
 
 
+/* —— T01 W3：移动端欢迎页字标 0 宽 ——
+ * 字标是 inline-block，宽 min(246px, 100%)；父级 __title/__head 在 flex 里
+ * 未定宽时百分比无处解析，实测 320px 下变成 0×0。给两级都定 100% 宽打破循环。
+ * 桌面（≥1024）不命中，避免影响现有桌面布局。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .customer-welcome__head,
+    html[data-customer="true"] .customer-welcome__title {
+        width: 100%;
+    }
+}
+
 /* —— CP3 F21：≤360 字标缩小 ——
  * 必须写在全局移动 CSS 里：scoped 样式中的 `:global(html[...]) .class`
  * 会被编译丢到只剩 html 选择器，导致 ≤360 时整页被压成 146px 宽。
