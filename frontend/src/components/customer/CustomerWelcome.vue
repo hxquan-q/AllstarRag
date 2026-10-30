@@ -180,9 +180,6 @@ function ask(question: string): void {
   width: 354px;
   left: -58px;
   top: -66px;
-  /* 原图基线左高右低约 2°，反向轻转 -1.5° 让文字视觉水平 */
-  transform: rotate(-1.5deg);
-  transform-origin: center center;
   mix-blend-mode: multiply;
   pointer-events: none;
 }
