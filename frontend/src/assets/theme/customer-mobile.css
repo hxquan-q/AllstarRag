@@ -585,21 +585,13 @@ html[data-customer="true"] {
 /* —— T09：客户移动端输入框钉在滚动区底部 ——
  * 桌面保持"欢迎块+输入框整体居中"（creatChat 的 :deep position:static 不动）；
  * 绑定多个 agent 后欢迎内容超过视口，流内输入框会被推到折叠线下"消失"。
- * 移动端把输入区改为绝对定位到 .dialogue-answers 底部，内容再多也在屏内。
+ * T10c：absolute 钉底改为 sticky——内容短时输入框跟在内容后（不遮内容，
+ * 矮视口 320×568 也一样），内容超长时贴滚动区可视底；不再需要 padding-bottom 预留。
  */
 @media (max-width: 1023px) {
-    html[data-customer="true"] .dialogue-wrap.customer-shell .dialogue-answers {
-        position: relative;
-        /* 预留输入区高度，最后的内容能滚到输入框上方而不是被盖住。 */
-        padding-bottom: 180px;
-    }
-
     html[data-customer="true"] .dialogue-wrap.customer-shell .create-chat-composer {
-        position: absolute;
-        /* 免责声明绝对定位在壳底部约 30px 内，输入框抬高避开它（CDP 实测后定值）。 */
-        bottom: max(32px, var(--app-safe-bottom));
-        left: 0;
-        right: 0;
+        position: sticky;
+        bottom: 0;
         z-index: 5;
     }
 }
