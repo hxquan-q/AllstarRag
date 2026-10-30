@@ -400,6 +400,8 @@ async function openProjectDir() {
     margin: 0 auto;
     min-height: 0;
     overflow-y: auto;
+    // T04/W11：客户壳显式关掉横向滚动，内容宽度波动时也不出底部横向滑块。
+    overflow-x: hidden;
 }
 
 .dialogue-wrap.customer-shell .dialogue-answers > :first-child {

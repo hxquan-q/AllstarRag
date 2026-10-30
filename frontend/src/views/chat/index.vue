@@ -2228,6 +2228,12 @@ onBeforeRouteUpdate((to, from, next) => {
     overflow: hidden;
 }
 
+/* T04/W11：客户壳消息滚动容器显式关掉横向滚动，保留纵向滚动；
+   管理端不带 customer-shell，零命中（C6）；表格/代码块自身横向滚动不受影响。 */
+.chat.customer-shell .chat_scroll_box {
+    overflow-x: hidden;
+}
+
 /* 客户版浅色网格背景（替换纯白底）；管理员路径不带 customer-shell，保持原样（C6） */
 .chat.customer-shell {
     background-color: #F6F8FB;
