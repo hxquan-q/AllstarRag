@@ -28,9 +28,12 @@ test('customer welcome renders agent title, visible line cards, samples and the 
   // 免责声明已移到 creatChat 输入框下方（用户反馈「放到最底部」），欢迎区不再渲染。
   assert.doesNotMatch(welcome, /brandConfig\.chatDisclaimer/)
   assert.match(creatChat, /customer-disclaimer/)
-  // AC-10：空态只在已就绪且 0 条时出现；旧 productLinesFallback 提示已删除。
+  // AC-10 / W5：空态只在已就绪且 0 条时出现；旧 productLinesFallback 提示已删除。
   assert.match(welcome, /const showEmptyState = computed\(\(\) => productLineStore\.ready && lines\.value\.length === 0\)/)
-  assert.match(welcome, /v-if="showEmptyState"/)
+  // W9：欢迎区不再自己渲染空态副标题/去绑定按钮，未绑定提示交由 CustomerNoAgentDialog 承接。
+  assert.doesNotMatch(welcome, /v-if="showEmptyState"/)
+  assert.doesNotMatch(welcome, /customer-welcome__subtitle/)
+  assert.doesNotMatch(welcome, /customer-welcome__bind-btn/)
   assert.doesNotMatch(welcome, /productLinesFallback/)
   assert.match(welcome, /samples-swap/)
   assert.doesNotMatch(welcome, /WeKnora/)
@@ -53,19 +56,18 @@ test('customer welcome collapses cards above four and can expand/collapse in pla
   assert.match(welcome, /t\('brand\.welcome\.(showMoreLines|collapseLines)'\)/)
 })
 
-test('customer empty state links to the agentlines settings section', () => {
-  // AC-10 / AC-11：去绑定直达设置「产线」分区；2026-10-29 用户反馈后
-  // 空态不再单独渲染「还没有绑定智能体」文案，去绑定入口直接跟在副标题下。
-  assert.match(
-    welcome,
-    /router\.push\(\{ path: '\/platform\/settings', query: \{ section: 'agentlines' \} \}\)/,
-  )
-  assert.match(welcome, /customer-welcome__bind-btn/)
-  assert.match(welcome, /class="sample-chip customer-welcome__bind-btn"/, '去绑定沿用原按钮样式')
-  assert.match(welcome, /t\('brand\.welcome\.emptyAction'\)/)
+test('customer welcome no longer renders subtitle / bind link; no-agent dialog takes over', () => {
+  // W9 / 2026-10-30 用户修正：未绑定时欢迎区不再显示「输入 agentid…」副标题与
+  // 「去绑定」按钮，改由可关闭的 CustomerNoAgentDialog 承接（T02）。
+  assert.doesNotMatch(welcome, /customer-welcome__subtitle/)
+  assert.doesNotMatch(welcome, /customer-welcome__bind-btn/)
+  assert.doesNotMatch(welcome, /class="sample-chip customer-welcome__bind-btn"/)
+  assert.doesNotMatch(welcome, /router\.push\(/)
+  assert.doesNotMatch(welcome, /brand\.welcome\.emptyAction/)
   assert.doesNotMatch(welcome, /t\('brand\.welcome\.emptyNotice'\)/, '空态不再显示提示句')
-  // 有 agent 后副标题「输入 agentid…」隐藏。
-  assert.match(welcome, /v-if="lines\.length === 0" class="customer-welcome__subtitle"/)
+  // W5：就绪、未失败且 0 条时由欢迎页触发弹窗（关闭由弹窗自己处理）。
+  assert.match(welcome, /if \(ready && !failed && len === 0\) uiStore\.openCustomerNoAgentDialog\(\)/)
+  assert.match(welcome, /const uiStore = useUIStore\(\)/)
 })
 
 test('sample questions and manual input both go through Input-field.triggerSend', () => {
