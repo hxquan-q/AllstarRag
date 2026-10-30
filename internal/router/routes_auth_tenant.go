@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -223,7 +224,11 @@ func RegisterMyEnvVarRoutes(r *gin.RouterGroup, h *handler.MeEnvVarHandler) {
 
 // RegisterAuthRoutes registers authentication routes
 func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rbacGuards) {
-	r.POST("/auth/register", handler.Register)
+	// 登录/注册是公开的无认证入口,按 IP 限速:登录 5 次/分钟挡住撞库,
+	// 注册 3 次/小时挡住批量建号。两者各自独立计数,不共享预算。
+	loginRL := middleware.PublicAuthRateLimitWith(60*time.Second, 5, "auth-login")
+	registerRL := middleware.PublicAuthRateLimitWith(time.Hour, 3, "auth-register")
+	r.POST("/auth/register", registerRL, handler.Register)
 	// Share-link surfaces are unauthenticated and accept a plaintext
 	// token from the caller; rate-limit by IP to bound brute-force /
 	// enumeration / abuse traffic. Limiter is shared across both
@@ -232,7 +237,7 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	publicAuthRL := middleware.PublicAuthRateLimit()
 	r.POST("/auth/register-by-invite", publicAuthRL, handler.RegisterByInvite)
 	r.POST("/auth/invitations/lookup", publicAuthRL, handler.LookupInvitationByToken)
-	r.POST("/auth/login", handler.Login)
+	r.POST("/auth/login", loginRL, handler.Login)
 	r.POST("/auth/auto-setup", handler.AutoSetup)
 	r.GET("/auth/config", handler.GetAuthConfig)
 	r.POST("/auth/switch-tenant", handler.SwitchTenant)

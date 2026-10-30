@@ -6,15 +6,18 @@ import (
 	"time"
 
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/gin-gonic/gin"
 )
 
 // auth_public_ratelimit.go — sliding-window IP rate limiter for the
-// unauthenticated share-link endpoints (/auth/invitations/lookup and
-// /auth/register-by-invite). Both surfaces accept a plaintext token
-// from the request and either reveal tenant context (lookup) or
-// create an account (register-by-invite); without a limiter an
-// attacker can brute-force token guesses and hammer registration.
+// unauthenticated auth entry points (/auth/invitations/lookup,
+// /auth/register-by-invite, /auth/login, /auth/register). The
+// share-link surfaces accept a plaintext token from the request and
+// either reveal tenant context (lookup) or create an account
+// (register-by-invite); without a limiter an attacker can brute-force
+// token guesses and hammer registration. Login/register are limited
+// separately (password guessing / bulk account creation).
 //
 // The token is 256-bit so guessing the space is infeasible regardless,
 // but the limiter still narrows the abuse window for partial-token
@@ -105,23 +108,18 @@ func (l *ipRateLimiter) cleanupLoop() {
 	}
 }
 
-// publicAuthLimiter — package-singleton so each route registration
-// shares a single bucket map per process. Each route still gets its
-// own Gin handler that calls into this same limiter; per-route
-// isolation isn't important here (real users don't hit both
-// endpoints in the same window) but the shared state makes total
-// budget per IP intuitive: 30/min across all share-link surfaces.
-var publicAuthLimiter = newIPRateLimiter(
-	publicAuthRateLimitWindow, publicAuthRateLimitMax)
-
-// PublicAuthRateLimit returns a Gin middleware that rate-limits the
-// unauthenticated share-link endpoints by client IP. 429 is mapped
-// through the project's AppError type so it flows through the same
-// error middleware as the rest of the auth surface.
-func PublicAuthRateLimit() gin.HandlerFunc {
+// PublicAuthRateLimitWith 按端点参数化限速:window/max 决定预算,
+// name 只用于日志区分。每次调用创建独立的计数桶,不同端点互不共享。
+// 超限返回 429(apperrors.ErrTooManyRequests),并记一行 warn(端点+IP,
+// 不记录请求体)。旧函数 PublicAuthRateLimit 委托到这里,行为保持不变。
+func PublicAuthRateLimitWith(window time.Duration, max int, name string) gin.HandlerFunc {
+	limiter := newIPRateLimiter(window, max)
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
-		if !publicAuthLimiter.allow(ip) {
+		if !limiter.allow(ip) {
+			logger.Warnf(c.Request.Context(),
+				"[auth-ratelimit] %s: ip=%s exceeded %d requests per %s",
+				name, ip, max, window)
 			c.Error(&apperrors.AppError{
 				Code:     apperrors.ErrTooManyRequests,
 				Message:  "too many requests; please retry shortly",
@@ -132,4 +130,12 @@ func PublicAuthRateLimit() gin.HandlerFunc {
 		}
 		c.Next()
 	}
+}
+
+// PublicAuthRateLimit 保留旧行为:共享链接端点 30 次/分钟/IP。
+// 调用方在路由注册时只调用一次,把返回的 handler 同时挂到
+// register-by-invite 与 lookup 上,即可保持两个端点共用预算。
+func PublicAuthRateLimit() gin.HandlerFunc {
+	return PublicAuthRateLimitWith(
+		publicAuthRateLimitWindow, publicAuthRateLimitMax, "public-auth")
 }
