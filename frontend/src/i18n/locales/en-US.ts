@@ -9362,9 +9362,9 @@ export default {
     },
   },
   agentLineSettings: {
-    title: 'Product lines',
+    title: 'Bind agents',
     menuLabel: 'Bind agents',
-    description: 'Bind the agents you want to use in this workspace. Each bound agent becomes a product line.',
+    description: 'Bind the agents you want to use in this workspace. Bind as many as you need.',
     boundTitle: 'Bound agents',
     count: '{count} / {max} bound',
     empty: 'No agents bound yet. Enter an agent ID, or pick one from the candidates below.',

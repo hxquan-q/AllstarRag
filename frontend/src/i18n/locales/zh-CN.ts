@@ -9355,9 +9355,9 @@ export default {
     },
   },
   agentLineSettings: {
-    title: '产线',
+    title: '绑定 agent',
     menuLabel: '绑定 agent',
-    description: '绑定你在这个工作区要使用的智能体。绑定几个，就能选择几条产线。',
+    description: '绑定你在这个工作区要使用的智能体。绑定几个，就能选择几个。',
     boundTitle: '已绑定',
     count: '已绑定 {count} / {max}',
     empty: '还没有绑定智能体。输入 agent id，或从下方候选里选择。',

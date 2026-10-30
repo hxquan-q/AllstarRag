@@ -9356,9 +9356,9 @@ export default {
     },
   },
   agentLineSettings: {
-    title: '제품 라인',
+    title: '에이전트 연결',
     menuLabel: '에이전트 연결',
-    description: '이 워크스페이스에서 사용할 에이전트를 바인딩하세요. 바인딩한 수만큼 제품 라인이 생깁니다.',
+    description: '이 워크스페이스에서 사용할 에이전트를 바인딩하세요. 바인딩한 수만큼 선택할 수 있습니다.',
     boundTitle: '바인딩된 에이전트',
     count: '{max}개 중 {count}개 바인딩됨',
     empty: '아직 바인딩된 에이전트가 없습니다. 에이전트 ID를 입력하거나 아래 후보에서 선택하세요.',
