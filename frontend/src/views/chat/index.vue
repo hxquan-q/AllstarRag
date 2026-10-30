@@ -2234,6 +2234,11 @@ onBeforeRouteUpdate((to, from, next) => {
     overflow-x: hidden;
 }
 
+/* T05：客户壳内建议问题容器把 padding 算进宽度，320px 不再右溢被裁。 */
+.chat.customer-shell .suggested-questions-container {
+    box-sizing: border-box;
+}
+
 /* 客户版浅色网格背景（替换纯白底）；管理员路径不带 customer-shell，保持原样（C6） */
 .chat.customer-shell {
     background-color: #F6F8FB;
