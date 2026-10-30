@@ -255,7 +255,7 @@ test('W1: .rich-input-container is border-box and 100% wide with a 960px cap', (
   assert.match(container.body, /max-width:\s*960px;/)
 })
 
-test('W2/W3: wordmark keeps 246x66 and the -1.5deg optical tilt', () => {
+test('W2/W3: wordmark keeps 246x66 with no rotation', () => {
   const welcomeStyle = styleBlock(welcome)
   const wordmark = ruleBlocks(welcomeStyle, '.customer-welcome__wordmark').find(
     (block) => block.prelude.trim() === '.customer-welcome__wordmark',
@@ -264,13 +264,14 @@ test('W2/W3: wordmark keeps 246x66 and the -1.5deg optical tilt', () => {
   assert.match(wordmark.body, /width:\s*246px;/)
   assert.match(wordmark.body, /height:\s*66px;/)
 
+  // T06（a06aa4a54）：原图实测水平，字标不再做任何旋转/变换（0°，与背景横线平行）。
   const img = ruleBlocks(welcomeStyle, '.customer-welcome__wordmark img').find(
     (block) => block.prelude.trim() === '.customer-welcome__wordmark img',
   )
   assert.ok(img, 'wordmark img rule not found')
-  assert.match(img.body, /transform:\s*rotate\(-1\.5deg\);/)
+  assert.doesNotMatch(img.body, /transform|rotate/, 'wordmark img must not be rotated or transformed')
 
-  // 移动端按比例缩放但保持 246:66，不出现 0 宽规则。
+  // 移动端按比例缩放但保持 246:66，不出现 0 宽规则，同样不允许旋转。
   const welcome1023 = mediaBlock(welcomeStyle, 'max-width: 1023px')
   const mobileWordmark = ruleBlocks(welcome1023, '.customer-welcome__wordmark').find(
     (block) => block.prelude.trim() === '.customer-welcome__wordmark',
@@ -278,6 +279,13 @@ test('W2/W3: wordmark keeps 246x66 and the -1.5deg optical tilt', () => {
   assert.ok(mobileWordmark, 'mobile wordmark rule not found')
   assert.match(mobileWordmark.body, /width:\s*min\(246px, 100%\);/)
   assert.match(mobileWordmark.body, /aspect-ratio:\s*246 \/ 66;/)
+
+  const mobileImg = ruleBlocks(welcome1023, '.customer-welcome__wordmark img').find(
+    (block) => block.prelude.trim() === '.customer-welcome__wordmark img',
+  )
+  if (mobileImg) {
+    assert.doesNotMatch(mobileImg.body, /transform|rotate/, 'mobile wordmark img must not be rotated')
+  }
 })
 
 test('W3: mobile CSS forces welcome head/title to 100% width', () => {
