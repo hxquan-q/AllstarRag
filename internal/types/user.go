@@ -171,7 +171,9 @@ type AuthToken struct {
 
 // LoginRequest represents a login request
 type LoginRequest struct {
-	Email    string `json:"email"    binding:"required,email"`
+	// max=320 与 RFC 5321 的邮箱最大长度一致;也限制登录限速 key
+	// (email|ip)的长度,避免超长 key 在限速桶表里长期驻留。
+	Email    string `json:"email"    binding:"required,email,max=320"`
 	Password string `json:"password" binding:"required,min=6"`
 }
 
@@ -219,7 +221,7 @@ type OIDCUserInfo struct {
 // RegisterRequest represents a registration request
 type RegisterRequest struct {
 	Username string `json:"username" binding:"required,min=2,max=50"`
-	Email    string `json:"email"    binding:"required,email"`
+	Email    string `json:"email"    binding:"required,email,max=320"`
 	Password string `json:"password" binding:"required,min=6"`
 
 	// TenantProvisioning is server-controlled registration context. It is

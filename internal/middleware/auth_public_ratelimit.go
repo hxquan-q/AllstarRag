@@ -64,7 +64,7 @@ type ipRateLimiter struct {
 	window     time.Duration
 	max        int
 	maxBuckets int
-	buckets    sync.Map // string (IP) -> *ipBucket
+	buckets    sync.Map // string(key,IP 或任意 key) -> *ipBucket
 	// bucketCount 记录当前桶数量。sync.Map 没有 len,单独计数才能
 	// 在不遍历的情况下判断是否超限。
 	bucketCount atomic.Int64

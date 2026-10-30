@@ -16,6 +16,10 @@ func TestMaskLoginRateLimitKey(t *testing.T) {
 		{"no-at-sign|10.0.0.1", "n***|10.0.0.1"},
 		{"|10.0.0.1", "***|10.0.0.1"},
 		{"", "***"},
+		// R2 finding 2:邮箱本地部分允许 `|`(RFC 5322 atext),必须按
+		// 最后一个竖线切分,否则邮箱剩余部分会漏进 IP 段。
+		{"a|b@example.com|1.2.3.4", "a***@example.com|1.2.3.4"},
+		{"a|b|1.2.3.4", "a***|1.2.3.4"},
 	}
 	for _, tt := range tests {
 		if got := maskLoginRateLimitKey(tt.key); got != tt.want {

@@ -381,12 +381,13 @@ func (h *AuthHandler) resolveAccessRevoked(ctx context.Context, user *types.User
 // 例如 `alice@example.com|1.2.3.4` → `a***@example.com|1.2.3.4`。
 // 只影响日志展示,计数用的 key 不变。纯字符串处理,不引入依赖。
 func maskLoginRateLimitKey(key string) string {
-	email, ip, found := strings.Cut(key, "|")
-	masked := maskLoginEmail(email)
-	if !found {
-		return masked
+	// 按最后一个竖线切分:邮箱本地部分按 RFC 5322 允许 `|`,而 IPv4/IPv6
+	// 都不含 `|`。按第一个竖线切会把邮箱剩余部分漏进「IP」段。
+	idx := strings.LastIndex(key, "|")
+	if idx < 0 {
+		return maskLoginEmail(key)
 	}
-	return masked + "|" + ip
+	return maskLoginEmail(key[:idx]) + key[idx:]
 }
 
 func maskLoginEmail(email string) string {
