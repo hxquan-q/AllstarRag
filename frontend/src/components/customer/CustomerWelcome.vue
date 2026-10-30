@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ProductLine } from '@/brand/types'
+import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 import { useProductLineStore } from '@/stores/productLine'
 import { useUIStore } from '@/stores/ui'
 
@@ -19,23 +20,40 @@ const emit = defineEmits<{
 const { t, locale } = useI18n()
 const productLineStore = useProductLineStore()
 const uiStore = useUIStore()
+/** 客户移动布局断点（与 CSS 1023px 同口径）：移动端卡片走「最多 2 张 + 选择弹窗」（T10）。 */
+const { isMobileLayout } = useResponsiveLayout()
 
 /** 字标图片是中文的：只有中文环境替换标题文字，其他语言保留本地化文案。 */
 const isZhLocale = computed(() => String(locale.value).toLowerCase().startsWith('zh'))
 
-/** 折叠阈值：超过 4 条才出现「查看更多」（AC-12，2026-10-29 用户 E2E 反馈由 3 改 4）。 */
+/** 桌面折叠阈值：超过 4 条才出现「查看更多」（AC-12，2026-10-29 用户 E2E 反馈由 3 改 4）。 */
 const COLLAPSED_LINE_COUNT = 4
+/** 移动端可见卡片上限：超过 2 张只显示 [当前选中, 其余第一]，多的进选择弹窗（T10）。 */
+const MOBILE_MAX_LINE_COUNT = 2
 
 const lines = computed(() => productLineStore.lines)
 const currentLine = computed(() => productLineStore.currentLine)
 const samples = computed(() => currentLine.value?.samples ?? [])
 
-/** 展开状态只作用于欢迎区卡片；输入区下拉始终全量（AC-13）。 */
+/** 展开状态只作用于桌面欢迎区卡片；输入区下拉始终全量（AC-13）。 */
 const expanded = ref(false)
 const hasOverflow = computed(() => lines.value.length > COLLAPSED_LINE_COUNT)
-const visibleLines = computed(() =>
-  hasOverflow.value && !expanded.value ? lines.value.slice(0, COLLAPSED_LINE_COUNT) : lines.value,
+/** 移动端是否溢出：超过 2 张就需要「查看更多」弹窗（T10）；桌面恒为 false。 */
+const hasMobileOverflow = computed(
+  () => isMobileLayout.value && lines.value.length > MOBILE_MAX_LINE_COUNT,
 )
+/** 弹窗里的全量列表：当前选中永远排第一，其余保持绑定顺序（T10）。 */
+const pickerLines = computed(() => {
+  const current = currentLine.value
+  if (!current) return lines.value
+  return [current, ...lines.value.filter((line) => line.id !== current.id)]
+})
+const visibleLines = computed(() => {
+  // 移动端 >2 张：只显示弹窗列表前两张 = [当前选中, 其余第一]（T10）；≤2 张走下方全量分支。
+  if (hasMobileOverflow.value) return pickerLines.value.slice(0, MOBILE_MAX_LINE_COUNT)
+  // 桌面：超过 4 条折叠、可就地展开（AC-12），顺序不变。
+  return hasOverflow.value && !expanded.value ? lines.value.slice(0, COLLAPSED_LINE_COUNT) : lines.value
+})
 /** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
 const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
 /**
@@ -71,6 +89,14 @@ function chooseLine(line: ProductLine): void {
   productLineStore.selectLine(line.id)
 }
 
+/** 移动端「查看更多」选择弹窗（T10）：点卡片切线后立即关闭；点当前那张只关闭不切。 */
+const agentPickerVisible = ref(false)
+
+function chooseLineInPicker(line: ProductLine): void {
+  chooseLine(line)
+  agentPickerVisible.value = false
+}
+
 function ask(question: string): void {
   if (!question.trim()) return
   emit('send', question)
@@ -101,8 +127,13 @@ function ask(question: string): void {
         </button>
       </div>
 
-      <!-- 超过 4 条时就地展开/收起，不跳页、不弹层（AC-12）；按钮沿用现有 sample-chip 样式。 -->
-      <button v-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"
+      <!-- 移动端超过 2 张：其余 agent 收进选择弹窗，不再就地展开（T10）；按钮沿用 sample-chip 样式。 -->
+      <button v-if="hasMobileOverflow" type="button" class="sample-chip customer-welcome__toggle"
+        aria-haspopup="dialog" @click="agentPickerVisible = true">
+        {{ t('brand.welcome.showMoreLines') }}
+      </button>
+      <!-- 桌面超过 4 条仍就地展开/收起，不跳页、不弹层（AC-12）；移动端不渲染 inline toggle。 -->
+      <button v-else-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"
         :aria-expanded="expanded" aria-controls="customer-welcome-lines" @click="toggleExpanded">
         {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}
       </button>
@@ -130,6 +161,28 @@ function ask(question: string): void {
 
     <!-- 产线 = 当前工作区绑定的 agent（无绑定时由上面的空态提示承担） -->
     <!-- 免责声明已移到输入框下方（creatChat 页面底部） -->
+
+    <!-- 移动端「查看更多」选择弹窗（T10）：全部 agent、当前排第一，点选即切线并关闭。
+         弹层挂在 body 上，宽度由 customer-mobile.css 的 .t-dialog 限宽兜住（≤1023）。 -->
+    <t-dialog
+      v-model:visible="agentPickerVisible"
+      :header="t('brand.welcome.chooseAgent')"
+      :close-btn="true"
+      :close-on-overlay-click="true"
+      :close-on-esc-keydown="true"
+      :footer="false"
+      width="480px"
+      placement="center"
+    >
+      <div class="customer-welcome__picker" role="group" :aria-label="t('brand.welcome.lineGroupLabel')">
+        <button v-for="line in pickerLines" :key="line.id" type="button" class="line-card"
+          :class="{ 'is-active': line.id === currentLine?.id }" :aria-pressed="line.id === currentLine?.id"
+          @click="chooseLineInPicker(line)">
+          <span class="line-card__name">{{ line.name }}</span>
+          <span v-if="line.description" class="line-card__desc">{{ line.description }}</span>
+        </button>
+      </div>
+    </t-dialog>
   </section>
 </template>
 
@@ -194,6 +247,16 @@ function ask(question: string): void {
 /* 「查看更多 / 收起」只加间距，视觉沿用上面的 sample-chip 按钮。 */
 .customer-welcome__toggle {
   margin-top: var(--app-space-4);
+}
+
+/* 移动端「查看更多」弹窗里的全量卡片（T10）：单列、可滚动。高度上限用 JS 写的
+   视口高变量，根字号放大时不会跟着超屏（与 customer-mobile.css F18 同思路）。 */
+.customer-welcome__picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+  max-height: calc(var(--app-visual-viewport-height, 60vh) * 0.6);
+  overflow-y: auto;
 }
 
 /* 空态：提示 + 「去绑定」，不新增动效与图标（C8）。 */
