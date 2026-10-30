@@ -44,12 +44,10 @@ type TenantMemberService interface {
 	// to Owner.
 	HasAnyMembers(ctx context.Context, tenantID uint64) (bool, error)
 
-	// HasRevokedAccess reports whether the user was removed from every
-	// workspace they used to belong to: zero active memberships but at
-	// least one soft-deleted membership. System administrators and
-	// cross-tenant superusers are never considered revoked. Used to gate
-	// self-service workspace creation and to project the
-	// capabilities.access_revoked flag on login / auth-me.
+	// HasRevokedAccess 判断用户是否被移出了所有曾加入的空间:
+	// 活跃成员关系为 0,但仍有至少一条所属空间未删除的软删成员关系。
+	// 系统管理员与跨租户超管永远不算被移除。用于自助建空间的拦截,
+	// 以及 login / auth-me 的 capabilities.access_revoked 投影。
 	HasRevokedAccess(ctx context.Context, userID string) (bool, error)
 
 	// UpdateRole changes the role of an existing membership while

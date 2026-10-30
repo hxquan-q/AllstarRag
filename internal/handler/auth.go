@@ -308,7 +308,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 	if !loginAccountLimiter.Allow(loginKey) {
 		logger.Warnf(ctx,
 			"[auth-login-ratelimit] account=%s exceeded %d attempts per %s",
-			loginKey, loginAccountRateLimitMax, loginAccountRateLimitWindow)
+			maskLoginRateLimitKey(loginKey), loginAccountRateLimitMax, loginAccountRateLimitWindow)
 		c.Error(errors.NewTooManyRequestsError("too many requests; please retry shortly"))
 		return
 	}
@@ -375,6 +375,31 @@ func (h *AuthHandler) resolveAccessRevoked(ctx context.Context, user *types.User
 		return false
 	}
 	return revoked
+}
+
+// maskLoginRateLimitKey 把登录限速 key(email|ip)里的邮箱打码后再写日志,
+// 例如 `alice@example.com|1.2.3.4` → `a***@example.com|1.2.3.4`。
+// 只影响日志展示,计数用的 key 不变。纯字符串处理,不引入依赖。
+func maskLoginRateLimitKey(key string) string {
+	email, ip, found := strings.Cut(key, "|")
+	masked := maskLoginEmail(email)
+	if !found {
+		return masked
+	}
+	return masked + "|" + ip
+}
+
+func maskLoginEmail(email string) string {
+	at := strings.LastIndex(email, "@")
+	local, domain := email, ""
+	if at >= 0 {
+		local, domain = email[:at], email[at:]
+	}
+	runes := []rune(local)
+	if len(runes) == 0 {
+		return "***" + domain
+	}
+	return string(runes[0]) + "***" + domain
 }
 
 // GetOIDCAuthorizationURL godoc

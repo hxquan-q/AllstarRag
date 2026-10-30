@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // tenant_member_revoked_test.go 覆盖 HasRevokedAccess 的判定:
@@ -20,7 +21,7 @@ func setupRevokedAccessService(t *testing.T, userRepo interfaces.UserRepository)
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&types.TenantMember{}))
+	require.NoError(t, db.AutoMigrate(&types.Tenant{}, &types.TenantMember{}))
 	repo := apprepo.NewTenantMemberRepository(db)
 	return NewTenantMemberService(repo, nil, userRepo, nil), db
 }
@@ -36,6 +37,12 @@ func (r *revokedAccessUserRepo) GetUserByID(context.Context, string) (*types.Use
 
 func addMembership(t *testing.T, db *gorm.DB, userID string, tenantID uint64, deleted bool) {
 	t.Helper()
+	// CountDeletedByUser 只统计所属空间仍存在的行,所以测试必须先把空间建出来。
+	require.NoError(t, db.Clauses(clause.OnConflict{DoNothing: true}).Create(&types.Tenant{
+		ID:     tenantID,
+		Name:   "workspace",
+		Status: "active",
+	}).Error)
 	member := &types.TenantMember{
 		UserID:   userID,
 		TenantID: tenantID,
@@ -88,6 +95,16 @@ func TestHasRevokedAccess_MembershipStates(t *testing.T) {
 			name: "other user's removed membership is irrelevant",
 			members: func(t *testing.T, db *gorm.DB) {
 				addMembership(t, db, "other-user", 1, true)
+			},
+			want: false,
+		},
+		{
+			// 删除空间会级联软删成员,但那是用户自己删掉的空间,
+			// 不等于被管理员移出,不应阻止其再建空间。
+			name: "workspace deleted with cascade membership removal",
+			members: func(t *testing.T, db *gorm.DB) {
+				addMembership(t, db, "user-1", 1, true)
+				require.NoError(t, db.Delete(&types.Tenant{}, 1).Error)
 			},
 			want: false,
 		},

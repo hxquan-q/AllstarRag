@@ -52,8 +52,8 @@ export interface LoginResponse {
   memberships?: MembershipInfo[]
   token?: string
   refresh_token?: string
-  // Capability projection returned by a successful login so the onboarding
-  // page can gate create/invite entry points before the first /auth/me.
+  // 登录成功时一并返回的能力投影,让引导页在首次 /auth/me 之前
+  // 就能决定是否展示创建/邀请入口。
   capabilities?: AuthCapabilities
 }
 
@@ -355,9 +355,8 @@ export interface MembershipInfo {
 export interface AuthCapabilities {
   can_create_tenant: boolean
   auto_accept_invitation: boolean
-  // True when the user was removed from every workspace they belonged to.
-  // The onboarding page then hides create/invite entry points and shows
-  // the access-revoked notice; the backend independently rejects creation.
+  // 用户被移出所有曾加入的空间时为 true。引导页据此隐藏创建/邀请入口
+  // 并展示「已被移除空间」提示;后端会独立拒绝创建空间。
   access_revoked?: boolean
 }
 

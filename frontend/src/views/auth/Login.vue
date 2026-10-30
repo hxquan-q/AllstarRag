@@ -334,9 +334,8 @@ const persistLoginResponse = async (response: any, skipRedirect = false) => {
     if (Array.isArray(response.memberships)) {
       authStore.setMemberships(response.memberships)
     }
-    // Capabilities are also carried on the login response so the
-    // onboarding page can hide create/invite entry points before the
-    // follow-up /auth/me refresh completes.
+    // 登录响应也携带能力投影,便于引导页在后续 /auth/me 返回前
+    // 就隐藏创建/邀请入口。
     const capabilities = response.capabilities
     if (typeof capabilities?.can_create_tenant === 'boolean') {
       authStore.setCanCreateTenant(capabilities.can_create_tenant)

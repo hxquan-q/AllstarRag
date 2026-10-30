@@ -59,11 +59,9 @@ export const useAuthStore = defineStore('auth', () => {
   // deployment never briefly flashes a create action the backend would
   // then reject with 403/2005.
   const canCreateTenant = ref(false)
-  // accessRevoked mirrors capabilities.access_revoked from /auth/me
-  // (and the login response). True means the user was removed from every
-  // workspace: the onboarding page hides create/invite entry points and
-  // the backend rejects POST /tenants. Kept UI-only; the server is the
-  // authority (same caveat as canCreateTenant).
+  // accessRevoked 镜像 /auth/me(以及登录响应)的 capabilities.access_revoked。
+  // 为 true 表示用户已被移出所有空间:引导页隐藏创建/邀请入口,后端拒绝
+  // POST /tenants。仅用于 UI;真实权限以服务端为准(与 canCreateTenant 同)。
   const accessRevoked = ref(false)
 
   const autoAcceptInvitation = ref(false)

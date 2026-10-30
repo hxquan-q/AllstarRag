@@ -16,6 +16,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/application/service"
@@ -41,7 +42,7 @@ func newT09RevokedMemberService(t *testing.T) (interfaces.TenantMemberService, *
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&types.TenantMember{}); err != nil {
+	if err := db.AutoMigrate(&types.Tenant{}, &types.TenantMember{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	repo := apprepo.NewTenantMemberRepository(db)
@@ -50,6 +51,14 @@ func newT09RevokedMemberService(t *testing.T) (interfaces.TenantMemberService, *
 
 func t09AddMembership(t *testing.T, db *gorm.DB, userID string, tenantID uint64, deleted bool) {
 	t.Helper()
+	// CountDeletedByUser 只统计所属空间仍存在的软删行,夹具需先建空间。
+	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&types.Tenant{
+		ID:     tenantID,
+		Name:   "workspace",
+		Status: "active",
+	}).Error; err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
 	member := &types.TenantMember{
 		UserID:   userID,
 		TenantID: tenantID,

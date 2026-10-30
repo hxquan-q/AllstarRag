@@ -275,21 +275,20 @@ type LoginResponse struct {
 	Memberships  []Membership `json:"memberships"`
 	Token        string       `json:"token,omitempty"`
 	RefreshToken string       `json:"refresh_token,omitempty"`
-	// Capabilities mirrors the capabilities object on GET /auth/me so the
-	// client can gate the create-workspace UI right after login, before
-	// the first /auth/me round-trip. Omitted on the non-success paths.
+	// Capabilities 与 GET /auth/me 的 capabilities 结构保持一致,让客户端
+	// 在登录后、首次 /auth/me 返回前就能决定是否展示创建空间入口。
+	// 非成功响应不带该字段。
 	Capabilities *LoginCapabilities `json:"capabilities,omitempty"`
 }
 
-// LoginCapabilities is the capability projection returned with a successful
-// login. Keep it in sync with the capabilities object on GET /auth/me.
+// LoginCapabilities 是登录成功时返回的能力投影,需与 GET /auth/me 的
+// capabilities 字段保持同步。
 type LoginCapabilities struct {
-	// CanCreateTenant is the effective permission to create a workspace,
-	// already folded with access_revoked (revoked users always get false).
+	// CanCreateTenant 是实际生效的建空间权限,已折叠 access_revoked
+	// (被移除的账号恒为 false)。
 	CanCreateTenant bool `json:"can_create_tenant"`
-	// AccessRevoked is true when the user was removed from every workspace
-	// they used to belong to. The client hides creation/invitation entry
-	// points; the backend independently rejects POST /tenants.
+	// AccessRevoked 表示用户已被移出所有曾加入的空间。客户端据此隐藏
+	// 创建/邀请入口;后端在 POST /tenants 独立拦截。
 	AccessRevoked bool `json:"access_revoked"`
 }
 

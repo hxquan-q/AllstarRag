@@ -139,7 +139,7 @@ func (f *fakeMemberService) RemoveMember(ctx context.Context, userID string, ten
 	return nil
 }
 
-// HasRevokedAccess stub: the auth-role middleware never consults this flag.
+// HasRevokedAccess 是占位实现:auth-role 中间件不会读取该标志。
 func (f *fakeMemberService) HasRevokedAccess(context.Context, string) (bool, error) {
 	return false, nil
 }

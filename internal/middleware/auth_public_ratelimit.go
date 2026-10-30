@@ -104,7 +104,9 @@ func (l *ipRateLimiter) bucketFor(ip string, now time.Time) *ipBucket {
 	return val.(*ipBucket)
 }
 
-// enforceBucketLimit 保证桶数不超过上限:先清过期桶,再逐个淘汰最旧的桶。
+// enforceBucketLimit 保证桶数不超过上限。一次超限时直接淘汰到 90% 低水位,
+// 而不是恰好删到上限:否则每插入一个新 key 都要做一次全表扫描,高基数攻击
+// 下会退化成 O(n²)。先清过期桶,再按 lastSeen 从旧到新淘汰。
 // 淘汰会丢失该 IP 的计数,相当于给被淘汰 IP 重新计时;只在高基数攻击
 // 下发生,可接受,总比内存无限增长好。
 func (l *ipRateLimiter) enforceBucketLimit() {
@@ -112,6 +114,7 @@ func (l *ipRateLimiter) enforceBucketLimit() {
 	if l.bucketCount.Load() <= limit {
 		return
 	}
+	low := l.bucketLowWatermark()
 	l.evictMu.Lock()
 	defer l.evictMu.Unlock()
 	if l.bucketCount.Load() <= limit {
@@ -119,7 +122,8 @@ func (l *ipRateLimiter) enforceBucketLimit() {
 	}
 
 	cutoff := time.Now().Add(-l.window)
-	// 第一轮:只删已过期的桶(窗口内无请求),不牺牲仍在活跃的 IP。
+	// 第一轮:只删已过期的桶(窗口内无请求),不牺牲仍在活跃的 IP,
+	// 删到低水位即停。
 	l.buckets.Range(func(k, v any) bool {
 		b := v.(*ipBucket)
 		b.mu.Lock()
@@ -128,11 +132,11 @@ func (l *ipRateLimiter) enforceBucketLimit() {
 		if expired && l.buckets.CompareAndDelete(k, v) {
 			l.bucketCount.Add(-1)
 		}
-		return l.bucketCount.Load() > limit
+		return l.bucketCount.Load() > low
 	})
 
-	// 第二轮:仍然超限,每次挑 lastSeen 最早的桶淘汰。
-	for l.bucketCount.Load() > limit {
+	// 第二轮:仍然高于低水位,从最旧(lastSeen 最早)开始淘汰。
+	for l.bucketCount.Load() > low {
 		var oldestKey, oldestVal any
 		var oldestSeen time.Time
 		l.buckets.Range(func(k, v any) bool {
@@ -152,6 +156,18 @@ func (l *ipRateLimiter) enforceBucketLimit() {
 			l.bucketCount.Add(-1)
 		}
 	}
+}
+
+// bucketLowWatermark 返回一次超限淘汰的目标桶数(上限的 90%)。
+// 小上限时整数除法可能得到与上限相同的值,此时行为等同旧的「淘汰到上限」,
+// 不影响小规模部署与既有测试;生产 20000 上限对应 18000 低水位。
+func (l *ipRateLimiter) bucketLowWatermark() int64 {
+	limit := int64(l.bucketLimit())
+	low := limit - limit/10
+	if low < 1 {
+		low = 1
+	}
+	return low
 }
 
 // allow returns true if the IP is within budget for the current
