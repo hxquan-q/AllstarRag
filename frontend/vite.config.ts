@@ -154,11 +154,15 @@ export default defineConfig({
     port: 5173,
     host: true,
     // 代理配置，用于开发环境
+    // 各条代理都开 xfwd：把真实客户端 IP 写进 X-Forwarded-For 传给后端。
+    // 不传的话后端看到的永远是 127.0.0.1，登录/注册限速会把所有公网
+    // 用户当成同一个来源，一个人触发 429 就锁死全体。
     proxy: {
       '/mcp/': {
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
+        xfwd: true,
         // Streamable HTTP may keep an SSE response open for long-running tools.
         timeout: 3_600_000,
         proxyTimeout: 3_600_000,
@@ -167,6 +171,7 @@ export default defineConfig({
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
+        xfwd: true,
         // 沙箱终端等 WebSocket 升级请求也走 /api，必须开启 WS 转发，
         // 否则浏览器侧握手失败、前端表现为"一直正在连接"。
         ws: true,
@@ -179,6 +184,7 @@ export default defineConfig({
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
+        xfwd: true,
       }
     }
   },
@@ -188,11 +194,14 @@ export default defineConfig({
   preview: {
     port: 4173,
     host: true,
+    // 同 server.proxy：必须转发真实客户端 IP，否则后端限速把所有公网
+    // 用户当成 127.0.0.1 的一个桶。
     proxy: {
       '/mcp/': {
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
+        xfwd: true,
         timeout: 3_600_000,
         proxyTimeout: 3_600_000,
       },
@@ -200,6 +209,7 @@ export default defineConfig({
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
+        xfwd: true,
         ws: true,
         timeout: 180_000,
         proxyTimeout: 180_000,
@@ -208,6 +218,7 @@ export default defineConfig({
         target: DEV_PROXY_TARGET,
         changeOrigin: true,
         secure: false,
+        xfwd: true,
       }
     }
   }
