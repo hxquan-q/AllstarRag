@@ -4,7 +4,7 @@
              非客户不加任何 wrapper，DOM 与改造前完全一致（C6）。 -->
         <CustomerTopBar v-if="isCustomer" />
         <div class="dialogue-answers">
-            <!-- 原标题含 WeKnora 字样，客户版由顶栏产品名代替，管理员分支保持原样 -->
+            <!-- 品牌名大标题（{name} 插值，值取 runtime 品牌配置）；客户版由 CustomerTopBar 产品名代替 -->
             <div v-if="!isCustomer" class="dialogue-title" style="--wails-draggable: drag">
                 <span style="--wails-draggable: drag">{{ $t('createChat.title', { name: brandConfig.productName }) }}</span>
             </div>
