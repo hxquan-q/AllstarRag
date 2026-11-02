@@ -75,15 +75,26 @@ test('mobile welcome shows two cards with the current line first and opens a pic
     welcome,
     /const pickerLines = computed\(\(\) => \{\s*const current = currentLine\.value\s*if \(!current\) return lines\.value\s*return \[current, \.\.\.lines\.value\.filter\(\(line\) => line\.id !== current\.id\)\]\s*\}\)/,
   )
-  // visibleLines 移动分支在前：>2 张取弹窗列表前两张；桌面恒按 4 截断（T01，无 expanded 全量分支）。
+  // T02 排序修复：visibleLines 统一交给纯函数 computeVisibleLines——未超限保留绑定顺序、
+  // 超限当前选中置顶并按顺序补足。真实排序行为由 visibleLines.test.mjs 单测覆盖，这里钉接线。
   const visibleStart = welcome.indexOf('const visibleLines = computed')
   assert.ok(visibleStart >= 0, 'visibleLines not found')
-  // 该 computed 连注释约 300 字符，取 700 字符窗口足够覆盖两个分支且不引入后续代码。
-  const visibleBody = welcome.slice(visibleStart, visibleStart + 700)
-  const mobileAt = visibleBody.indexOf('if (hasMobileOverflow.value) return pickerLines.value.slice(0, MOBILE_MAX_LINE_COUNT)')
-  const desktopAt = visibleBody.indexOf('return pickerLines.value.slice(0, COLLAPSED_LINE_COUNT)')
-  assert.ok(mobileAt >= 0, 'mobile-first slice branch missing from visibleLines')
-  assert.ok(desktopAt > mobileAt, 'desktop truncation branch must come after the mobile branch')
+  const visibleBody = welcome.slice(visibleStart, visibleStart + 400)
+  assert.match(
+    welcome,
+    /import \{ computeVisibleLines \} from '\.\/visibleLines'/,
+    'visibleLines 未接入可见列表纯函数 computeVisibleLines',
+  )
+  assert.match(
+    visibleBody,
+    /const maxVisible = isMobileLayout\.value \? MOBILE_MAX_LINE_COUNT : COLLAPSED_LINE_COUNT/,
+    '布局上限映射（移动 2 / 桌面 4）缺失',
+  )
+  assert.match(
+    visibleBody,
+    /return computeVisibleLines\(lines\.value, currentLine\.value\?\.id, maxVisible\)/,
+    'visibleLines 未调用 computeVisibleLines',
+  )
   // AC-3：桌面不再有 expanded 全量分支；expanded / toggleExpanded 整体移除。
   assert.doesNotMatch(visibleBody, /expanded\.value/)
   assert.doesNotMatch(welcome, /\bexpanded\b/)
