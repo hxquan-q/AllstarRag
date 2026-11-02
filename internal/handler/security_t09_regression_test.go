@@ -127,14 +127,18 @@ func TestT09_CreateTenant_RealServiceRejectsRevokedUser(t *testing.T) {
 }
 
 func TestT09_CreateTenant_ReinvitedUserRecovers(t *testing.T) {
-	memberSvc, db := newT09RevokedMemberService(t)
-	t09AddMembership(t, db, t09RevokedUser, 1, true)
+	// T02 修正:旧版用 db.Create 直接塞活跃行冒充「重新邀请被接受」,
+	// 属伪覆盖。现改走真实链路:owner 建邀请 → 被移除用户调 accept 端点
+	// (AddMember 新插活跃行)后,撤销状态应解除(POST /tenants 403→201)。
+	const removedEmail = "t09-removed-user@example.com"
+	env := newRejoinEnv(t)
+	env.seedRemovedViewer(t, 1, t09RevokedUser, removedEmail)
 
 	tenants := &tenantPolicyTenantService{}
 	h := &TenantHandler{
 		service:          tenants,
 		userService:      &revokedTenantUserService{user: &types.User{ID: t09RevokedUser, TenantID: 1}},
-		memberService:    memberSvc,
+		memberService:    env.members,
 		config:           &config.Config{Tenant: &config.TenantConfig{}},
 		systemSettingSvc: &tenantPolicySettingService{enabled: true},
 	}
@@ -145,8 +149,9 @@ func TestT09_CreateTenant_ReinvitedUserRecovers(t *testing.T) {
 		t.Fatalf("before re-invite: status = %d, want 403 (body=%s)", w.Code, w.Body.String())
 	}
 
-	// 重新邀请被接受(新的活跃成员关系)后,撤销状态应立刻解除。
-	t09AddMembership(t, db, t09RevokedUser, 2, false)
+	// 重新邀请被接受:真实邀请 + accept 端点完成恢复。
+	invID := env.rejoinCreatePerUserInvitation(t, 1, removedEmail)
+	env.rejoinAcceptPerUser(t, invID, t09RevokedUser)
 
 	w := t09PostTenant(t, router, `{"name":"after-reinvite"}`, nil)
 	if w.Code != http.StatusCreated {
