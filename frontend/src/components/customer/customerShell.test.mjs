@@ -42,18 +42,25 @@ test('customer welcome renders agent title, visible line cards, samples and the 
   assert.doesNotMatch(welcome, /api\/|fetch\(|axios|knowledge-chat/)
 })
 
-test('customer welcome collapses cards above four on desktop and keeps both toggle branches', () => {
-  // 桌面：阈值 4（AC-12，E2E 反馈修订，>4 才折叠）、折叠切片、就地展开收起。
+test('customer welcome opens the agent picker dialog from the desktop toggle above four (T01)', () => {
+  // 桌面：阈值 4（AC-12，E2E 反馈修订，>4 才折叠）保留；PC「查看更多」改为打开选择弹窗（T01/AC-1）。
   assert.match(welcome, /const COLLAPSED_LINE_COUNT = 4/)
   assert.match(welcome, /const hasOverflow = computed\(\(\) => lines\.value\.length > COLLAPSED_LINE_COUNT\)/
   )
-  assert.match(welcome, /function toggleExpanded\(\): void \{\s*expanded\.value = !expanded\.value\s*\}/)
-  // T10：两个 toggle 分支并存——移动「查看更多」按钮在前（弹窗入口），桌面 inline toggle 改挂 v-else-if。
+  // T10/T01：两个 toggle 分支并存——移动「查看更多」按钮在前（弹窗入口），桌面按钮改挂 v-else-if。
   assert.match(welcome, /<button v-if="hasMobileOverflow" type="button" class="sample-chip customer-welcome__toggle"/)
   assert.match(welcome, /aria-haspopup="dialog" @click="agentPickerVisible = true"/)
   assert.match(welcome, /<button v-else-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"/)
-  assert.match(welcome, /:aria-expanded="expanded" aria-controls="customer-welcome-lines" @click="toggleExpanded"/)
-  assert.match(welcome, /t\('brand\.welcome\.(showMoreLines|collapseLines)'\)/)
+  // AC-1：桌面按钮语义改为 aria-haspopup="dialog"，点击打开同一个 T10 选择弹窗，不再内联展开。
+  assert.match(
+    welcome,
+    /<button v-else-if="hasOverflow"[^>]*aria-haspopup="dialog" @click="agentPickerVisible = true"/,
+  )
+  // AC-1：桌面按钮无 aria-expanded 切换（折叠/展开语义整体移除）。
+  assert.doesNotMatch(welcome, /aria-expanded/)
+  // AC-1：按钮文案固定 showMoreLines，不再有「收起」态（旧的 expanded?collapseLines 三态消失）。
+  assert.match(welcome, /t\('brand\.welcome\.showMoreLines'\)/)
+  assert.doesNotMatch(welcome, /t\('brand\.welcome\.collapseLines'\)/)
 })
 
 test('mobile welcome shows two cards with the current line first and opens a picker dialog (T10)', () => {
@@ -68,17 +75,19 @@ test('mobile welcome shows two cards with the current line first and opens a pic
     welcome,
     /const pickerLines = computed\(\(\) => \{\s*const current = currentLine\.value\s*if \(!current\) return lines\.value\s*return \[current, \.\.\.lines\.value\.filter\(\(line\) => line\.id !== current\.id\)\]\s*\}\)/,
   )
-  // visibleLines 移动分支在前：>2 张取弹窗列表前两张；桌面折叠逻辑在后（顺序不可颠倒）。
+  // visibleLines 移动分支在前：>2 张取弹窗列表前两张；桌面恒按 4 截断（T01，无 expanded 全量分支）。
   const visibleStart = welcome.indexOf('const visibleLines = computed')
   assert.ok(visibleStart >= 0, 'visibleLines not found')
   // 该 computed 连注释约 300 字符，取 700 字符窗口足够覆盖两个分支且不引入后续代码。
   const visibleBody = welcome.slice(visibleStart, visibleStart + 700)
   const mobileAt = visibleBody.indexOf('if (hasMobileOverflow.value) return pickerLines.value.slice(0, MOBILE_MAX_LINE_COUNT)')
-  const desktopAt = visibleBody.indexOf(
-    'return hasOverflow.value && !expanded.value ? lines.value.slice(0, COLLAPSED_LINE_COUNT) : lines.value',
-  )
+  const desktopAt = visibleBody.indexOf('return lines.value.slice(0, COLLAPSED_LINE_COUNT)')
   assert.ok(mobileAt >= 0, 'mobile-first slice branch missing from visibleLines')
-  assert.ok(desktopAt > mobileAt, 'desktop collapse branch must come after the mobile branch')
+  assert.ok(desktopAt > mobileAt, 'desktop truncation branch must come after the mobile branch')
+  // AC-3：桌面不再有 expanded 全量分支；expanded / toggleExpanded 整体移除。
+  assert.doesNotMatch(visibleBody, /expanded\.value/)
+  assert.doesNotMatch(welcome, /\bexpanded\b/)
+  assert.doesNotMatch(welcome, /toggleExpanded/)
   // 查看更多只打开选择弹窗（t-dialog + 全量 pickerLines），点选切线并关闭。
   assert.match(welcome, /<t-dialog\s+v-model:visible="agentPickerVisible"/)
   assert.match(welcome, /:close-btn="true"/)
