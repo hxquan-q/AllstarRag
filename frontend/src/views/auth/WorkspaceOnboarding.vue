@@ -14,7 +14,7 @@
           {{ $t('auth.workspaceOnboarding.accessRevokedRejoin') }}
         </p>
         <div class="workspace-actions workspace-actions--single">
-          <t-button theme="primary" variant="base" size="large" @click="invitationsVisible = true">
+          <t-button v-if="surfaces.showInvitations" theme="primary" variant="base" size="large" @click="invitationsVisible = true">
             <template #icon><t-icon name="mail" /></template>
             {{ $t('auth.workspaceOnboarding.invitations') }}
             <template v-if="authStore.pendingInvitationCount > 0">
@@ -58,6 +58,7 @@
               {{ $t('auth.workspaceOnboarding.create') }}
             </t-button>
             <t-button
+              v-if="surfaces.showInvitations"
               :theme="surfaces.showCreate ? 'default' : 'primary'"
               :variant="surfaces.showCreate ? 'outline' : 'base'"
               size="large"
