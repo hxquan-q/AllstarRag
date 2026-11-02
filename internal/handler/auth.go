@@ -309,7 +309,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		logger.Warnf(ctx,
 			"[auth-login-ratelimit] account=%s exceeded %d attempts per %s",
 			maskLoginRateLimitKey(loginKey), loginAccountRateLimitMax, loginAccountRateLimitWindow)
-		c.Error(errors.NewTooManyRequestsError("too many requests; please retry shortly"))
+		_ = c.Error(errors.NewTooManyRequestsError("too many requests; please retry shortly"))
 		return
 	}
 

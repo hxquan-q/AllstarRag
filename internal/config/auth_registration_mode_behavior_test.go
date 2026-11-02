@@ -82,7 +82,10 @@ func TestBehaviorRegistrationModeInvalidEnvIgnored(t *testing.T) {
 		expected string
 	}{
 		{"unknown word", "open", AuthRegistrationModeInviteOnly, AuthRegistrationModeInviteOnly},
-		{"hyphen instead of underscore", "invite-register", AuthRegistrationModeSelfServe, AuthRegistrationModeSelfServe},
+		{
+			"hyphen instead of underscore", "invite-register",
+			AuthRegistrationModeSelfServe, AuthRegistrationModeSelfServe,
+		},
 		{"space inside", "self serve", AuthRegistrationModeInviteOnly, AuthRegistrationModeInviteOnly},
 		{"trailing junk", "invite_register_v2", AuthRegistrationModeSelfServe, AuthRegistrationModeSelfServe},
 		{"whitespace only keeps yaml", "   ", AuthRegistrationModeInviteRegister, AuthRegistrationModeInviteRegister},

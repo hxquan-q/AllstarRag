@@ -938,7 +938,8 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 			cfg.Auth.RegistrationMode = mode
 		default:
 			fmt.Printf(
-				"[config] WEKNORA_AUTH_REGISTRATION_MODE=%q is not one of self_serve/invite_only/invite_register, ignoring\n",
+				"[config] WEKNORA_AUTH_REGISTRATION_MODE=%q is not one of "+
+					"self_serve/invite_only/invite_register, ignoring\n",
 				value,
 			)
 		}

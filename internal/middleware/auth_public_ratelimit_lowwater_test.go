@@ -64,9 +64,11 @@ func TestIPRateLimiter_EvictsToLowWatermark(t *testing.T) {
 		t.Fatalf("bucketCount = %d, want %d (no eviction before reaching limit)", got, limit)
 	}
 
-	// 新 key 的预算完整:max=2,第 3 次仍被拒。
-	if !limiter.allow("fresh") || !limiter.allow("fresh") {
-		t.Fatal("fresh key: first two requests want allowed")
+	// 新 key 的预算完整:max=2,前两次放行、第 3 次仍被拒。
+	for i := 0; i < 2; i++ {
+		if !limiter.allow("fresh") {
+			t.Fatalf("fresh key: request %d want allowed", i+1)
+		}
 	}
 	if limiter.allow("fresh") {
 		t.Fatal("fresh key: third request want denied")

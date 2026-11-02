@@ -282,7 +282,8 @@ func (r *tenantMemberRepository) CountDeletedByUser(ctx context.Context, userID 
 		Unscoped().
 		Model(&types.TenantMember{}).
 		Joins("JOIN tenants ON tenants.id = tenant_members.tenant_id").
-		Where("tenant_members.user_id = ? AND tenant_members.deleted_at IS NOT NULL AND tenants.deleted_at IS NULL", userID).
+		Where("tenant_members.user_id = ? AND tenant_members.deleted_at IS NOT NULL "+
+			"AND tenants.deleted_at IS NULL", userID).
 		Count(&count).Error
 	return count, err
 }
