@@ -3333,7 +3333,7 @@ export default {
     goToAgentSettings: 'エージェント設定に移動'
   },
   createChat: {
-    title: 'こんにちは、WeKnoraです。あなたのナレッジを、すぐそばに',
+    title: 'こんにちは、{name}です。あなたのナレッジを、すぐそばに',
     newSessionTitle: '新しいセッション',
     openProject: 'プロジェクトを選択',
     clearProject: '解除',

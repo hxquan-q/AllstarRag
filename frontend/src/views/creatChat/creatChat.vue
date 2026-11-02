@@ -6,7 +6,7 @@
         <div class="dialogue-answers">
             <!-- 原标题含 WeKnora 字样，客户版由顶栏产品名代替，管理员分支保持原样 -->
             <div v-if="!isCustomer" class="dialogue-title" style="--wails-draggable: drag">
-                <span style="--wails-draggable: drag">{{ $t('createChat.title') }}</span>
+                <span style="--wails-draggable: drag">{{ $t('createChat.title', { name: brandConfig.productName }) }}</span>
             </div>
             <!-- 客户新对话：欢迎区 + 产线卡片 + 示例问题；creatChat 本身就是无消息的新会话，
                  所以这里只按客户视角判断。管理员分支的推荐问题逻辑完全不动（C6）。 -->

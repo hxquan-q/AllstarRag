@@ -63,6 +63,14 @@ export function isCustomerViewer(auth?: CustomerAuthLike | null): boolean {
   return !ADMIN_TENANT_ROLES.includes(role)
 }
 
+/**
+ * 是否系统管理员控制台：只看平台级 isSystemAdmin，与当前空间角色无关。
+ * 系统管理员控制台的标签页保持 WeKnora 默认（C6）；owner / 租户 admin 也走品牌（AC-1）。
+ */
+export function isAdminConsole(auth?: CustomerAuthLike | null): boolean {
+  return auth?.isSystemAdmin === true
+}
+
 export function isCustomerMenuPath(path: string): boolean {
   return CUSTOMER_MENU_PATHS.includes(path)
 }

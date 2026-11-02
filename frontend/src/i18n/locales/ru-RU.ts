@@ -6345,7 +6345,7 @@ export default {
     }
   },
   createChat: {
-    title: 'Привет, я WeKnora — ваши знания всегда под рукой',
+    title: 'Привет, я {name} — ваши знания всегда под рукой',
     newSessionTitle: 'Новая сессия',
     openProject: 'Выбрать проект',
     clearProject: 'Снять привязку',

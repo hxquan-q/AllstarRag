@@ -13,6 +13,7 @@ import { applyDocumentBrand } from '@/brand'
 import {
   CUSTOMER_LANDING_PATH,
   defaultLandingPath,
+  isAdminConsole,
   isCustomerAllowedRoute,
   isCustomerSettingsSection,
   isCustomerViewer,
@@ -63,26 +64,34 @@ function landingPathForCurrentAuth(): string {
 const DEFAULT_DOCUMENT_TITLE = typeof document !== 'undefined' ? document.title : 'WeKnora'
 
 // 记住上一次写入的品牌角色，避免每次导航都重写 DOM 引起抖动。
-let appliedDocumentBrand: 'customer' | 'admin' | null = null
+// 三态：品牌（客户 + owner/租户 admin）、系统管理员控制台、未设置。
+let appliedDocumentBrand: 'brand' | 'adminconsole' | null = null
 
-/** 按角色切换文档品牌标记；客户天蓝 + 标题，管理员保持 WeKnora 默认。 */
-function applyDocumentBrandForRole(customer: boolean): void {
+/**
+ * 按角色切换文档品牌：
+ * - 系统管理员控制台保持 WeKnora 默认（C6）；
+ * - 客户 / owner / 租户 admin 标题写品牌名（客户另挂客户主题，owner 只换标题）。
+ */
+function applyDocumentBrandForRole(customer: boolean, adminConsole: boolean): void {
   if (typeof document === 'undefined') return
-  const wanted = customer ? 'customer' : 'admin'
   // 登录页会在 setup 阶段把文档切成客户品牌，所以除了记忆值还要核对实际的
   // data-customer：SPA 内从登录页直接进管理端时，必须真正把品牌切回去。
   const domIsCustomer = document.documentElement.dataset.customer === 'true'
-  if (appliedDocumentBrand === wanted && domIsCustomer === customer) return
 
-  appliedDocumentBrand = wanted
-  if (customer) {
-    applyDocumentBrand({ customer: true })
+  if (adminConsole) {
+    if (appliedDocumentBrand === 'adminconsole' && !domIsCustomer) return
+    appliedDocumentBrand = 'adminconsole'
+    applyDocumentBrand({ customer: false, title: false })
+    if (document.title !== DEFAULT_DOCUMENT_TITLE) {
+      document.title = DEFAULT_DOCUMENT_TITLE
+    }
     return
   }
-  applyDocumentBrand({ customer: false, title: false })
-  if (document.title !== DEFAULT_DOCUMENT_TITLE) {
-    document.title = DEFAULT_DOCUMENT_TITLE
-  }
+
+  // 客户带客户主题；owner / 租户 admin 只换品牌标题，不带客户主题。
+  if (appliedDocumentBrand === 'brand' && domIsCustomer === customer) return
+  appliedDocumentBrand = 'brand'
+  applyDocumentBrand({ customer })
 }
 
 const router = createRouter({
@@ -434,7 +443,7 @@ router.beforeEach(async (to, from, next) => {
   // 客户挂天蓝与客户标题；管理员保持 WeKnora 默认（C6）。
   // 角色为空时不切品牌，等水合后的下一次导航再判定（D8）。
   if (authStore.currentTenantRole || authStore.canAccessAllTenants) {
-    applyDocumentBrandForRole(isCustomerViewer(authStore))
+    applyDocumentBrandForRole(isCustomerViewer(authStore), isAdminConsole(authStore))
   }
 
   // 客户界面入口收敛：白名单之外的页面一律回对话页。

@@ -6346,7 +6346,7 @@ export default {
     }
   },
   createChat: {
-    title: 'Hi，我是 WeKnora，讓你的知識觸手可及',
+    title: 'Hi，我是{name}，讓你的知識觸手可及',
     newSessionTitle: '新會話',
     openProject: '選擇專案',
     clearProject: '取消綁定',

@@ -25,7 +25,7 @@ import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
 import i18n from "./i18n";
 import { initTheme } from "@/composables/useTheme";
 import { initFont } from "@/composables/useFont";
-import { initCustomerBrandTheme } from "@/brand";
+import { brandConfig, initCustomerBrandTheme } from "@/brand";
 import { installTDesignIconOfflineGuard } from "@/utils/tdesign-icon-offline";
 import { installAutofillGuard } from "@/utils/disable-autofill";
 import { useAuthStore } from "@/stores/auth";
@@ -40,6 +40,9 @@ initFont();
 initCustomerBrandTheme();
 
 async function bootstrap() {
+  // 首帧标题先写成品牌名：硬刷新 / 直达 onboarding、workspace 时不再停留或闪烁 WeKnora（AC-3）。
+  // 放在首屏路由之前，系统管理员守卫随后会按 C6 把标题还原成 WeKnora 默认。
+  document.title = brandConfig.productName;
   const app = createApp(App);
 
   // 全局错误处理：捕获未处理的组件错误，防止白屏
