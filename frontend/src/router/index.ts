@@ -13,7 +13,6 @@ import { applyDocumentBrand } from '@/brand'
 import {
   CUSTOMER_LANDING_PATH,
   defaultLandingPath,
-  isAdminConsole,
   isCustomerAllowedRoute,
   isCustomerSettingsSection,
   isCustomerViewer,
@@ -59,36 +58,21 @@ function landingPathForCurrentAuth(): string {
   return defaultLandingPath(useAuthStore(), '/platform/knowledge-bases')
 }
 
-// 进入登录页之前的默认标题。登录页会统一写成客户产品名，SPA 内再登录管理员时
-// 需要还原，管理员端标题必须保持 WeKnora（C6）。
-const DEFAULT_DOCUMENT_TITLE = typeof document !== 'undefined' ? document.title : 'WeKnora'
-
 // 记住上一次写入的品牌角色，避免每次导航都重写 DOM 引起抖动。
-// 三态：品牌（客户 + owner/租户 admin）、系统管理员控制台、未设置。
-let appliedDocumentBrand: 'brand' | 'adminconsole' | null = null
+let appliedDocumentBrand: 'brand' | null = null
 
 /**
  * 按角色切换文档品牌：
- * - 系统管理员控制台保持 WeKnora 默认（C6）；
- * - 客户 / owner / 租户 admin 标题写品牌名（客户另挂客户主题，owner 只换标题）。
+ * - 客户 / owner / 租户 admin / 系统管理员控制台等一切非客户角色，标签页都写品牌名；
+ * - 客户另挂客户主题，其余只换品牌标题。
  */
-function applyDocumentBrandForRole(customer: boolean, adminConsole: boolean): void {
+function applyDocumentBrandForRole(customer: boolean): void {
   if (typeof document === 'undefined') return
   // 登录页会在 setup 阶段把文档切成客户品牌，所以除了记忆值还要核对实际的
   // data-customer：SPA 内从登录页直接进管理端时，必须真正把品牌切回去。
   const domIsCustomer = document.documentElement.dataset.customer === 'true'
 
-  if (adminConsole) {
-    if (appliedDocumentBrand === 'adminconsole' && !domIsCustomer) return
-    appliedDocumentBrand = 'adminconsole'
-    applyDocumentBrand({ customer: false, title: false })
-    if (document.title !== DEFAULT_DOCUMENT_TITLE) {
-      document.title = DEFAULT_DOCUMENT_TITLE
-    }
-    return
-  }
-
-  // 客户带客户主题；owner / 租户 admin 只换品牌标题，不带客户主题。
+  // 客户带客户主题；其他角色只换品牌标题，不带客户主题。
   if (appliedDocumentBrand === 'brand' && domIsCustomer === customer) return
   appliedDocumentBrand = 'brand'
   applyDocumentBrand({ customer })
@@ -440,10 +424,10 @@ router.beforeEach(async (to, from, next) => {
   }
 
   // 走到这里角色已经可用于判断（会员关系来自本地缓存或 /auth/me）。
-  // 客户挂天蓝与客户标题；管理员保持 WeKnora 默认（C6）。
+  // 客户挂天蓝与客户标题；其他角色（含系统管理员）标签页同为品牌名。
   // 角色为空时不切品牌，等水合后的下一次导航再判定（D8）。
   if (authStore.currentTenantRole || authStore.canAccessAllTenants) {
-    applyDocumentBrandForRole(isCustomerViewer(authStore), isAdminConsole(authStore))
+    applyDocumentBrandForRole(isCustomerViewer(authStore))
   }
 
   // 客户界面入口收敛：白名单之外的页面一律回对话页。

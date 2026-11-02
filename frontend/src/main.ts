@@ -41,7 +41,7 @@ initCustomerBrandTheme();
 
 async function bootstrap() {
   // 首帧标题先写成品牌名：硬刷新 / 直达 onboarding、workspace 时不再停留或闪烁 WeKnora（AC-3）。
-  // 放在首屏路由之前，系统管理员守卫随后会按 C6 把标题还原成 WeKnora 默认。
+  // 系统管理员标签页同样是品牌名，后续守卫不再还原成 WeKnora。
   document.title = brandConfig.productName;
   const app = createApp(App);
 
