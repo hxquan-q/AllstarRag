@@ -89,6 +89,7 @@ const syncOIDCUserContext = async () => {
   if (typeof capabilities?.can_create_tenant === 'boolean') {
     authStore.setCanCreateTenant(capabilities.can_create_tenant)
   }
+  authStore.setAccessRevoked(capabilities?.access_revoked === true)
   // Same active-vs-home reconciliation as Login.vue: if the OIDC login
   // landed us in a non-home tenant (because the backend honoured a
   // remembered last-active-tenant preference) make sure X-Tenant-ID

@@ -6,7 +6,6 @@ export {
   applyDocumentBrand,
   brandConfig,
   initCustomerBrandTheme,
-  productLinesFallback,
   readBrandConfig,
 } from './runtime'
 export type { ApplyDocumentBrandOptions } from './runtime'

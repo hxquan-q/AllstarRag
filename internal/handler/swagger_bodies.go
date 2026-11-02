@@ -317,6 +317,7 @@ type PreferenceDefaults struct {
 type CurrentUserCapabilities struct {
 	CanCreateTenant      bool `json:"can_create_tenant"`
 	AutoAcceptInvitation bool `json:"auto_accept_invitation"`
+	AccessRevoked        bool `json:"access_revoked"`
 }
 
 // CurrentUserData is the data object of GET /auth/me.

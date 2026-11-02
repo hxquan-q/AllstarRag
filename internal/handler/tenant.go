@@ -247,6 +247,26 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 	platformCaller := hasAPIKeyScope && apiKeyScope.IsPlatform()
 	catalogManager := caller.CanAccessAllTenants || platformCaller
 
+	// 被移出所有空间的账号不得再自建空间占用配额(用户报告的越权路径:
+	// 被 owner 移除后活跃成员=0,旧逻辑会把 ownedCount 当 0 放行)。
+	// 这一步放在部署策略检查之前,跨租户超管/系统管理员/平台 API key
+	// 属于目录管理路径,不受此限。
+	if !catalogManager && !caller.IsSystemAdmin && h.memberService != nil {
+		revoked, err := h.memberService.HasRevokedAccess(ctx, caller.ID)
+		if err != nil {
+			logger.Errorf(ctx, "Failed to validate workspace access for user %s: %v", caller.ID, err)
+			c.Error(errors.NewInternalServerError("Failed to validate workspace access").WithDetails(err.Error()))
+			return
+		}
+		if revoked {
+			logger.Warnf(ctx, "Self-service tenant creation denied: user %s has revoked workspace access", caller.ID)
+			appErr := errors.NewForbiddenError("access to your workspace has been revoked").
+				WithDetails("access_revoked")
+			c.Error(appErr)
+			return
+		}
+	}
+
 	// Deployment-level policy: ordinary users may be restricted to joining
 	// existing workspaces by invitation. This check is authoritative; the
 	// frontend capability only improves UX and cannot bypass it. Cross-tenant

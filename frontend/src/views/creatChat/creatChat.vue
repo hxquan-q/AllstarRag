@@ -67,6 +67,10 @@
                 <InputField ref="inputFieldRef" :customer-mode="isCustomer" @send-msg="sendMsg"></InputField>
             </div>
         </div>
+        <!-- 免责声明固定在页面最底部居中（仅客户版） -->
+        <p v-if="isCustomer && brandConfig.chatDisclaimer" class="customer-disclaimer">
+            {{ brandConfig.chatDisclaimer }}
+        </p>
     </div>
 
     <ContextualGuide tour="chat" :when="showChatContextualGuide" />
@@ -100,6 +104,7 @@ import { isCustomerViewer } from '@/config/customerAccess';
 import { useProductLineStore } from '@/stores/productLine';
 import CustomerTopBar from '@/components/customer/CustomerTopBar.vue';
 import CustomerWelcome from '@/components/customer/CustomerWelcome.vue';
+import { brandConfig } from '@/brand';
 
 const router = useRouter();
 const route = useRoute();
@@ -363,12 +368,48 @@ async function openProjectDir() {
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
+    position: relative;
+    // 浅色网格背景（替换原来的纯白底）
+    background-color: #F6F8FB;
+    background-image:
+        repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px),
+        repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
+}
+
+/* 固定在页面最底部的免责声明（绝对定位，不占布局高度） */
+.customer-disclaimer {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 6px;
+    margin: 0;
+    text-align: center;
+    color: var(--td-text-color-placeholder);
+    font-size: var(--app-text-sm);
+    pointer-events: none;
 }
 
 .dialogue-wrap.customer-shell .dialogue-answers {
     flex: 1;
-    justify-content: center;
+    // 整个欢迎块（字标 + 选择卡片 + 示例问题 + 输入框）作为一块整体垂直居中：
+    // 字标在中间偏上，选择框与输入框紧挨其下，不留底部大空隙；矮屏时可滚动不裁切。
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-4);
+    padding: var(--app-space-4) 0;
     margin: 0 auto;
+    min-height: 0;
+    overflow-y: auto;
+    // T04/W11：客户壳显式关掉横向滚动，内容宽度波动时也不出底部横向滑块。
+    overflow-x: hidden;
+}
+
+.dialogue-wrap.customer-shell .dialogue-answers > :first-child {
+    margin-top: auto;
+}
+
+.dialogue-wrap.customer-shell .dialogue-answers > :last-child {
+    margin-bottom: auto;
 }
 
 .dialogue-answers {
@@ -470,6 +511,19 @@ async function openProjectDir() {
             height: 24px;
             width: 24px;
         }
+    }
+}
+
+/* —— T03 / CP3 F15：客户移动态窄屏；免责声明按内容高度占位。 —— */
+@media (max-width: 1023px) {
+    // 免责声明不再绝对定位：它作为 flex 列的最后一个子项排在输入区下方，
+    // 由内容决定高度；320px 折 2–3 行时不会和输入区重叠（CP3 F15）。
+    .dialogue-wrap.customer-shell .customer-disclaimer {
+        position: static;
+        padding: 6px max(12px, var(--app-safe-left)) max(6px, var(--app-safe-bottom)) max(12px, var(--app-safe-right));
+        line-height: 1.4;
+        white-space: normal;
+        overflow-wrap: anywhere;
     }
 }
 

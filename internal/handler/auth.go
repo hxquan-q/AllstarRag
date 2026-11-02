@@ -9,7 +9,9 @@ import (
 	stderrors "errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -18,12 +20,25 @@ import (
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/handler/dto"
 	"github.com/Tencent/WeKnora/internal/logger"
+	"github.com/Tencent/WeKnora/internal/middleware"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	secutils "github.com/Tencent/WeKnora/internal/utils"
 )
 
 var liteSetupToken string
+
+// 登录账号维度限速:同一「邮箱+客户端 IP」每分钟最多 5 次尝试。
+// 演示区网关不转发真实客户端 IP,所有公网用户共享同一个 IP 桶,纯 IP
+// 限速会让任何人 5 次错误登录就锁死全站,所以按账号再切一层;路由层的
+// IP 总闸(auth-login-ip,30 次/分)仍然保留,只负责挡住高基数的滥用流量。
+const (
+	loginAccountRateLimitWindow = time.Minute
+	loginAccountRateLimitMax    = 5
+)
+
+var loginAccountLimiter = middleware.NewKeyedRateLimiter(
+	loginAccountRateLimitWindow, loginAccountRateLimitMax)
 
 // SetLiteSetupToken is called by the native desktop host before serving requests.
 // Web deployments leave it empty and cannot issue anonymous administrator tokens.
@@ -47,6 +62,15 @@ type AuthHandler struct {
 	// fixtures — the share-link endpoints respond 503 rather than
 	// blocking the rest of the auth surface.
 	invitationSvc interfaces.TenantInvitationService
+	// customAgentService / disabledAgentRepo 只用于校验「产线绑定」的 agent id
+	// 是否属于当前工作区且未被停用。nil（测试 fixture）时绑定写入返回 500，
+	// 其余 auth 接口不受影响。
+	customAgentService interfaces.CustomAgentService
+	disabledAgentRepo  interfaces.TenantDisabledSharedAgentRepository
+	// memberService 用于判定「被移除空间」的账号(access_revoked)。
+	// nil(部分单测/局部 DI)时按未撤销处理,不影响登录;
+	// POST /tenants 的硬拦截在 TenantHandler 里独立执行。
+	memberService interfaces.TenantMemberService
 }
 
 // NewAuthHandler creates a new auth handler instance with the provided services
@@ -65,6 +89,9 @@ func NewAuthHandler(configInfo *config.Config,
 	userService interfaces.UserService, tenantService interfaces.TenantService,
 	systemSettingSvc interfaces.SystemSettingService,
 	invitationSvc interfaces.TenantInvitationService,
+	customAgentService interfaces.CustomAgentService,
+	disabledAgentRepo interfaces.TenantDisabledSharedAgentRepository,
+	memberService interfaces.TenantMemberService,
 ) *AuthHandler {
 	// Boot-time guard: a nil-or-empty Auth section silently disables the
 	// invite_only gate (see Register below). Emit a loud one-shot log
@@ -77,11 +104,14 @@ func NewAuthHandler(configInfo *config.Config,
 			configInfo)
 	}
 	return &AuthHandler{
-		configInfo:       configInfo,
-		userService:      userService,
-		tenantService:    tenantService,
-		systemSettingSvc: systemSettingSvc,
-		invitationSvc:    invitationSvc,
+		configInfo:         configInfo,
+		userService:        userService,
+		tenantService:      tenantService,
+		systemSettingSvc:   systemSettingSvc,
+		invitationSvc:      invitationSvc,
+		customAgentService: customAgentService,
+		disabledAgentRepo:  disabledAgentRepo,
+		memberService:      memberService,
 	}
 }
 
@@ -175,6 +205,7 @@ func (h *SystemHandler) complexPasswordEnabled(ctx context.Context) bool {
 // @Success      201      {object}  types.RegisterResponse
 // @Failure      400      {object}  errors.AppError  "请求参数错误"
 // @Failure      403      {object}  errors.AppError  "注册功能已禁用"
+// @Failure      429      {object}  errors.AppError  "too many requests"
 // @Router       /auth/register [post]
 func (h *AuthHandler) Register(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -255,6 +286,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 // @Param        request  body      types.LoginRequest  true  "登录请求参数"
 // @Success      200      {object}  types.LoginResponse
 // @Failure      401      {object}  errors.AppError  "认证失败"
+// @Failure      429      {object}  errors.AppError  "too many requests"
 // @Router       /auth/login [post]
 func (h *AuthHandler) Login(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -268,6 +300,19 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		c.Error(appErr)
 		return
 	}
+
+	// 账号维度限速:不存在的邮箱也走同一路径计数,避免用 429 与否反推账号
+	// 是否存在;成功登录同样计数(不清零),让爆破者无法用一次正确密码重置
+	// 预算,计数随滑窗自然过期。
+	loginKey := strings.ToLower(strings.TrimSpace(req.Email)) + "|" + c.ClientIP()
+	if !loginAccountLimiter.Allow(loginKey) {
+		logger.Warnf(ctx,
+			"[auth-login-ratelimit] account=%s exceeded %d attempts per %s",
+			maskLoginRateLimitKey(loginKey), loginAccountRateLimitMax, loginAccountRateLimitWindow)
+		c.Error(errors.NewTooManyRequestsError("too many requests; please retry shortly"))
+		return
+	}
+
 	email := secutils.SanitizeForLog(req.Email)
 
 	// Validate required fields
@@ -296,8 +341,66 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// User is already in the correct format from service
 
+	// 能力投影:被移出所有空间的账号即使部署允许自建也不能再建空间。
+	accessRevoked := h.resolveAccessRevoked(ctx, response.User)
+	canCreateTenant := response.User != nil && response.User.CanAccessAllTenants
+	if !canCreateTenant {
+		canCreateTenant = resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
+	}
+	if accessRevoked {
+		canCreateTenant = false
+	}
+	response.Capabilities = &types.LoginCapabilities{
+		CanCreateTenant: canCreateTenant,
+		AccessRevoked:   accessRevoked,
+	}
+
 	logger.Infof(ctx, "User logged in successfully, email: %s", email)
 	c.JSON(http.StatusOK, dto.NewAuthLoginResponse(response))
+}
+
+// resolveAccessRevoked 判断账号是否已被移出所有空间。memberService 未注入
+// 时按未撤销处理;查询失败只记日志并按未撤销处理——这里只驱动 UI 提示,
+// POST /tenants 的硬拦截在 TenantHandler 内独立判定。
+func (h *AuthHandler) resolveAccessRevoked(ctx context.Context, user *types.User) bool {
+	if h.memberService == nil || user == nil {
+		return false
+	}
+	if user.IsSystemAdmin || user.CanAccessAllTenants {
+		return false
+	}
+	revoked, err := h.memberService.HasRevokedAccess(ctx, user.ID)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to resolve workspace access revocation for user %s: %v", user.ID, err)
+		return false
+	}
+	return revoked
+}
+
+// maskLoginRateLimitKey 把登录限速 key(email|ip)里的邮箱打码后再写日志,
+// 例如 `alice@example.com|1.2.3.4` → `a***@example.com|1.2.3.4`。
+// 只影响日志展示,计数用的 key 不变。纯字符串处理,不引入依赖。
+func maskLoginRateLimitKey(key string) string {
+	// 按最后一个竖线切分:邮箱本地部分按 RFC 5322 允许 `|`,而 IPv4/IPv6
+	// 都不含 `|`。按第一个竖线切会把邮箱剩余部分漏进「IP」段。
+	idx := strings.LastIndex(key, "|")
+	if idx < 0 {
+		return maskLoginEmail(key)
+	}
+	return maskLoginEmail(key[:idx]) + key[idx:]
+}
+
+func maskLoginEmail(email string) string {
+	at := strings.LastIndex(email, "@")
+	local, domain := email, ""
+	if at >= 0 {
+		local, domain = email[:at], email[at:]
+	}
+	runes := []rune(local)
+	if len(runes) == 0 {
+		return "***" + domain
+	}
+	return string(runes[0]) + "***" + domain
 }
 
 // GetOIDCAuthorizationURL godoc
@@ -652,8 +755,14 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	// 同步返回当前用户的 memberships，让前端在页面刷新（仅命中 /auth/me）
 	// 后也能恢复 currentTenantRole，避免角色信息只在 login 那一刻可用。
 	memberships := h.userService.BuildLoginMemberships(ctx, user, tenant)
+	// 被移出所有空间的账号:即使部署允许自建,也不再投影创建能力;
+	// access_revoked 供前端隐藏入口并展示提示卡片。
+	accessRevoked := h.resolveAccessRevoked(ctx, user)
 	canCreateTenant := user.CanAccessAllTenants ||
 		resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
+	if accessRevoked {
+		canCreateTenant = false
+	}
 	autoAcceptInvitation := h.systemSettingSvc != nil &&
 		h.systemSettingSvc.GetBool(ctx, "tenant.auto_accept_invitation", "WEKNORA_TENANT_AUTO_ACCEPT_INVITATION", false)
 	c.JSON(http.StatusOK, gin.H{
@@ -667,6 +776,7 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 			"capabilities": gin.H{
 				"can_create_tenant":      canCreateTenant,
 				"auto_accept_invitation": autoAcceptInvitation,
+				"access_revoked":         accessRevoked,
 			},
 		},
 	})
@@ -686,6 +796,13 @@ type updateMyPreferencesRequest struct {
 	// login, not here. Nil = field omitted from the PATCH and stays
 	// untouched.
 	LastActiveTenantID *uint64 `json:"last_active_tenant_id"`
+
+	// BoundAgentIDs 是客户版产线的绑定列表，语义只针对**当前活动工作区**：
+	//   - 传数组 = 覆盖当前工作区的绑定（其他工作区原样保留）；
+	//   - 传空数组 = 清空当前工作区的绑定（把该工作区的键删掉）；
+	//   - 不传该键（nil）= 所有工作区都不动。
+	// 用指针是为了区分「键缺失」与「显式空数组」，两者语义不同。
+	BoundAgentIDs *[]string `json:"bound_agent_ids"`
 }
 
 // UpdateMyPreferences godoc
@@ -721,6 +838,27 @@ func (h *AuthHandler) UpdateMyPreferences(c *gin.Context) {
 	patch := types.UserPreferences{
 		LastActiveTenantID:        req.LastActiveTenantID,
 		BrowserSearchInstructions: req.BrowserSearchInstructions,
+	}
+	if req.BoundAgentIDs != nil {
+		tenantID, ok := types.TenantIDFromContext(ctx)
+		if !ok || tenantID == 0 {
+			appErr := errors.NewValidationError(
+				"binding agents requires an active workspace")
+			_ = c.Error(appErr)
+			return
+		}
+		ids, err := h.validateBoundAgentIDs(ctx, tenantID, *req.BoundAgentIDs)
+		if err != nil {
+			// 校验失败整批不写：这里直接返回，后面的 UpdateUserPreferences 不会执行。
+			_ = c.Error(err)
+			return
+		}
+		// 只写当前工作区一个键（F3）：其他工作区的键由 service 按重读的最新
+		// user 行逐键合并，handler 不再回写整张 map —— 请求入口的 user 快照可能已过期，
+		// 整表回写会把另一台设备刚保存的其他工作区绑定静默覆盖掉。
+		// 空数组也照常放键，「删除该工作区键」由 service 的逐键合并完成。
+		tenantKey := strconv.FormatUint(tenantID, 10)
+		patch.BoundAgentIDsByTenant = map[string][]string{tenantKey: ids}
 	}
 	prefs, err := h.userService.UpdateUserPreferences(ctx, user.ID, patch)
 	if err != nil {

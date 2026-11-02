@@ -1,5 +1,6 @@
 <template>
   <SettingsModalShell :visible="visible" :title="$t('general.settings')" overlay-class="all-settings-overlay"
+    :mobile-layout="mobileLayout" :mobile-show-nav="mobileShowNav" @mobile-back="mobileShowNav = true"
     @close="modalShell.requestClose">
     <template #nav>
       <template v-for="group in navGroups" :key="group.key">
@@ -9,7 +10,9 @@
             'active': currentSection === item.key,
             'has-submenu': item.children && item.children.length > 0,
             'expanded': expandedMenus.includes(item.key)
-          }]" @click="handleNavClick(item)">
+          }]" :role="mobileLayout ? 'button' : undefined" :tabindex="mobileLayout ? 0 : undefined"
+            :aria-current="mobileLayout && currentSection === item.key ? 'page' : undefined"
+            @click="handleNavClick(item)" @keydown="handleNavKeydown(item, $event)">
             <!-- 网络搜索使用自定义 SVG 图标 -->
             <svg v-if="item.key === 'websearch'" width="17" height="17" viewBox="0 0 18 18" fill="none"
               xmlns="http://www.w3.org/2000/svg" class="nav-icon">
@@ -127,6 +130,11 @@
           <MemorySettings />
         </div>
 
+        <!-- 产线（客户版：绑定当前工作区的 agent）；管理员不出现该分区（C6） -->
+        <div v-if="currentSection === 'agentlines' && isCustomerViewerActive" class="section">
+          <AgentLineSettings />
+        </div>
+
         <!-- 沙箱密钥（成员自己的技能 / 沙箱密钥） -->
         <div v-if="currentSection === 'envvars'" class="section">
           <EnvVarSettings />
@@ -214,6 +222,7 @@ import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { useModalShell } from '@/composables/useModalShell'
+import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 import { useAssistantPageContext } from '@/composables/useAssistantPageContext'
 import SettingsModalShell from '@/components/SettingsModalShell.vue'
 import ResourceIcon from '@/components/icons/ResourceIcon.vue'
@@ -228,6 +237,7 @@ import OllamaSettings from './OllamaSettings.vue'
 import WebSearchSettings from './WebSearchSettings.vue'
 import ChatHistorySettings from './ChatHistorySettings.vue'
 import MemorySettings from './MemorySettings.vue'
+import AgentLineSettings from './AgentLineSettings.vue'
 import EnvVarSettings from './EnvVarSettings.vue'
 import MemoryWorkspaceSettings from './MemoryWorkspaceSettings.vue'
 import DefaultSettings from './DefaultSettings.vue'
@@ -274,6 +284,11 @@ const { t, te } = useI18n()
 // 客户视角（viewer 且不可跨空间）在「常规」里渲染精简版；管理员分支保持原组件。
 // 只决定渲染哪套界面，权限仍以后端 RBAC 为准（C4）。
 const isCustomerViewerActive = computed(() => isCustomerViewer(authStore))
+const { isMobileLayout } = useResponsiveLayout()
+// 客户 + 移动视口才切全屏二级导航；管理端与非移动视口不进入该分支（C6）。
+const mobileLayout = computed(() => isCustomerViewerActive.value && isMobileLayout.value)
+// 移动态一级导航 / 二级内容切换：true 显示分区列表，false 显示当前分区。
+const mobileShowNav = ref(true)
 const hostSkills = computed(() => hostSkillsOnly(
   deploymentCapabilities.isSupported('settings.sandbox.remote'),
   deploymentCapabilities.isSupported('settings.sandbox.host'),
@@ -346,11 +361,13 @@ const isSectionSupported = (key: string): boolean => {
 }
 
 const canSeeSection = (key: string): boolean => {
-  // 客户视角只保留三个个人分区（常规/账号/记忆）；其余入口不渲染，deep-link 落到 role-denied 兜底。
+  // 客户视角只保留四个个人分区（常规/账号/记忆/产线）；其余入口不渲染，deep-link 落到 role-denied 兜底。
   // 这只是界面可见性，后端 RBAC 仍是最终权限（C4）。
   if (isCustomerViewer(authStore) && !isCustomerSettingsSection(key)) {
     return false
   }
+  // 产线只属于客户视角：管理员设置保持 WeKnora 默认（C6）。
+  if (key === 'agentlines') return isCustomerViewer(authStore)
   if (isIntegrationSection(key)) {
     const min = INTEGRATION_TAB_MIN_ROLE[integrationTabFromSection(key)]
     if (!min) return true
@@ -398,6 +415,7 @@ const navItems = computed(() => {
     { key: 'system-audit-log', icon: 'history', label: t('system.globalSettings.audit.tabLabel') },
     { key: 'userprofile', icon: 'user', label: t('userProfile.title') },
     { key: 'mymemory', icon: 'bookmark', label: t('memorySettings.title') },
+    { key: 'agentlines', icon: 'control-platform', label: t('agentLineSettings.title') },
     { key: 'assistant', icon: 'assistant', label: t('assistantSettings.title') },
     { key: 'envvars', icon: 'key', label: envNavLabel() },
     { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
@@ -424,7 +442,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'account',
       label: t('settings.navGroups.account'),
-      items: pickItems(['general', 'userprofile', 'assistant', 'mymemory', 'envvars']),
+      items: pickItems(['general', 'userprofile', 'assistant', 'mymemory', 'envvars', 'agentlines']),
     },
     {
       key: 'workspace',
@@ -484,6 +502,17 @@ const handleNavClick = (item: any) => {
   // 否则从其它 section 点进来时 query 不变，路由监听会把内容拉回去。
   currentSection.value = item.key
   syncSettingsRoute(item.key)
+  // 移动态点一级导航后进入该分区；返回按钮由壳发出 mobile-back 再回到列表。
+  if (mobileLayout.value) mobileShowNav.value = false
+}
+
+// 移动态一级导航是 div，需要 Enter / Space 等价于点击（AC-14）。
+// 桌面态不渲染 role/tabindex，函数在这里再兜一层，管理端零影响（C6）。
+const handleNavKeydown = (item: NavItem, event: KeyboardEvent) => {
+  if (!mobileLayout.value) return
+  if (event.key !== 'Enter' && event.key !== ' ') return
+  event.preventDefault()
+  handleNavClick(item)
 }
 
 // 子菜单点击处理
@@ -504,6 +533,20 @@ const handleSubMenuClick = (parentKey: string, childKey: string) => {
 const visible = computed(() => {
   return route.path === '/platform/settings' || uiStore.showSettingsModal
 })
+
+// 移动态初始层级以 URL 的 ?section= 为主判据，并随它变化（CP3 F2）：
+// - 有 section（外部直达、用户菜单快捷入口带分区）→ 直接进分区内容；
+// - 没有 section（只打开设置）→ 先看分区列表。
+// 返回列表只改 mobileShowNav、不动 query，所以不会被这个 watch 反向拉回。
+watch(
+  () => [visible.value, route.path, route.query.section] as const,
+  ([isVisible, path, section]) => {
+    if (!isVisible || path !== '/platform/settings') return
+    if (!mobileLayout.value) return
+    mobileShowNav.value = !(typeof section === 'string' && section !== '')
+  },
+  { immediate: true },
+)
 
 useAssistantPageContext(() => {
   if (!visible.value) return null
@@ -584,6 +627,9 @@ watch(
   ([isVisible, path, section, capabilitiesLoaded]) => {
     if (!isVisible || path !== '/platform/settings') return
     if (typeof section !== 'string') {
+      // 客户移动态没有 ?section= 时停在分区列表；不要自动补 section，
+      // 否则列表会被立刻拉进默认分区内容（CP3 F2）。
+      if (mobileLayout.value) return
       syncSettingsRoute(currentSection.value || 'general')
       return
     }

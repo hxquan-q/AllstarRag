@@ -39,10 +39,11 @@ fi
 
 # 品牌配置：默认值与 frontend/public/config.js 保持一致（actionColor 不再写死，
 # 由前端按 primaryColor 派生；显式配置时仍可覆盖）。
+# 产线不在这里配置：它由「当前工作区绑定的 agent」派生。
 # BRAND_CONFIG_JSON 不直接拼进 JS：先转成 base64 字符串字面量，浏览器端再
 # JSON.parse 校验。这样即使运维传了尾逗号、坏引号或多行文本，生成的
 # config.js 本身仍是合法 JS，坏配置只回退默认品牌，不会让整份运行时配置失效（M13）。
-DEFAULT_BRAND_JSON='{"productName":"小爱知识库","logoUrl":"/brand/allstar-logo.png","logoWidth":150,"faviconUrl":"/favicon.ico","primaryColor":"#0EA5E9","loginSubtitle":"金蝶产品知识，随问随答","chatDisclaimer":"回答由 AI 根据知识库生成，仅供参考","productLines":[{"id":"kingdee-ai-suite","name":"金蝶 AI 套件","description":"AI 套件开通、配置、使用问题","agentId":"builtin-quick-answer","samples":["如何开通智能问数？","知识库容量上限是多少？"]},{"id":"kingdee-ai-starry-sky","name":"金蝶 AI 星空","description":"星空云 ERP 财务、供应链操作问题","agentId":"builtin-quick-answer","samples":["凭证过账报错怎么处理？","期末结账要检查哪些项？"]}]}'
+DEFAULT_BRAND_JSON='{"productName":"小爱知识库","logoUrl":"/brand/allstar-logo.png","logoWidth":150,"faviconUrl":"/favicon.ico","primaryColor":"#0EA5E9","loginSubtitle":"金蝶产品知识，随问随答","chatDisclaimer":"回答由 AI 根据知识库生成，仅供参考"}'
 BRAND_EXPR="$DEFAULT_BRAND_JSON"
 
 if [ -n "${BRAND_CONFIG_JSON:-}" ]; then

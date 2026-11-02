@@ -1,0 +1,606 @@
+/* 客户版移动端跨组件样式（T01 搭骨架，T02–T05 在此基础上补）。
+ *
+ * 作用域约定（后续所有移动规则都照这个来）：
+ * - 每条规则都挂在 html[data-customer="true"] 下。管理员端不设置该属性，一条也命不中（C6）。
+ * - 页面内规则再统一包进 @media (max-width: 1023px)；只有安全区变量可以放在媒体查询外。
+ * - 这里只放跨组件的公共规则，组件自己的窄屏布局仍写在各组件的样式里。
+ * - 断点数值以 useResponsiveLayout.ts 的 MOBILE_LAYOUT_MAX_WIDTH(1024) 为准，
+ *   媒体查询写 1023px 是为了和「宽度 < 1024」严格等价。
+ */
+
+/* 安全区变量：桌面浏览器取不到值时为 0px，不影响现有布局。 */
+html[data-customer="true"] {
+    --app-safe-top: env(safe-area-inset-top, 0px);
+    --app-safe-bottom: env(safe-area-inset-bottom, 0px);
+    --app-safe-left: env(safe-area-inset-left, 0px);
+    --app-safe-right: env(safe-area-inset-right, 0px);
+}
+
+@media (max-width: 1023px) {
+    /* 1. 解除桌面端写死的横向最小宽度。
+     *    高度改用动态视口变量：键盘弹出时整壳收缩，不依赖 position: fixed。 */
+    html[data-customer="true"] .main {
+        min-width: 0;
+        height: var(--app-visual-viewport-height, 100%);
+    }
+
+    html[data-customer="true"] .chat.customer-shell {
+        min-width: 0;
+    }
+
+    /* 2. 页面级横向溢出裁掉。只限定 #app 与 .main，
+     *    不给 body 加硬切，避免把真正溢出的内容藏起来。 */
+    html[data-customer="true"] #app,
+    html[data-customer="true"] .main {
+        overflow-x: clip;
+    }
+
+    /* 3. 抽屉打开时的滚动锁。class 由 T02 挂到 <html> 上。 */
+    html[data-customer="true"].customer-mobile-drawer-open,
+    html[data-customer="true"].customer-mobile-drawer-open body {
+        overflow: hidden;
+        overscroll-behavior: none;
+    }
+
+    /* 4. 输入框字号至少 16px：iOS 聚焦小于 16px 的输入框会自动放大页面。
+     *    --app-text-xl 就是 16px，用令牌避免样式守卫记一笔字面量。 */
+    html[data-customer="true"] textarea,
+    html[data-customer="true"] input,
+    html[data-customer="true"] .t-textarea__inner {
+        font-size: var(--app-text-xl);
+    }
+
+    /* 5. 主要按钮的触控目标至少 44×44。图标本身保持原尺寸，只把容器撑够。 */
+    html[data-customer="true"] .control-btn,
+    html[data-customer="true"] .send-btn,
+    html[data-customer="true"] .customer-topbar button,
+    html[data-customer="true"] .menu_item {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    /* 6. 消息里的表格/代码块在各自容器内横向滚动，不撑破页面。
+     *    聊天 markdown 的实际容器是 .markdown-content（botmsg.vue），按真实类名限定。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list table,
+    html[data-customer="true"] .chat.customer-shell .msg_list pre,
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content table,
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content pre {
+        overflow-x: auto;
+        max-width: 100%;
+    }
+
+    /* 7. 引用面板窄屏全屏规则见文件末尾的 T05 段落。 */
+}
+
+/* —— T02：客户移动外壳（遮罩 + 覆盖式侧栏抽屉）——
+ * 抽屉复用 menu.vue 的现有 DOM，只把容器从「流内宽度」换成「fixed 覆盖层」。
+ * 关闭态用 visibility:hidden，同时移出 Tab 顺序和辅助技术，避免隐藏侧栏仍被读到。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .customer-mobile-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: var(--z-dropdown);
+        background: rgba(0, 0, 0, 0.38);
+        touch-action: none;
+    }
+
+    /* 选择器写成 .aside_box.aside_box--mobile-drawer，压过组件内
+       .aside_box.aside_box--collapsed：宽度/内边距/过渡都以抽屉为准。 */
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: min(84vw, 320px);
+        min-width: min(84vw, 320px);
+        max-width: min(84vw, 320px);
+        height: auto;
+        z-index: calc(var(--z-dropdown) + 1);
+        padding-top: calc(8px + var(--app-safe-top));
+        padding-bottom: calc(6px + var(--app-safe-bottom));
+        padding-left: max(4px, var(--app-safe-left));
+        border-right: 0;
+        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+        overflow: hidden;
+        transform: translateX(-100%);
+        visibility: hidden;
+        transition: transform calc(var(--app-motion-base) * 1.3) cubic-bezier(0.22, 0.61, 0.36, 1),
+            visibility 0s linear calc(var(--app-motion-base) * 1.3);
+    }
+
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer.aside_box--mobile-open {
+        transform: translateX(0);
+        visibility: visible;
+        transition: transform calc(var(--app-motion-base) * 1.3) cubic-bezier(0.22, 0.61, 0.36, 1),
+            visibility 0s linear 0s;
+    }
+
+    /* 抽屉内长列表独立滚动，滚到底不带动背景页面。 */
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer .menu_top {
+        overscroll-behavior: contain;
+    }
+
+    /* 汉堡是移动端唯一入口：隐藏桌面收起态的浮出栏。
+       display:none 同时把它移出 Tab 顺序和辅助技术。 */
+    html[data-customer="true"] .sidebar-float-rail {
+        display: none;
+    }
+}
+
+@media (max-width: 1023px) and (prefers-reduced-motion: reduce) {
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer,
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer.aside_box--mobile-open {
+        transition: none;
+    }
+}
+
+/* —— T03：客户对话消息内容窄屏 ——
+ * 只作用于客户对话页（.chat.customer-shell），仍然同时受
+ * html[data-customer="true"] 与 max-width:1023px 双重限定，管理员零命中。
+ */
+@media (max-width: 1023px) {
+    /* 表格默认按内容撑宽，只加 overflow-x 不会滚动；改为 display:block 后才在
+       自身容器内横向滚动。max-width:100% 防止整体顶宽页面。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list table,
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content table {
+        display: block;
+        width: max-content;
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 代码块保持不换行，在块内横向滚动。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list pre {
+        display: block;
+        max-width: 100%;
+        overflow-x: auto;
+        white-space: pre;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 公式块与 mermaid 同理，允许各自容器内横向滚动。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list .katex-display,
+    html[data-customer="true"] .chat.customer-shell .msg_list .chat-mermaid-block {
+        max-width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* 图片不超出消息列。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list img {
+        max-width: 100%;
+        height: auto;
+    }
+
+    /* 长链接/连续长串可在任意位置断行，不撑破气泡。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content,
+    html[data-customer="true"] .chat.customer-shell .msg_list .markdown-content a,
+    html[data-customer="true"] .chat.customer-shell .msg_list .user_msg {
+        overflow-wrap: anywhere;
+    }
+
+    /* 引用标记是行内小标签，直接撑高会打乱行距；用透明伪元素扩大可点区域。 */
+    html[data-customer="true"] .chat.customer-shell .msg_list .citation-kb::after,
+    html[data-customer="true"] .chat.customer-shell .msg_list .citation-web::after {
+        content: '';
+        position: absolute;
+        inset: -12px -4px;
+    }
+}
+
+/* —— T04：客户设置页全屏 + 二级导航 ——
+ * 只在客户移动态命中：html[data-customer="true"] 与 .settings-modal--mobile 双重限定。
+ * 管理端不设置 data-customer；其它 SettingsModalShell 消费者不传移动 props，
+ * 面板不会带 settings-modal--mobile，下面的规则整段命不中（C6）。
+ */
+@media (max-width: 1023px) {
+    /* 面板铺满视口，去掉外层 20px 留白与圆角。 */
+    html[data-customer="true"] .settings-modal-shell.settings-overlay {
+        padding: 0;
+    }
+
+    /* CP3 F1：用 100% 而不是 100vw/100dvh。根字号 zoom（0.875~1.125）会让
+       视口单位再乘一次 zoom，Chrome 实测 zoom=1.125 时 100vw=1105px > innerWidth 982px；
+       父级 .settings-overlay 是 fixed + inset:0，100% 正好等于可视区域。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal.settings-modal--mobile {
+        width: 100%;
+        height: 100%;
+        max-width: none;
+        max-height: none;
+        border-radius: 0;
+        box-shadow: none;
+    }
+
+    /* 顶部标题栏：二级页面显示返回；右侧给绝对定位的关闭按钮留位。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-mobile-header {
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-height: 56px;
+        padding: calc(6px + var(--app-safe-top)) max(56px, calc(12px + var(--app-safe-right))) 6px max(12px, var(--app-safe-left));
+        border-bottom: 1px solid var(--td-component-stroke);
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-mobile-back {
+        display: inline-flex;
+        align-items: center;
+        gap: 2px;
+        min-width: 44px;
+        min-height: 44px;
+        margin-left: -8px;
+        padding: 0 8px;
+        border: 0;
+        background: transparent;
+        color: var(--td-text-color-primary);
+        font-size: var(--app-text-base);
+        cursor: pointer;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-mobile-back:active {
+        background: var(--td-bg-color-container-hover);
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-mobile-title {
+        flex: 1;
+        min-width: 0;
+        margin: 0;
+        font-size: var(--app-text-xl);
+        font-weight: 600;
+        color: var(--td-text-color-primary);
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+    }
+
+    /* 关闭按钮撑到 44×44 触控目标，避开安全区。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile > .close-btn {
+        top: calc(6px + var(--app-safe-top));
+        right: max(6px, var(--app-safe-right));
+        width: 44px;
+        height: 44px;
+    }
+
+    /* 一级（导航）与二级（内容）共用同一个滚动容器。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-container--mobile {
+        display: block;
+        flex: 1;
+        height: auto;
+        min-height: 0;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-nav--mobile {
+        overflow: visible;
+        padding: 8px max(8px, var(--app-safe-right)) calc(12px + var(--app-safe-bottom)) max(8px, var(--app-safe-left));
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-nav--mobile .nav-group-title {
+        padding: 12px 12px 4px;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-nav--mobile .nav-item {
+        min-height: 48px;
+        padding: 10px 12px;
+        font-size: var(--app-text-lg);
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-content--mobile {
+        flex: 1;
+        height: auto;
+        overflow: visible;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-body {
+        overflow: visible;
+        padding: 16px max(16px, var(--app-safe-right)) max(16px, var(--app-safe-bottom)) max(16px, var(--app-safe-left));
+    }
+
+    /* 内容页自己的桌面内边距让位给上面的 16px 统一内边距。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .content-wrapper {
+        min-width: 0;
+        padding: 0;
+    }
+
+    /* 资源列表页（我的记忆等）原本靠外层固定高度滚动；移动端交给整页滚动，
+       避免内层 flex 高度被裁切。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .content-wrapper--resource-list {
+        flex: none;
+        overflow: visible;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .settings-footer {
+        flex-wrap: wrap;
+        padding: 12px 16px max(12px, var(--app-safe-bottom));
+    }
+
+    /* 设置行统一单列：说明在上、控件在下，长文本可断行。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .setting-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 14px 0;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .setting-info {
+        max-width: 100%;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .setting-control {
+        width: 100%;
+        min-width: 0;
+        justify-content: flex-start;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .section-description,
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .desc,
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .info-value {
+        overflow-wrap: anywhere;
+    }
+
+    /* 客户「常规」：语言选择占满可用宽度（桌面宽度由组件 scoped 样式保持）。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .customer-general-settings .language-select {
+        width: 100%;
+    }
+
+    /* 账号信息：右对齐的值改为左对齐，长邮箱/ID 断行。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .user-profile .info-value {
+        text-align: left;
+    }
+
+    /* 我的记忆：工具栏与条目单列，操作按钮换行不溢出。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .list-toolbar {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .list-actions {
+        width: 100%;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .memory-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+        padding: 12px 0;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .memory-actions {
+        flex-wrap: wrap;
+        margin-top: 0;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .memory-topic {
+        max-width: 100%;
+        white-space: normal;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .memory-settings .section-header {
+        padding-right: 0;
+    }
+
+    /* 产线：分组收窄内边距，已绑定/候选/绑定行都单列，按钮全宽且 ≥44px。 */
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings {
+        max-width: 100%;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .settings-group {
+        padding: 16px;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .group-title {
+        flex-wrap: wrap;
+        gap: 2px;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .bound-row,
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .bind-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .candidate-select {
+        max-width: 100%;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .settings-group .t-button {
+        min-height: 44px;
+    }
+
+    html[data-customer="true"] .settings-modal-shell .settings-modal--mobile .agent-line-settings .invalid-hint {
+        justify-content: flex-start;
+    }
+
+    /* 弹层挂在 body 上，用客户移动作用域限制最大宽度，避免超出视口
+       （产线失效绑定清理确认框、账号改密 popup、各类下拉）。 */
+    /* F18：不用 100vw 做限宽。根字号 zoom 会把 100vw 再乘一次（zoom=1.125
+       时 100vw 渲染成 112.5% 视口），改用 JS 写入的 --app-viewport-width；
+       它已经除过 zoom，渲染后正好等于视口宽。未写入时回落到 100vw。 */
+    html[data-customer="true"] .t-dialog {
+        max-width: calc(var(--app-viewport-width, 100vw) - 32px);
+    }
+
+    html[data-customer="true"] .t-dialog__body {
+        overflow-wrap: anywhere;
+    }
+
+    html[data-customer="true"] .t-popup__content {
+        max-width: calc(var(--app-viewport-width, 100vw) - 24px);
+    }
+}
+
+/* —— T05：引用来源面板窄屏全屏 ——
+ * 面板在 overlay 模式会 Teleport 到 body，不在 .chat 内，所以用
+ * html[data-customer="true"] + .chat-references-panel.is-overlay 双作用域。
+ * 客户桌面（≥1024）不命中媒体查询，管理端不设置 data-customer，整段零命中。
+ */
+@media (max-width: 1023px) {
+    /* 铺满视口：宽度由组件的 panelStyle 写成 100%，这里补齐四边定位与安全区。
+       客户移动态助手侧栏不挂载，--assistant-dock-width 恒为 0，right 归零。
+       CP3 F3：不用 100vw——根字号 zoom 会把它放大到 112.5vw，左缘移出视口。
+       fixed 元素的包含块已对齐视口，100% 才是安全写法。 */
+    html[data-customer="true"] .chat-references-panel.is-overlay {
+        top: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        max-width: 100%;
+        padding-bottom: var(--app-safe-bottom);
+        border-left: 0;
+    }
+
+    /* 顶部标题栏接安全区，返回/关闭按钮撑到 44×44 触控目标。 */
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__header {
+        height: auto;
+        min-height: calc(var(--app-chat-header-height) + var(--app-safe-top));
+        padding: calc(6px + var(--app-safe-top)) max(12px, var(--app-safe-right)) 6px max(12px, var(--app-safe-left));
+    }
+
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__back,
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__close {
+        min-width: 44px;
+        min-height: 44px;
+    }
+
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__close {
+        width: 44px;
+        height: 44px;
+    }
+
+    /* 列表面板与原文预览各自滚动，滚到底不带动下层页面。 */
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__body,
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__source,
+    html[data-customer="true"] .chat-references-panel.is-overlay .reference-item__content {
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    html[data-customer="true"] .chat-references-panel.is-overlay .chat-references-panel__body {
+        padding: 4px max(12px, var(--app-safe-right)) 24px max(12px, var(--app-safe-left));
+    }
+}
+
+/* —— T05：登录/注册、工作区引导窄屏通用触控 ——
+ * 更细的 320px 间距补漏写在各组件 scoped 样式里；这里只兜底触控高度与弹层宽度。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .login-layout .submit-button,
+    html[data-customer="true"] .workspace-onboarding .workspace-actions .t-button {
+        min-height: 44px;
+    }
+
+    html[data-customer="true"] .login-layout .language-dropdown {
+        max-width: calc(var(--app-viewport-width, 100vw) - 24px);
+    }
+}
+
+/* —— T05：用户菜单在侧栏抽屉内滚动/触控 ——
+ * 下拉本身是绝对定位在 .user-menu 上，窄屏抽屉里高度受视口限制；
+ * 超过一屏时在菜单内部滚动，不裁掉设置/退出入口。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer .user-dropdown {
+        max-width: calc(var(--app-viewport-width, 100vw) - 24px);
+        /* F18：高度同理避开 100dvh 的 zoom 二次放大，用已换算好的动态视口高度。 */
+        max-height: calc(var(--app-visual-viewport-height, 100dvh) - 96px);
+        margin-bottom: calc(6px + var(--app-safe-bottom));
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer .user-dropdown .menu-item,
+    html[data-customer="true"] .aside_box.aside_box--mobile-drawer .user-dropdown .dropdown-user-header {
+        min-height: 44px;
+    }
+}
+
+/* —— CP3 F6：客户移动态左右安全区 ——
+ * 横屏 iPhone 的左右刘海会压住顶栏、消息列与输入列；左右内边距取
+ * max(12px, 安全区)，竖屏与桌面仍是原来的 12px。仅客户 + 窄屏命中。
+ * 免责声明在 creatChat.vue 的窄屏规则里同步处理。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .customer-topbar {
+        padding-left: max(12px, var(--app-safe-left));
+        padding-right: max(12px, var(--app-safe-right));
+    }
+
+    html[data-customer="true"] .chat.customer-shell.is-mobile .msg_list {
+        padding-left: max(12px, var(--app-safe-left));
+        padding-right: max(12px, var(--app-safe-right));
+    }
+
+    html[data-customer="true"] .answers-input.is-mobile {
+        padding-left: max(12px, var(--app-safe-left));
+        padding-right: max(12px, var(--app-safe-right));
+    }
+}
+
+/* —— CP3 F14：客户窄屏隐藏宿主项目目录栏 ——
+ * 项目目录是沙箱宿主能力，客户窄屏没有可用入口；这里只做界面裁剪，
+ * 不代表权限隔离（C4，权限仍以后端为准）。管理员分支不在 customer-shell 内。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .dialogue-wrap.customer-shell .project-dir-bar {
+        display: none;
+    }
+}
+
+
+/* —— T01 W3：移动端欢迎页字标 0 宽 ——
+ * 字标是 inline-block，宽 min(246px, 100%)；父级 __title/__head 在 flex 里
+ * 未定宽时百分比无处解析，实测 320px 下变成 0×0。给两级都定 100% 宽打破循环。
+ * 桌面（≥1024）不命中，避免影响现有桌面布局。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .customer-welcome__head,
+    html[data-customer="true"] .customer-welcome__title {
+        width: 100%;
+    }
+}
+
+/* —— CP3 F21：≤360 字标缩小 ——
+ * 必须写在全局移动 CSS 里：scoped 样式中的 `:global(html[...]) .class`
+ * 会被编译丢到只剩 html 选择器，导致 ≤360 时整页被压成 146px 宽。
+ */
+@media (max-width: 360px) {
+    html[data-customer="true"] .customer-topbar__wordmark {
+        width: 88px;
+        height: 26px;
+        flex: 0 0 88px;
+    }
+
+    html[data-customer="true"] .customer-topbar__wordmark img {
+        width: 146px;
+        left: -30px;
+        top: -27px;
+    }
+}
+
+/* —— T09：客户移动端输入框钉在滚动区底部 ——
+ * 桌面保持"欢迎块+输入框整体居中"（creatChat 的 :deep position:static 不动）；
+ * 绑定多个 agent 后欢迎内容超过视口，流内输入框会被推到折叠线下"消失"。
+ * T10c：absolute 钉底改为 sticky——内容短时输入框跟在内容后（不遮内容，
+ * 矮视口 320×568 也一样），内容超长时贴滚动区可视底；不再需要 padding-bottom 预留。
+ */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .dialogue-wrap.customer-shell .create-chat-composer {
+        position: sticky;
+        bottom: 0;
+        z-index: 5;
+    }
+}
+
+/* T09 补充:高度链收口。.dialogue-wrap 是 flex 子项且 min-height:auto,
+ * 内容一多就不肯收缩,把 .dialogue-answers(overflow:auto)顶出视口,
+ * 钉底的输入框也跟着出屏;移动端允许它收缩,滚动收敛在 .dialogue-answers 内。 */
+@media (max-width: 1023px) {
+    html[data-customer="true"] .dialogue-wrap.customer-shell {
+        min-height: 0;
+    }
+}

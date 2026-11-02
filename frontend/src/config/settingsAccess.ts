@@ -28,6 +28,8 @@ export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
   tenant: 'viewer',
   members: 'viewer',
   mymemory: 'viewer',
+  // 客户版产线绑定：每个成员编辑自己在当前工作区的绑定，Admin 设置不出现该分区（C6）。
+  agentlines: 'viewer',
   memory: 'admin',
   // Members read which model each feature falls back to; editing is Admin+ inside.
   defaults: 'viewer',

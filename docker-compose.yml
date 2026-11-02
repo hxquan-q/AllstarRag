@@ -133,6 +133,9 @@ services:
       # 认证 / 空间 / RBAC / 审计
       # 禁止新用户注册（生产建议 true）
       - DISABLE_REGISTRATION=${DISABLE_REGISTRATION:-false}
+      # 注册模式（self_serve / invite_register / invite_only，空值忽略）。
+      # 系统设置 DB 的 auth.registration_mode 优先于本变量；本变量优先于 DISABLE_REGISTRATION。
+      - WEKNORA_AUTH_REGISTRATION_MODE=${WEKNORA_AUTH_REGISTRATION_MODE:-}
       # 开启后密码必须包含大小写字母、数字和特殊字符，特殊字符包含：!@#$%^&*()_+-=[]{}|;:,.<>?
       - WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED=${WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED:-false}
       # 公开注册后的默认空间策略：create_personal（默认，自动创建个人空间）/ tenantless

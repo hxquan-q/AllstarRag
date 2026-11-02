@@ -3,7 +3,8 @@
     <Transition name="settings-modal-shell">
       <div v-if="visible" class="settings-modal-shell settings-overlay" :class="overlayClass" :style="{ zIndex }"
         @click.self="emit('close')">
-        <div class="settings-modal" role="dialog" aria-modal="true" :aria-label="title">
+        <div class="settings-modal" :class="{ 'settings-modal--mobile': mobileLayout }" role="dialog" aria-modal="true"
+          :aria-label="title">
           <div v-if="loading" class="editor-initializing" role="status" :aria-label="$t('common.loading')">
             <t-loading size="medium" :text="$t('common.loading')" />
           </div>
@@ -14,7 +15,49 @@
             </svg>
           </button>
 
-          <div class="settings-container">
+          <!-- 客户移动态：顶部标题栏（二级页面带返回），导航与内容二选一渲染。
+               桌面/管理端走下面的原有结构，mobileLayout=false 时这段整体不渲染。 -->
+          <div v-if="mobileLayout" class="settings-mobile-header">
+            <button v-if="mobileShowNav === false" type="button" class="settings-mobile-back"
+              @click="emit('mobile-back')" :aria-label="$t('common.back')">
+              <t-icon name="chevron-left" size="20px" />
+              <span>{{ $t('common.back') }}</span>
+            </button>
+            <h2 class="settings-mobile-title">{{ title }}</h2>
+          </div>
+
+          <div v-if="mobileLayout" class="settings-container settings-container--mobile">
+            <nav v-if="mobileShowNav" class="settings-nav settings-nav--mobile" :data-guide="navGuide || undefined">
+              <slot name="nav">
+                <template v-for="group in navGroups" :key="group.key">
+                  <div class="nav-group-title">{{ group.label }}</div>
+                  <div v-for="item in group.items" :key="item.key" :class="['nav-item', { active: modelValue === item.key }]"
+                    :data-guide="navItemGuidePrefix ? `${navItemGuidePrefix}-${item.key}` : undefined"
+                    @click="emit('update:modelValue', item.key)">
+                    <slot name="nav-icon" :item="item" :active="modelValue === item.key">
+                      <t-icon :name="item.icon" class="nav-icon" />
+                    </slot>
+                    <span class="nav-label">{{ item.label }}</span>
+                    <span v-if="showBadge(item)" :class="['nav-badge', item.badgeClass]">{{ item.badge }}</span>
+                  </div>
+                </template>
+              </slot>
+            </nav>
+
+            <div v-else class="settings-content settings-content--mobile">
+              <div class="settings-body">
+                <slot />
+              </div>
+              <div v-if="$slots.footer || $slots['footer-note']" class="settings-footer">
+                <slot name="footer-note" />
+                <div class="settings-footer-actions">
+                  <slot name="footer" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-else class="settings-container">
             <aside class="settings-sidebar">
               <div class="sidebar-header">
                 <h2 class="sidebar-title">{{ title }}</h2>
@@ -95,6 +138,13 @@ withDefaults(
     overlayClass?: string
     navGuide?: string
     navItemGuidePrefix?: string
+    /**
+     * 客户移动态：全屏面板 + 一级导航/二级内容切换。
+     * 默认 false，现有消费者（管理端编辑弹窗等）不传，DOM 与样式保持原样（C6）。
+     */
+    mobileLayout?: boolean
+    /** 移动态是否显示一级导航；false 时显示内容区和返回按钮。 */
+    mobileShowNav?: boolean
   }>(),
   {
     modelValue: '',
@@ -104,12 +154,15 @@ withDefaults(
     overlayClass: '',
     navGuide: '',
     navItemGuidePrefix: '',
+    mobileLayout: false,
+    mobileShowNav: true,
   },
 )
 
 const emit = defineEmits<{
   (e: 'update:modelValue', key: string): void
   (e: 'close'): void
+  (e: 'mobile-back'): void
 }>()
 
 function showBadge(item: SettingsModalNavItem): boolean {

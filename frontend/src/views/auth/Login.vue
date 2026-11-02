@@ -334,6 +334,15 @@ const persistLoginResponse = async (response: any, skipRedirect = false) => {
     if (Array.isArray(response.memberships)) {
       authStore.setMemberships(response.memberships)
     }
+    // 登录响应也携带能力投影,便于引导页在后续 /auth/me 返回前
+    // 就隐藏创建/邀请入口。
+    const capabilities = response.capabilities
+    if (typeof capabilities?.can_create_tenant === 'boolean') {
+      authStore.setCanCreateTenant(capabilities.can_create_tenant)
+    }
+    if (typeof capabilities?.access_revoked === 'boolean') {
+      authStore.setAccessRevoked(capabilities.access_revoked)
+    }
     // If the backend dropped us into a non-home tenant (honoured a
     // remembered "last active tenant" preference), set the override so
     // subsequent requests carry X-Tenant-ID and the UI stays consistent.
@@ -1096,6 +1105,36 @@ onMounted(async () => {
   }
 }
 
+/* CP3 F5 / OQ2：769–1023（iPad 竖屏）也改成单列，表单在上、品牌区在下；
+   输入框 16px 规则从 360 上移到这里，iOS 聚焦不再放大页面。
+   768/480 两段既有规则原文保留，窄屏继续按原样覆盖。 */
+@media (max-width: 1023px) {
+  .login-layout {
+    flex-direction: column;
+    padding-top: 64px;
+    box-sizing: border-box;
+  }
+
+  .showcase-section {
+    flex: 0 0 auto;
+    padding: 40px 24px;
+  }
+
+  .showcase-content {
+    max-width: 100%;
+  }
+
+  .form-section {
+    order: -1;
+    flex: 0 0 auto;
+    padding: 24px;
+  }
+
+  .form-content :deep(.t-input .t-input__inner) {
+    font-size: var(--app-text-xl);
+  }
+}
+
 @media (max-width: 768px) {
   .login-layout {
     flex-direction: column;
@@ -1217,6 +1256,48 @@ onMounted(async () => {
 
   .form-header {
     margin-bottom: 24px;
+  }
+}
+
+/* 320px 极窄屏补漏：768/480 两段既有规则保持原样，这里只补更窄一档，
+   收紧卡片内边距、把 logo 与语言切换压回可视区，输入框字号固定 16px。 */
+@media (max-width: 360px) {
+  .login-layout {
+    padding-top: 60px;
+  }
+
+  .header-logo {
+    top: 14px;
+    left: 16px;
+
+    .logo-image {
+      width: 64px;
+    }
+  }
+
+  .header-links {
+    top: 12px;
+    right: 12px;
+  }
+
+  .form-section {
+    padding: 16px;
+  }
+
+  .form-card {
+    padding: 24px 16px;
+  }
+
+  .form-title {
+    font-size: var(--app-text-2xl);
+  }
+
+  .form-content :deep(.t-input .t-input__inner) {
+    font-size: var(--app-text-xl);
+  }
+
+  .submit-button {
+    min-height: 44px;
   }
 }
 
