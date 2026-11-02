@@ -6,6 +6,7 @@ import {
   CUSTOMER_MENU_PATHS,
   CUSTOMER_SETTINGS_SECTIONS,
   defaultLandingPath,
+  isAdminConsole,
   isCustomerAllowedRoute,
   isCustomerMenuPath,
   isCustomerSettingsSection,
@@ -43,6 +44,23 @@ test('isCustomerViewer is fail-closed: every non-admin non-empty role is a custo
   assert.equal(isCustomerViewer({ currentTenantRole: 'viewer', isSystemAdmin: false, canAccessAllTenants: false }), true)
   assert.equal(isCustomerViewer(undefined), false)
   assert.equal(isCustomerViewer(null), false)
+})
+
+test('isAdminConsole only true for system admin console (C6)', () => {
+  // 系统管理员 → 管理控制台，标签页保 WeKnora（C6）。
+  assert.equal(isAdminConsole({ isSystemAdmin: true }), true)
+  assert.equal(isAdminConsole({ currentTenantRole: 'admin', isSystemAdmin: true }), true)
+  assert.equal(isAdminConsole({ currentTenantRole: 'viewer', isSystemAdmin: true }), true)
+
+  // owner / 租户 admin / 普通客户 → 非系统管理员控制台，标题走品牌（AC-1）。
+  assert.equal(isAdminConsole({ currentTenantRole: 'owner', isSystemAdmin: false }), false)
+  assert.equal(isAdminConsole({ currentTenantRole: 'admin', isSystemAdmin: false }), false)
+  assert.equal(isAdminConsole({ currentTenantRole: 'viewer', isSystemAdmin: false }), false)
+
+  // 未登录 / 鉴权态未水合 → false（fail-closed，不当成管理控制台）。
+  assert.equal(isAdminConsole(undefined), false)
+  assert.equal(isAdminConsole(null), false)
+  assert.equal(isAdminConsole({ currentTenantRole: 'owner' }), false)
 })
 
 test('customer menu keeps only creatChat and the landing path is the chat page', () => {
@@ -171,7 +189,7 @@ test('router guard wires the strict redirectedFrom check and the settings except
 
 test('router guard keeps landing defaults on defaultLandingPath and applies customer brand', () => {
   assert.match(routerSource, /function landingPathForCurrentAuth\(\): string \{[\s\S]*?defaultLandingPath\(useAuthStore\(\), '\/platform\/knowledge-bases'\)/)
-  assert.match(routerSource, /applyDocumentBrandForRole\(isCustomerViewer\(authStore\)\)/)
+  assert.match(routerSource, /applyDocumentBrandForRole\(isCustomerViewer\(authStore\), isAdminConsole\(authStore\)\)/)
   assert.match(routerSource, /if \(isCustomerViewer\(authStore\)\) \{/)
 })
 
