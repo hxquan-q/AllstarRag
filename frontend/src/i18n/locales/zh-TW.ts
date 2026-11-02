@@ -6696,7 +6696,8 @@ export default {
       inviteOnlyNotice: '此帳戶只能透過邀請加入已有空間',
       help: '你現在可以建立空間，也可以稍後回來接受邀請。',
       inviteOnlyHelp: '還沒有邀請？請把你的註冊電子信箱提供給空間管理員，由管理員向你傳送邀請。',
-      accessRevoked: '對不起，您目前已被移出空間，沒有存取權限'
+      accessRevoked: '對不起，您目前已被移出空間，沒有存取權限',
+      accessRevokedRejoin: '若空間擁有者重新邀請您，可在此查看並接受邀請以恢復存取。'
     }
   },
   inviteRegister: {

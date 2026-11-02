@@ -5,10 +5,24 @@
         <t-icon name="system-sum" size="30px" />
       </div>
 
-      <div v-if="surfaces.showAccessRevoked" class="access-revoked-notice" role="alert">
-        <t-icon name="error-circle" size="20px" aria-hidden="true" />
-        <span>{{ $t('auth.workspaceOnboarding.accessRevoked') }}</span>
-      </div>
+      <template v-if="surfaces.showAccessRevoked">
+        <div class="access-revoked-notice" role="alert">
+          <t-icon name="error-circle" size="20px" aria-hidden="true" />
+          <span>{{ $t('auth.workspaceOnboarding.accessRevoked') }}</span>
+        </div>
+        <p class="workspace-help">
+          {{ $t('auth.workspaceOnboarding.accessRevokedRejoin') }}
+        </p>
+        <div class="workspace-actions workspace-actions--single">
+          <t-button theme="primary" variant="base" size="large" @click="invitationsVisible = true">
+            <template #icon><t-icon name="mail" /></template>
+            {{ $t('auth.workspaceOnboarding.invitations') }}
+            <template v-if="authStore.pendingInvitationCount > 0">
+              ({{ authStore.pendingInvitationCount }})
+            </template>
+          </t-button>
+        </div>
+      </template>
 
       <template v-else>
         <h1 v-if="surfaces.showCreate">{{ $t('auth.workspaceOnboarding.title') }}</h1>
@@ -72,7 +86,8 @@
     </section>
 
     <CreateTenantDialog v-if="!surfaces.showAccessRevoked" v-model:visible="createVisible" @created="onTenantCreated" />
-    <MyInvitationsDialog v-if="!surfaces.showAccessRevoked" v-model:visible="invitationsVisible" />
+    <!-- 收件箱弹窗两种状态都挂载:撤销态的「查看邀请」恢复入口与正常态共用。 -->
+    <MyInvitationsDialog v-model:visible="invitationsVisible" />
   </main>
 </template>
 
@@ -93,7 +108,7 @@ const invitationsVisible = ref(false)
 const policyLoading = ref(true)
 const policyLoadFailed = ref(false)
 
-// 被移出所有空间时只保留退出登录;正常用户的创建/邀请分支与之前完全一致。
+// 被移出所有空间时保留退出登录与「查看邀请」恢复入口;正常用户的创建/邀请分支与之前完全一致。
 const surfaces = computed(() =>
   resolveOnboardingSurfaces(authStore.canCreateTenant, authStore.accessRevoked)
 )

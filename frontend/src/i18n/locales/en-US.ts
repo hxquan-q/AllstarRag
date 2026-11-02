@@ -3050,7 +3050,8 @@ export default {
       inviteOnlyNotice: 'This account can only join an existing workspace by invitation',
       help: 'You can create a workspace now or return later to accept an invitation.',
       inviteOnlyHelp: 'No invitation yet? Send your registered email address to a workspace administrator and ask them to invite you.',
-      accessRevoked: 'Sorry, you have been removed from your workspace and no longer have access.'
+      accessRevoked: 'Sorry, you have been removed from your workspace and no longer have access.',
+      accessRevokedRejoin: 'If the workspace owner invites you again, you can view and accept the invitation here to restore access.'
     }
   },
   authStore: {
