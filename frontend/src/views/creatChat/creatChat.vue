@@ -368,6 +368,7 @@ async function openProjectDir() {
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
+    min-height: 0;
     position: relative;
     // 浅色网格背景（替换原来的纯白底）
     background-color: #F6F8FB;
