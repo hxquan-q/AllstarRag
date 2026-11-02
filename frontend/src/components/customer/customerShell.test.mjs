@@ -81,7 +81,7 @@ test('mobile welcome shows two cards with the current line first and opens a pic
   // 该 computed 连注释约 300 字符，取 700 字符窗口足够覆盖两个分支且不引入后续代码。
   const visibleBody = welcome.slice(visibleStart, visibleStart + 700)
   const mobileAt = visibleBody.indexOf('if (hasMobileOverflow.value) return pickerLines.value.slice(0, MOBILE_MAX_LINE_COUNT)')
-  const desktopAt = visibleBody.indexOf('return lines.value.slice(0, COLLAPSED_LINE_COUNT)')
+  const desktopAt = visibleBody.indexOf('return pickerLines.value.slice(0, COLLAPSED_LINE_COUNT)')
   assert.ok(mobileAt >= 0, 'mobile-first slice branch missing from visibleLines')
   assert.ok(desktopAt > mobileAt, 'desktop truncation branch must come after the mobile branch')
   // AC-3：桌面不再有 expanded 全量分支；expanded / toggleExpanded 整体移除。
