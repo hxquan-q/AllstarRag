@@ -214,9 +214,9 @@ export function initCustomerBrandTheme(): void {
 }
 
 export interface ApplyDocumentBrandOptions {
-  /** 客户版或登录页传 true；管理员端保持默认，不设置该属性 */
+  /** 是否应用客户版主题：客户版传 true，非客户传 false（缺省按 false 处理） */
   customer?: boolean
-  /** 是否覆盖浏览器标题；管理员端传 false 保持 WeKnora 默认标题 */
+  /** 是否覆盖浏览器标题：默认覆盖为品牌名，仅显式传 false 时跳过（当前无调用方使用） */
   title?: boolean
 }
 
