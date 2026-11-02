@@ -2,11 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { resolveOnboardingSurfaces } from './workspaceOnboarding'
 
-test('access revoked hides create and invitations, keeps only the notice', () => {
+test('access revoked keeps the notice and create lock, but opens the invitation entry', () => {
   for (const canCreate of [true, false]) {
     const surfaces = resolveOnboardingSurfaces(canCreate, true)
-    assert.equal(surfaces.showCreate, false)
-    assert.equal(surfaces.showInvitations, false)
+    assert.equal(surfaces.showCreate, false, '被移除后不得出现自助创建空间入口')
+    assert.equal(surfaces.showInvitations, true, '被移除后仍要放行「查看邀请」恢复入口')
     assert.equal(surfaces.showAccessRevoked, true)
   }
 })
