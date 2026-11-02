@@ -255,14 +255,14 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 		revoked, err := h.memberService.HasRevokedAccess(ctx, caller.ID)
 		if err != nil {
 			logger.Errorf(ctx, "Failed to validate workspace access for user %s: %v", caller.ID, err)
-			c.Error(errors.NewInternalServerError("Failed to validate workspace access").WithDetails(err.Error()))
+			_ = c.Error(errors.NewInternalServerError("Failed to validate workspace access").WithDetails(err.Error()))
 			return
 		}
 		if revoked {
 			logger.Warnf(ctx, "Self-service tenant creation denied: user %s has revoked workspace access", caller.ID)
 			appErr := errors.NewForbiddenError("access to your workspace has been revoked").
 				WithDetails("access_revoked")
-			c.Error(appErr)
+			_ = c.Error(appErr)
 			return
 		}
 	}

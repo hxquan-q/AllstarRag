@@ -67,7 +67,11 @@ func t12AddActiveMember(t *testing.T, db *gorm.DB, userID string, tenantID uint6
 	}
 }
 
-func t12NewCreateTenantHandler(memberSvc interfaces.TenantMemberService, userID string, tenants interfaces.TenantService) *TenantHandler {
+func t12NewCreateTenantHandler(
+	memberSvc interfaces.TenantMemberService,
+	userID string,
+	tenants interfaces.TenantService,
+) *TenantHandler {
 	return &TenantHandler{
 		service:          tenants,
 		userService:      &revokedTenantUserService{user: &types.User{ID: userID}},

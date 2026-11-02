@@ -222,14 +222,14 @@ func (l *ipRateLimiter) cleanupLoop() {
 // name 只用于日志区分。每次调用创建独立的计数桶,不同端点互不共享。
 // 超限返回 429(apperrors.ErrTooManyRequests),并记一行 warn(端点+IP,
 // 不记录请求体)。旧函数 PublicAuthRateLimit 委托到这里,行为保持不变。
-func PublicAuthRateLimitWith(window time.Duration, max int, name string) gin.HandlerFunc {
-	limiter := newIPRateLimiter(window, max)
+func PublicAuthRateLimitWith(window time.Duration, limit int, name string) gin.HandlerFunc {
+	limiter := newIPRateLimiter(window, limit)
 	return func(c *gin.Context) {
 		ip := c.ClientIP()
 		if !limiter.allow(ip) {
 			logger.Warnf(c.Request.Context(),
 				"[auth-ratelimit] %s: ip=%s exceeded %d requests per %s",
-				name, ip, max, window)
+				name, ip, limit, window)
 			c.Error(&apperrors.AppError{
 				Code:     apperrors.ErrTooManyRequests,
 				Message:  "too many requests; please retry shortly",
@@ -249,8 +249,8 @@ type KeyedRateLimiter struct{ inner *ipRateLimiter }
 
 // NewKeyedRateLimiter 创建按 key 计数的限速器:同一 key 在 window 内最多
 // 放行 max 次。调用方通常只构造一次并包级复用,这样计数才能跨请求保留。
-func NewKeyedRateLimiter(window time.Duration, max int) *KeyedRateLimiter {
-	return &KeyedRateLimiter{inner: newIPRateLimiter(window, max)}
+func NewKeyedRateLimiter(window time.Duration, limit int) *KeyedRateLimiter {
+	return &KeyedRateLimiter{inner: newIPRateLimiter(window, limit)}
 }
 
 // Allow 返回该 key 是否仍在预算内。空 key 与空 IP 一样使用共享桶,

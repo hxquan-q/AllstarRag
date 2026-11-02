@@ -17,7 +17,10 @@ import (
 // 活跃成员为 0 且存在软删成员关系才算被移除;有一个活跃成员即不受影响;
 // 系统管理员 / 跨租户超管永远返回 false。
 
-func setupRevokedAccessService(t *testing.T, userRepo interfaces.UserRepository) (interfaces.TenantMemberService, *gorm.DB) {
+func setupRevokedAccessService(
+	t *testing.T,
+	userRepo interfaces.UserRepository,
+) (interfaces.TenantMemberService, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)

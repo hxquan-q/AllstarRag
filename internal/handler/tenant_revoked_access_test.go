@@ -33,7 +33,9 @@ func (s *revokedMemberService) HasRevokedAccess(context.Context, string) (bool, 
 	return s.revoked, s.revokedErr
 }
 
-func (s *revokedMemberService) EnsureOwner(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+func (s *revokedMemberService) EnsureOwner(
+	_ context.Context, userID string, tenantID uint64,
+) (*types.TenantMember, error) {
 	return &types.TenantMember{UserID: userID, TenantID: tenantID, Role: types.TenantRoleOwner}, nil
 }
 

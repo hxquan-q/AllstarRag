@@ -56,7 +56,9 @@ func doLogin(t *testing.T, r *gin.Engine, remoteAddr, email string) *httptest.Re
 	return w
 }
 
-func newLoginTestHandler(login func(context.Context, *types.LoginRequest) (*types.LoginResponse, error)) (*AuthHandler, *stubLoginUserService) {
+func newLoginTestHandler(
+	login func(context.Context, *types.LoginRequest) (*types.LoginResponse, error),
+) (*AuthHandler, *stubLoginUserService) {
 	us := &stubLoginUserService{login: login}
 	return &AuthHandler{userService: us}, us
 }
