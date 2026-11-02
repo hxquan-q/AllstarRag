@@ -5,6 +5,7 @@ import type { ProductLine } from '@/brand/types'
 import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 import { useProductLineStore } from '@/stores/productLine'
 import { useUIStore } from '@/stores/ui'
+import { computeVisibleLines } from './visibleLines'
 
 /**
  * 客户新对话欢迎区：欢迎语 + 产线卡片 + 当前产线示例问题 + 底部提示。
@@ -47,10 +48,10 @@ const pickerLines = computed(() => {
   return [current, ...lines.value.filter((line) => line.id !== current.id)]
 })
 const visibleLines = computed(() => {
-  // 移动端 >2 张：只显示弹窗列表前两张 = [当前选中, 其余第一]（T10）；≤2 张走下方全量分支。
-  if (hasMobileOverflow.value) return pickerLines.value.slice(0, MOBILE_MAX_LINE_COUNT)
-  // 桌面：超过 4 条只显示前 4 张，其余进「查看更多」选择弹窗（T01/AC-1），当前选中置顶。
-  return pickerLines.value.slice(0, COLLAPSED_LINE_COUNT)
+  // 未超限：保留绑定顺序（点击只改高亮，不因选中重排换位）；
+  // 超限：当前选中置顶，其余按绑定顺序补足可见数量（移动 2 / 桌面 4），多余的收进「查看更多」弹窗。
+  const maxVisible = isMobileLayout.value ? MOBILE_MAX_LINE_COUNT : COLLAPSED_LINE_COUNT
+  return computeVisibleLines(lines.value, currentLine.value?.id, maxVisible)
 })
 /** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
 const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
