@@ -49,8 +49,8 @@ const pickerLines = computed(() => {
 const visibleLines = computed(() => {
   // 移动端 >2 张：只显示弹窗列表前两张 = [当前选中, 其余第一]（T10）；≤2 张走下方全量分支。
   if (hasMobileOverflow.value) return pickerLines.value.slice(0, MOBILE_MAX_LINE_COUNT)
-  // 桌面：超过 4 条只显示前 4 张，其余进「查看更多」选择弹窗（T01/AC-1），顺序不变。
-  return lines.value.slice(0, COLLAPSED_LINE_COUNT)
+  // 桌面：超过 4 条只显示前 4 张，其余进「查看更多」选择弹窗（T01/AC-1），当前选中置顶。
+  return pickerLines.value.slice(0, COLLAPSED_LINE_COUNT)
 })
 /** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
 const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
@@ -156,8 +156,8 @@ function ask(question: string): void {
     <!-- 产线 = 当前工作区绑定的 agent（无绑定时由上面的空态提示承担） -->
     <!-- 免责声明已移到输入框下方（creatChat 页面底部） -->
 
-    <!-- 移动端「查看更多」选择弹窗（T10）：全部 agent、当前排第一，点选即切线并关闭。
-         弹层挂在 body 上，宽度由 customer-mobile.css 的 .t-dialog 限宽兜住（≤1023）。 -->
+    <!-- 产线选择弹窗：PC / 移动共用，列表为全部 agent、当前选中置顶，点选即切线并关闭。
+         宽度由本模板的 width="480px" 固定；移动端另有 customer-mobile.css 限宽（仅 <1024 生效）。 -->
     <t-dialog
       v-model:visible="agentPickerVisible"
       :header="t('brand.welcome.chooseAgent')"
