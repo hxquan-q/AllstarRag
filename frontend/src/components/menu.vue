@@ -1,11 +1,15 @@
 <template>
-    <div class="aside_box" :class="{
+    <div class="aside_box" ref="mobileDrawerRef" :class="{
         'aside_box--collapsed': uiStore.sidebarCollapsed,
         'aside_box--resizing': uiStore.sidebarResizing,
         'aside_box--customer': isCustomer,
         'aside_box--customer-hidden': isCustomer && uiStore.sidebarCollapsed,
+        'aside_box--mobile-drawer': mobileDrawer,
+        'aside_box--mobile-open': mobileDrawer && uiStore.mobileDrawerOpen,
     }" :inert="isCustomer && uiStore.sidebarCollapsed"
-        :aria-hidden="isCustomer && uiStore.sidebarCollapsed ? 'true' : undefined">
+        :aria-hidden="isCustomer && uiStore.sidebarCollapsed ? 'true' : undefined"
+        :role="mobileDrawer ? 'dialog' : undefined" :aria-modal="mobileDrawer ? 'true' : undefined"
+        :aria-label="mobileDrawer ? t('menu.myChats') : undefined" :tabindex="mobileDrawer ? -1 : undefined">
         <!-- 展开时：Logo + 搜索/折叠按钮同行 -->
         <div class="logo_row" v-if="!uiStore.sidebarCollapsed">
             <div class="logo_box" @click="handleLogoClick" style="cursor: pointer;">
@@ -76,8 +80,9 @@
         <!-- 空间选择器：仅在用户可切换空间时显示 -->
         <TenantSelector v-if="canAccessAllTenants && !uiStore.sidebarCollapsed" />
 
-        <!-- 侧栏边缘拖拽调宽，拖窄时自动收缩 -->
-        <PanelResizeHandle edge="right" :label="t('knowledgeStages.resizeDrawer')"
+        <!-- 侧栏边缘拖拽调宽，拖窄时自动收缩。
+             移动抽屉是覆盖层，不做调宽；模板条件隐藏，避免不可见仍可聚焦。 -->
+        <PanelResizeHandle v-if="!mobileDrawer" edge="right" :label="t('knowledgeStages.resizeDrawer')"
             :value="uiStore.sidebarDisplayWidth" :min="SIDEBAR_COLLAPSED_WIDTH" :max="SIDEBAR_MAX_WIDTH"
             @start="startSidebarResize" @resize="resizeSidebar" @end="uiStore.sidebarResizing = false" />
 
@@ -175,7 +180,7 @@
 
                 <div v-else class="session-filtered-list">
                     <template
-                        v-if="activeBucket?.loading && !activeBucket.loaded && filteredGroupedSessions.length === 0">
+                        v-if="((activeBucket?.loading && !activeBucket.loaded) || customerLinesNotReady) && filteredGroupedSessions.length === 0">
                         <div v-for="n in 4" :key="'bucket-skel-' + n" class="submenu_item_p session-chat-row">
                             <div class="session-list-row session-list-row--flat">
                                 <t-skeleton animation="gradient" class="session-list-row__body"
@@ -388,6 +393,8 @@ import UserMenu from '@/components/UserMenu.vue';
 import TenantSelector from '@/components/TenantSelector.vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorResourcesStore } from '@/stores/editorResources';
+import { useResponsiveLayout } from '@/composables/useResponsiveLayout';
+import { useFocusTrap } from '@/composables/useFocusTrap';
 
 const chatResources = useChatResourcesStore();
 const editorResources = useEditorResourcesStore();
@@ -457,10 +464,63 @@ const router = useRouter();
 const isCustomer = computed(() => isCustomerViewer(authStore));
 const sidebarLogoSrc = computed(() => (isCustomer.value ? brandConfig.logoUrl : allstarLogoUrl));
 
+// 客户 + 窄屏：侧栏从「宽度滑到 0」改成覆盖式抽屉。断点统一来自 useResponsiveLayout，
+// 管理员和桌面宽度下 mobileDrawer 恒为 false，模板与行为保持原样（C6 / AC-8）。
+const { isMobileLayout } = useResponsiveLayout()
+const mobileDrawer = computed(() => isCustomer.value && isMobileLayout.value)
+const mobileDrawerActive = computed(() => mobileDrawer.value && uiStore.mobileDrawerOpen)
+const mobileDrawerRef = ref<HTMLElement | null>(null)
+
+// 抽屉打开期间临时展开完整内容；关闭或切回桌面时恢复进入前的折叠态。
+// persist:false 只改内存态，不覆盖管理员的 sidebar_collapsed 偏好（C6 / M4）。
+const drawerExpandedSidebar = ref(false)
+const wasCollapsedBeforeDrawer = ref(false)
+
+function enterMobileDrawer() {
+    if (drawerExpandedSidebar.value) return
+    wasCollapsedBeforeDrawer.value = uiStore.sidebarCollapsed
+    drawerExpandedSidebar.value = true
+    uiStore.expandSidebar({ persist: false })
+}
+
+function leaveMobileDrawer() {
+    if (!drawerExpandedSidebar.value) return
+    drawerExpandedSidebar.value = false
+    if (wasCollapsedBeforeDrawer.value) uiStore.collapseSidebar({ persist: false })
+    else uiStore.expandSidebar({ persist: false })
+}
+
+// Esc 关闭抽屉。用 window 监听，焦点在抽屉内或容器自身上都能命中。
+function handleMobileDrawerKeydown(event: KeyboardEvent) {
+    if (!mobileDrawerActive.value || event.key !== 'Escape') return
+    event.stopPropagation()
+    uiStore.closeMobileDrawer()
+}
+
+watch(mobileDrawerActive, (open) => {
+    if (open) {
+        enterMobileDrawer()
+        window.addEventListener('keydown', handleMobileDrawerKeydown)
+        return
+    }
+    leaveMobileDrawer()
+    window.removeEventListener('keydown', handleMobileDrawerKeydown)
+}, { immediate: true })
+
+// 焦点陷阱：打开后焦点进抽屉，Tab 在内部循环；关闭后回到顶栏汉堡按钮。
+useFocusTrap(mobileDrawerRef, mobileDrawerActive, {
+    restoreFocus: () => document.querySelector<HTMLElement>('.customer-topbar__menu'),
+})
+
 // 客户版的收起/展开只影响当前界面，不写共享的 sidebar_collapsed，
 // 否则会把同一浏览器里管理员保存的折叠偏好覆盖掉（C6 / M4）。
 // 管理员仍走原来的持久化行为。
 const toggleSidebar = () => {
+    // 移动抽屉里这个按钮就是「关闭抽屉」，避免把抽屉内容折叠成图标栏。
+    if (mobileDrawer.value) {
+        uiStore.closeMobileDrawer()
+        return
+    }
     uiStore.toggleSidebar({ persist: !isCustomer.value });
 };
 
@@ -472,6 +532,9 @@ const toggleSidebarFromKeyboard = () => {
 };
 
 function handleLogoClick() {
+    // F17：抽屉里点 logo 经常还落在当前页（如 /platform/creatChat），路由不变
+    // 就不会触发抽屉关闭；同路径点击也要收起抽屉、遮罩和滚动锁。
+    if (mobileDrawer.value) uiStore.closeMobileDrawer();
     router.push(defaultLandingPath(authStore, '/platform/knowledge-bases'));
 }
 
@@ -658,15 +721,22 @@ const customerLineGroups = computed<ProductLineGroup<CustomerSessionRow>[]>(() =
     if (!isCustomer.value) return [];
     const bucket = activeBucket.value;
     if (!bucket?.items.length) return [];
-    // 产线清单来自运行时品牌配置（C5）；store 在这里懒调用，管理员不实例化（C6）
-    const lines = useProductLineStore().lines;
+    // 产线清单来自 productLine store（当前工作区绑定 agent 派生）；store 在这里懒调用，管理员不实例化（C6）
+    const productLineStore = useProductLineStore();
+    // agents 未就绪时不分组（AC-8.2）：groupSessionsByProductLine 会把产线清单之外的
+    // 会话全部塌进「历史」组，冷启动直达会话页时会话先返回、agents 后到，首帧会闪出整片历史组。
+    if (!productLineStore.ready) return [];
     const rows: CustomerSessionRow[] = bucket.items.map((item) => ({
         ...item,
         path: `chat/${item.id}`,
         title: item.title || '',
     }));
-    return groupSessionsByProductLine(rows, lines, new Date());
+    return groupSessionsByProductLine(rows, productLineStore.lines, new Date());
 });
+
+// 客户侧 agents 未就绪闸（AC-8.2）：此时会话区挂加载骨架，不显示「暂无会话」空态，
+// 也不渲染分组。短路保证管理员路径不实例化 productLine store（C6）。
+const customerLinesNotReady = computed(() => isCustomer.value && !useProductLineStore().ready);
 
 // 历史组是固定文案，不来自产线配置（A6）；产线组头直接用配置里的显示名
 const customerLineGroupLabel = (group: ProductLineGroup) => (group.isHistory ? t('time.history') : group.label);
@@ -1280,6 +1350,7 @@ onUnmounted(() => {
     clearTimeout(forkRevealTimer);
     sessionActivity.clear();
     window.removeEventListener(SESSION_MUTATION_EVENT, handleSessionMutation);
+    window.removeEventListener('keydown', handleMobileDrawerKeydown);
 });
 
 watch([() => route.name, () => route.params], (newvalue, oldvalue) => {
@@ -1355,6 +1426,9 @@ const getIcon = (path: string) => {
 }
 getIcon(typeof route.name === 'string' ? route.name as string : (route.name ? String(route.name) : ''))
 const handleMenuClick = async (path: string) => {
+    // 移动抽屉：点菜单先关抽屉。同路径点击不会触发路由变化，
+    // 只靠路由 watch 关闭会残留遮罩（CP3 F12）。
+    if (mobileDrawer.value) uiStore.closeMobileDrawer()
     if (path === 'knowledge-bases') {
         // 知识库菜单项：如果在知识库内部，跳转到当前知识库文件页；否则跳转到知识库列表
         const kbId = await getCurrentKbId()
@@ -1392,6 +1466,8 @@ const getCurrentKbId = async (): Promise<string | null> => {
 
 const gotopage = async (path: string) => {
     pathPrefix.value = path;
+    // 移动抽屉里的会话/菜单导航同样先关抽屉，同路径点击也能收起（CP3 F12）。
+    if (mobileDrawer.value) uiStore.closeMobileDrawer()
     // 处理退出登录
     if (path === 'logout') {
         try {

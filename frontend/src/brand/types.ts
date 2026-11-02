@@ -1,6 +1,6 @@
-/** 一条产品线（本期两条产线共用同一个智能体，切换只影响界面状态）。 */
+/** 一条产品线（由当前工作区绑定的 agent 派生，切换只影响界面状态）。 */
 export interface ProductLine {
-  /** 产线标识，用于持久化与去重 */
+  /** 产线标识（= agent id），用于持久化与去重 */
   id: string
   /** 产线显示名 */
   name: string
@@ -26,7 +26,6 @@ export interface BrandConfig {
   actionColor: string
   loginSubtitle: string
   chatDisclaimer: string
-  productLines: ProductLine[]
 }
 
 /**

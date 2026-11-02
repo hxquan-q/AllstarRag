@@ -272,6 +272,22 @@ func (r *tenantMemberRepository) RemoveOwnerAtomically(
 	})
 }
 
+// CountDeletedByUser 统计该用户「所属空间仍然存在」的软删成员行。
+// 必须 Unscoped:普通查询会被 GORM 软删过滤掉这些行。还要 JOIN tenants
+// 并排除已软删的空间——删除空间会级联软删全部成员,那些行不代表用户被
+// 管理员移出,不能据此判定 access_revoked。
+func (r *tenantMemberRepository) CountDeletedByUser(ctx context.Context, userID string) (int64, error) {
+	var count int64
+	err := r.db.WithContext(ctx).
+		Unscoped().
+		Model(&types.TenantMember{}).
+		Joins("JOIN tenants ON tenants.id = tenant_members.tenant_id").
+		Where("tenant_members.user_id = ? AND tenant_members.deleted_at IS NOT NULL "+
+			"AND tenants.deleted_at IS NULL", userID).
+		Count(&count).Error
+	return count, err
+}
+
 // HasAnyMembers reports whether the tenant has at least one active
 // membership row. Uses a LIMIT 1 SELECT (instead of COUNT(*)) so the query
 // short-circuits after the first match — important because this is on the

@@ -29,11 +29,12 @@ export const CUSTOMER_LANDING_PATH = '/platform/creatChat'
 /** 客户侧边栏保留的菜单项（历史会话由 menu.vue 独立渲染，不在这里）。 */
 export const CUSTOMER_MENU_PATHS: readonly string[] = ['creatChat']
 
-/** 客户个人设置可见的分区：常规 / 账号 / 记忆。envvars（沙箱密钥）与助手刻意不包含。 */
+/** 客户个人设置可见的分区：常规 / 账号 / 记忆 / 产线。envvars（沙箱密钥）与助手刻意不包含。 */
 export const CUSTOMER_SETTINGS_SECTIONS: readonly string[] = [
   'general',
   'userprofile',
   'mymemory',
+  'agentlines',
 ]
 
 /** 客户对话相关路由名。 */

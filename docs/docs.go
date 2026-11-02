@@ -1417,6 +1417,12 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
+                    },
+                    "429": {
+                        "description": "too many requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
                     }
                 }
             }
@@ -1769,6 +1775,12 @@ const docTemplate = `{
                     },
                     "403": {
                         "description": "注册功能已禁用",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "429": {
+                        "description": "too many requests",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -8627,6 +8639,67 @@ const docTemplate = `{
                     "target": "knowledge_base.get"
                 },
                 "x-agent-hint": "Regenerates the AI summary of what the knowledge base covers, with one model call. A description the user wrote is kept."
+            }
+        },
+        "/knowledge-bases/{id}/rebuild-index": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    },
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "索引策略变更后，把知识库下全部文档提交重新解析。前端知识库设置弹窗\n(KnowledgeBaseEditorModal) 在保存新策略后调用此接口，此前该路由在后端缺失，调用返回 404。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "知识管理"
+                ],
+                "summary": "重建整个知识库的索引",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "知识库ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "任务已提交",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.DataResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "404": {
+                        "description": "知识库不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "409": {
+                        "description": "有文档正在迁移中",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
             }
         },
         "/knowledge-bases/{id}/shares": {
@@ -21771,7 +21844,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "获取空间级别的KV配置（支持web-search-config、prompt-templates、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config）",
+                "description": "获取空间级别的KV配置。支持 web-search-config、prompt-templates、parser-engine-config、\nstorage-engine-config、chat-history-config、retrieval-config、memory-config、\nassistant-config、default-settings。",
                 "consumes": [
                     "application/json"
                 ],
@@ -21816,7 +21889,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "更新空间级别的KV配置（支持web-search-config、parser-engine-config、storage-engine-config、chat-history-config、retrieval-config）",
+                "description": "更新空间级别的KV配置。支持 web-search-config、parser-engine-config、storage-engine-config、\nchat-history-config、retrieval-config、memory-config、assistant-config、default-settings。",
                 "consumes": [
                     "application/json"
                 ],
@@ -22631,7 +22704,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "分页返回当前空间内 active 成员（含每位成员的角色、邮箱、头像）；支持 q 按邮箱/用户名筛选",
+                "description": "分页返回当前空间内 active 成员（含每位成员的角色、邮箱、头像）；\n支持 q 按邮箱/用户名筛选",
                 "produces": [
                     "application/json"
                 ],
@@ -22856,7 +22929,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；不能移除最后一位 Owner",
+                "description": "Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；\n不能移除最后一位 Owner",
                 "produces": [
                     "application/json"
                 ],
@@ -22897,7 +22970,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，\nAdmin 只能重置 contributor/viewer；不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
+                "description": "工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，\nAdmin 只能重置 contributor/viewer；\n不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
                 "consumes": [
                     "application/json"
                 ],
@@ -25288,6 +25361,13 @@ const docTemplate = `{
                         "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.CredentialFieldMetadata"
                     }
                 },
+                "default_for": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "x-agent": true
+                },
                 "description": {
                     "type": "string",
                     "x-agent": true
@@ -26080,6 +26160,13 @@ const docTemplate = `{
         "github_com_Tencent_WeKnora_internal_types.AgentStep": {
             "type": "object",
             "properties": {
+                "approvals": {
+                    "description": "Approvals is the user decision for tools in this step. It is stored with\nthe step so a reloaded transcript can show what was allowed or refused.",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.ToolApprovalRecord"
+                    }
+                },
                 "background_injections": {
                     "description": "BackgroundInjections are background-work messages delivered before this\nmodel response, after the step's steered messages, in delivery order.",
                     "type": "array",
@@ -28246,6 +28333,35 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_types.DefaultSettings": {
+            "type": "object",
+            "properties": {
+                "asr_model_id": {
+                    "description": "ASRModelID is the default ASR model.",
+                    "type": "string"
+                },
+                "chat_model_id": {
+                    "description": "ChatModelID is the default KnowledgeQA model.",
+                    "type": "string"
+                },
+                "embedding_model_id": {
+                    "description": "EmbeddingModelID is the default Embedding model.",
+                    "type": "string"
+                },
+                "rerank_model_id": {
+                    "description": "RerankModelID is the default Rerank model.",
+                    "type": "string"
+                },
+                "utility_model_id": {
+                    "description": "UtilityModelID is the KnowledgeQA model for short generation tasks\nsuch as writing MCP usage instructions. Empty follows the chat default.",
+                    "type": "string"
+                },
+                "vlm_model_id": {
+                    "description": "VLMModelID is the default VLLM or vision-capable KnowledgeQA model.",
+                    "type": "string"
+                }
+            }
+        },
         "github_com_Tencent_WeKnora_internal_types.DockerSandboxConfig": {
             "type": "object",
             "properties": {
@@ -29425,6 +29541,41 @@ const docTemplate = `{
                 "query": {
                     "description": "User query text",
                     "type": "string"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.HostApprovalSnapshot": {
+            "type": "object",
+            "properties": {
+                "allow_session": {
+                    "type": "boolean"
+                },
+                "command": {
+                    "type": "string"
+                },
+                "cwd": {
+                    "type": "string"
+                },
+                "denial_snippet": {
+                    "type": "string"
+                },
+                "first_attempt_ran": {
+                    "type": "boolean"
+                },
+                "grant_access": {
+                    "type": "string"
+                },
+                "grant_path": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "session_rules": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 }
             }
         },
@@ -31082,6 +31233,19 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_types.LoginCapabilities": {
+            "type": "object",
+            "properties": {
+                "access_revoked": {
+                    "description": "AccessRevoked is true when the user was removed from every workspace\nthey used to belong to. The client hides creation/invitation entry\npoints; the backend independently rejects POST /tenants.",
+                    "type": "boolean"
+                },
+                "can_create_tenant": {
+                    "description": "CanCreateTenant is the effective permission to create a workspace,\nalready folded with access_revoked (revoked users always get false).",
+                    "type": "boolean"
+                }
+            }
+        },
         "github_com_Tencent_WeKnora_internal_types.LoginRequest": {
             "type": "object",
             "required": [
@@ -31106,6 +31270,14 @@ const docTemplate = `{
                     "allOf": [
                         {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.Tenant"
+                        }
+                    ]
+                },
+                "capabilities": {
+                    "description": "Capabilities mirrors the capabilities object on GET /auth/me so the\nclient can gate the create-workspace UI right after login, before\nthe first /auth/me round-trip. Omitted on the non-success paths.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.LoginCapabilities"
                         }
                     ]
                 },
@@ -35302,6 +35474,14 @@ const docTemplate = `{
                         }
                     ]
                 },
+                "default_settings": {
+                    "description": "Default settings: the workspace's default model for each type and purpose",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.DefaultSettings"
+                        }
+                    ]
+                },
                 "default_storage_backend_id": {
                     "description": "DefaultStorageBackendID is the workspace default concrete storage instance.",
                     "type": "string"
@@ -35679,6 +35859,59 @@ const docTemplate = `{
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_types.ToolApprovalRecord": {
+            "type": "object",
+            "properties": {
+                "approved": {
+                    "type": "boolean"
+                },
+                "args_json": {
+                    "type": "string"
+                },
+                "canceled": {
+                    "type": "boolean"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "host": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.HostApprovalSnapshot"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "mcp_tool_name": {
+                    "type": "string"
+                },
+                "pending_id": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                },
+                "requested_at": {
+                    "type": "integer"
+                },
+                "resolved": {
+                    "type": "boolean"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "service_name": {
+                    "type": "string"
+                },
+                "timed_out": {
+                    "type": "boolean"
+                },
+                "timeout_seconds": {
+                    "type": "integer"
+                },
+                "tool_call_id": {
+                    "type": "string"
+                }
+            }
+        },
         "github_com_Tencent_WeKnora_internal_types.ToolCall": {
             "type": "object",
             "properties": {
@@ -35969,6 +36202,16 @@ const docTemplate = `{
         "github_com_Tencent_WeKnora_internal_types.UserPreferences": {
             "type": "object",
             "properties": {
+                "bound_agent_ids_by_tenant": {
+                    "description": "BoundAgentIDsByTenant 是客户版产线的绑定列表，按工作区分键（键 = 工作区 id 的十进制字符串）。\n每条产线就是一个 agent，数组顺序即展示顺序。\n按工作区分键，是为了让同一个人加入多个工作区时，各工作区的绑定互不覆盖。\n写入空数组时删掉该工作区的键，不留空数组；nil 表示该用户从未绑定过。",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
                 "browser_search_instructions": {
                     "description": "BrowserSearchInstructions customizes browser search for this user. Nil/empty uses the platform default.",
                     "type": "string"
@@ -38070,6 +38313,9 @@ const docTemplate = `{
         "internal_handler.CurrentUserCapabilities": {
             "type": "object",
             "properties": {
+                "access_revoked": {
+                    "type": "boolean"
+                },
                 "auto_accept_invitation": {
                     "type": "boolean"
                 },
@@ -42521,6 +42767,13 @@ const docTemplate = `{
         "internal_handler.updateMyPreferencesRequest": {
             "type": "object",
             "properties": {
+                "bound_agent_ids": {
+                    "description": "BoundAgentIDs 是客户版产线的绑定列表，语义只针对**当前活动工作区**：\n  - 传数组 = 覆盖当前工作区的绑定（其他工作区原样保留）；\n  - 传空数组 = 清空当前工作区的绑定（把该工作区的键删掉）；\n  - 不传该键（nil）= 所有工作区都不动。\n用指针是为了区分「键缺失」与「显式空数组」，两者语义不同。",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "browser_search_instructions": {
                     "type": "string",
                     "maxLength": 4000

@@ -52,6 +52,9 @@ export interface LoginResponse {
   memberships?: MembershipInfo[]
   token?: string
   refresh_token?: string
+  // 登录成功时一并返回的能力投影,让引导页在首次 /auth/me 之前
+  // 就能决定是否展示创建/邀请入口。
+  capabilities?: AuthCapabilities
 }
 
 export interface OIDCAuthURLResponse {
@@ -108,6 +111,9 @@ export interface UserPreferences {
     mode?: 'all' | 'custom'
     status?: Record<string, string>
   }
+  // bound_agent_ids_by_tenant 是客户版产线的绑定列表，按工作区 id（十进制字符串）分键。
+  // 每条产线 = 一个 agent id，顺序即展示顺序；缺键/空数组表示该工作区未绑定。
+  bound_agent_ids_by_tenant?: Record<string, string[]>
 }
 
 // 用户信息接口
@@ -349,6 +355,9 @@ export interface MembershipInfo {
 export interface AuthCapabilities {
   can_create_tenant: boolean
   auto_accept_invitation: boolean
+  // 用户被移出所有曾加入的空间时为 true。引导页据此隐藏创建/邀请入口
+  // 并展示「已被移除空间」提示;后端会独立拒绝创建空间。
+  access_revoked?: boolean
 }
 
 export async function getCurrentUser(): Promise<{ success: boolean; data?: { user: UserInfo; tenant?: TenantInfo | null; memberships?: MembershipInfo[]; tenant_required?: boolean; capabilities?: AuthCapabilities; preference_defaults?: { browser_search_instructions: string } }; message?: string }> {
@@ -364,12 +373,21 @@ export async function getCurrentUser(): Promise<{ success: boolean; data?: { use
 }
 
 /**
+ * 偏好写入的 patch：请求体里多一个只写字段 bound_agent_ids。
+ * 它是「覆盖当前活动工作区的绑定」的入参（空数组 = 清空该工作区），
+ * 不回存在 UserPreferences 响应里（响应只有按租户分键的 bound_agent_ids_by_tenant）。
+ */
+export interface UpdateMyPreferencesPatch extends Partial<UserPreferences> {
+  bound_agent_ids?: string[]
+}
+
+/**
  * 更新当前用户的偏好设置（PATCH 语义：只发要改的字段，后端只覆盖发了的 key，
  * 其它 key 保持不变）。后端会返回更新后的完整 preferences 对象。
  */
 export async function updateMyPreferences(
-  patch: Partial<UserPreferences>,
-): Promise<{ success: boolean; data?: UserPreferences; message?: string }> {
+  patch: UpdateMyPreferencesPatch,
+): Promise<{ success: boolean; data?: UserPreferences; message?: string; errorCode?: string }> {
   try {
     const response = await put('/api/v1/auth/me/preferences', patch)
     return response as unknown as { success: boolean; data?: UserPreferences; message?: string }
@@ -377,6 +395,9 @@ export async function updateMyPreferences(
     return {
       success: false,
       message: error.message || t('error.auth.updatePreferencesFailed'),
+      // 非 2xx 时 request 层 reject 的就是响应体 {success:false,error:{code,message,details}}；
+      // details 里是后端校验错误的稳定 code（F5），与 resolveChangePasswordError 同一读法。
+      errorCode: typeof error?.error?.details === 'string' ? error.error.details : undefined,
     }
   }
 }

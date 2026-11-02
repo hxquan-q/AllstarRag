@@ -1,6 +1,8 @@
 <template>
     <div class="chat" :class="{
         'is-embedded': embeddedMode,
+        'customer-shell': isCustomer && !embeddedMode,
+        'is-mobile': customerMobile,
         'has-references-panel': referencesDrawerVisible,
         'has-sandbox-panel': sandboxPanel.visible.value,
     }" :style="{
@@ -12,23 +14,26 @@
         <CustomerTopBar v-if="!embeddedMode && isCustomer" :title="currentSessionTitle">
             <template v-if="currentSessionTitle" #title>{{ currentSessionTitle }}</template>
             <template #actions>
-                <div v-if="!sandboxPanel.visible.value" class="sandbox-header-toggle">
-                    <t-tooltip placement="bottom">
-                        <template #content>{{ t('chatHeader.toggleSandboxPanel') }}</template>
-                        <button type="button" class="sandbox-header-toggle__btn"
-                            :aria-label="t('chatHeader.toggleSandboxPanel')" @click="sandboxPanel.open()">
-                            <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
-                                xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                                <rect x="1.5" y="1.5" width="17" height="17" rx="3" stroke="currentColor"
-                                    stroke-width="1.2" />
-                                <line x1="12.5" y1="1.5" x2="12.5" y2="18.5" stroke="currentColor"
-                                    stroke-width="1.2" />
-                                <line x1="16" y1="7.5" x2="16" y2="12.5" stroke="currentColor" stroke-width="1.2"
-                                    stroke-linecap="round" />
-                            </svg>
-                        </button>
-                    </t-tooltip>
-                </div>
+                <!-- 窄屏隐藏沙箱入口（AC-13）：只裁界面，不改后端与权限（C4）。 -->
+                <template v-if="!customerMobile">
+                    <div v-if="!sandboxPanel.visible.value" class="sandbox-header-toggle">
+                        <t-tooltip placement="bottom">
+                            <template #content>{{ t('chatHeader.toggleSandboxPanel') }}</template>
+                            <button type="button" class="sandbox-header-toggle__btn"
+                                :aria-label="t('chatHeader.toggleSandboxPanel')" @click="sandboxPanel.open()">
+                                <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
+                                    xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                                    <rect x="1.5" y="1.5" width="17" height="17" rx="3" stroke="currentColor"
+                                        stroke-width="1.2" />
+                                    <line x1="12.5" y1="1.5" x2="12.5" y2="18.5" stroke="currentColor"
+                                        stroke-width="1.2" />
+                                    <line x1="16" y1="7.5" x2="16" y2="12.5" stroke="currentColor" stroke-width="1.2"
+                                        stroke-linecap="round" />
+                                </svg>
+                            </button>
+                        </t-tooltip>
+                    </div>
+                </template>
             </template>
         </CustomerTopBar>
         <div v-else-if="!embeddedMode" class="chat-topbar">
@@ -241,7 +246,7 @@
     <KnowledgeBaseEditorModal v-if="!embeddedMode" :visible="uiStore.showKBEditorModal" :mode="uiStore.kbEditorMode"
         :kb-id="uiStore.currentKBId || undefined" :initial-type="uiStore.kbEditorType"
         @update:visible="(val) => val ? null : uiStore.closeKBEditor()" @success="handleKBEditorSuccess" />
-    <ChatReferencesDrawer />
+    <ChatReferencesDrawer :overlay-breakpoint="customerMobile ? MOBILE_LAYOUT_MAX_WIDTH : undefined" />
     <ChatAttachmentPreviewDrawer />
     <SandboxSidePanel v-if="!embeddedMode" :session-id="session_id"
         :agent-id="useSettingsStoreInstance.selectedAgentId"
@@ -322,6 +327,7 @@ import { useAssistantStore } from '@/stores/assistant';
 import { useAssistantPageContext } from '@/composables/useAssistantPageContext';
 import { respondToPageAction } from '@/utils/pageActionResponder';
 import { provideChatSandboxPanel } from '@/composables/useChatSandboxPanel';
+import { useResponsiveLayout, MOBILE_LAYOUT_MAX_WIDTH } from '@/composables/useResponsiveLayout';
 import SandboxSidePanel from '@/components/chat/SandboxSidePanel.vue';
 import BrowserTaskPreview from './components/BrowserTaskPreview.vue';
 import PendingPromptDock from './components/PendingPromptDock.vue';
@@ -409,6 +415,10 @@ const isAutomationSession = computed(() => currentSession.value?.kind === 'autom
 // 客户版顶栏只在 viewer 视角出现；角色未水合时按管理员处理（D8）
 const authStore = useAuthStore();
 const isCustomer = computed(() => isCustomerViewer(authStore));
+// 客户移动态：客户视角 + 窄屏（与 customer-mobile.css 同一断点）。
+// 管理员与 embedded 永远不加 is-mobile，桌面尺寸/交互不变（C6）。
+const { isMobileLayout } = useResponsiveLayout();
+const customerMobile = computed(() => isCustomer.value && isMobileLayout.value);
 const currentSessionTitle = computed(() => {
     const title = currentSession.value?.title;
     return typeof title === 'string' ? title.trim() : '';
@@ -1361,7 +1371,9 @@ const productLineStore = computed(() => (isCustomer.value ? useProductLineStore(
 watch(() => productLineStore.value?.currentLineId, (lineId, prevLineId) => {
     if (!isCustomer.value || props.embeddedMode) return;
     // 首次观测（角色水合晚于挂载、store 才创建时 oldValue 为 undefined）只记基线，不跳转。
-    if (prevLineId === undefined || lineId === prevLineId) return;
+    // ''→agentId 是 agents 异步返回后 reconcile 的自动水合（冷启动直达历史会话时
+    // 当前值先是空串），同样不是用户主动切线——否则会被弹回新对话页（R3-3）。
+    if (prevLineId === undefined || prevLineId === '' || lineId === prevLineId) return;
     // 生成中先按「停止」按钮同路径中止：前端立即停 + 后端停生成，不留写原会话的孤儿流（AC-14）。
     if (loading.value || isReplying.value) {
         handleStopGeneration();
@@ -2122,8 +2134,7 @@ onBeforeRouteUpdate((to, from, next) => {
     padding: 0;
     --chat-content-inset: 20px;
     box-sizing: border-box;
-    flex: 1;
-    // The parent .platform-route-outlet is a flex column with min-height:0
+    flex: 1;    // The parent .platform-route-outlet is a flex column with min-height:0
     // and overflow:hidden — we also need min-height:0 here so that our
     // own flex:1 child (.chat_thread) can shrink below its content height.
     min-height: 0;
@@ -2215,6 +2226,61 @@ onBeforeRouteUpdate((to, from, next) => {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+}
+
+/* T04/W11：客户壳消息滚动容器显式关掉横向滚动，保留纵向滚动；
+   管理端不带 customer-shell，零命中（C6）；表格/代码块自身横向滚动不受影响。 */
+.chat.customer-shell .chat_scroll_box {
+    overflow-x: hidden;
+}
+
+/* T05：客户壳内建议问题容器把 padding 算进宽度，320px 不再右溢被裁。 */
+.chat.customer-shell .suggested-questions-container {
+    box-sizing: border-box;
+}
+
+/* 客户版浅色网格背景（替换纯白底）；管理员路径不带 customer-shell，保持原样（C6） */
+.chat.customer-shell {
+    background-color: #F6F8FB;
+    background-image:
+        repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px),
+        repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
+}
+
+/* —— T03：客户移动态（仅 .is-mobile，桌面与管理员分支不命中）—— */
+.chat.customer-shell.is-mobile {
+    // 消息列左右各 12px，320px 下仍有足够正文宽度。
+    --chat-content-inset: 12px;
+}
+
+.chat.customer-shell.is-mobile .chat_composer {
+    // 底部接安全区；动态视口高度由 T01 写在 <html> 上，键盘弹出时整壳收缩。
+    padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+}
+
+// 输入列的左右留白交给 Input-field 的 is-mobile，避免与消息列叠加成 24px。
+.chat.customer-shell.is-mobile .input-container:not(.is-embedded) {
+    padding-left: 0;
+    padding-right: 0;
+}
+
+// 用户气泡在窄屏最多占 92%，长内容不把页面顶宽。
+.chat.customer-shell.is-mobile :deep(.user_msg) {
+    max-width: min(92%, 100%);
+}
+
+// 助手正文允许收缩，配合 customer-mobile.css 里的 overflow-wrap 生效。
+.chat.customer-shell.is-mobile :deep(.bot_msg),
+.chat.customer-shell.is-mobile :deep(.bot_msg .content-wrapper),
+.chat.customer-shell.is-mobile :deep(.bot_msg .markdown-content) {
+    min-width: 0;
+    max-width: 100%;
+}
+
+// 滚动到底按钮保持在输入区上方（bottom 相对 .input-container），只放大触控目标。
+.chat.customer-shell.is-mobile .scroll-to-bottom-btn {
+    width: 44px;
+    height: 44px;
 }
 
 .chat-topbar {

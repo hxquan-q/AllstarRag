@@ -65,8 +65,8 @@ function handleThemeChange(val: ThemeMode): void {
         <div class="setting-control">
           <t-select
             v-model="localLanguage"
+            class="language-select"
             :placeholder="$t('language.selectLanguage')"
-            style="width: 280px;"
             @change="handleLanguageChange"
           >
             <t-option value="zh-CN" :label="$t('language.zhCN')">{{ $t('language.zhCN') }}</t-option>
@@ -120,5 +120,10 @@ function handleThemeChange(val: ThemeMode): void {
 
 .setting-control {
   .setting-control();
+}
+
+/* 桌面宽度保持不变；窄屏由 customer-mobile.css 覆盖为 100%。 */
+.language-select {
+  width: 280px;
 }
 </style>

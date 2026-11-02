@@ -888,6 +888,8 @@ func applyAgentEnvOverrides(cfg *Config) {
 // Env overrides (when set and non-empty):
 //   - WEKNORA_AUTH_DEFAULT_TENANT_MODE ("create_personal"/"tenantless")
 //   - WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED (boolean)
+//   - WEKNORA_AUTH_REGISTRATION_MODE (self_serve/invite_only/invite_register,
+//     trim 后大小写不敏感;空值或非法值忽略并 warn,不阻断启动)
 //   - WEKNORA_TENANT_SELF_SERVICE_CREATION_ENABLED (boolean)
 //   - WEKNORA_TENANT_ENABLE_RBAC      ("true"/"false", case-insensitive)
 //   - WEKNORA_TENANT_ENABLE_CROSS_TENANT_ACCESS ("true"/"false", case-insensitive).
@@ -898,12 +900,11 @@ func applyAgentEnvOverrides(cfg *Config) {
 //     Unparseable / empty values are ignored so a stale shell variable
 //     can't silently disable the quota for a future deployment.
 //
-// Note: auth.registration_mode has no dedicated env override. The
-// long-standing DISABLE_REGISTRATION=true env var is the single env-layer
-// knob and, when set, coerces registration_mode to invite_only here. That
-// way both the API gate (handler) and the /auth/config-driven UI gate
-// (frontend hides the register entry) stay consistent — without needing
-// two parallel env vars.
+// 注册模式有三条 env 通道:DISABLE_REGISTRATION=true 是历史开关,命中时
+// 把 registration_mode 强制为 invite_only;WEKNORA_AUTH_REGISTRATION_MODE
+// 是专用覆盖,三个合法值原样生效。两者同时设置时专用变量优先,保证部署
+// 时切换 invite_register 不会被残留的历史变量顶掉。无论走哪条 env,
+// /auth/config 都会返回最终值,前端据此隐藏注册入口。
 func applyAuthAndTenantDefaults(cfg *Config) {
 	if cfg.Auth == nil {
 		cfg.Auth = &AuthConfig{}
@@ -925,6 +926,23 @@ func applyAuthAndTenantDefaults(cfg *Config) {
 
 	if strings.TrimSpace(cfg.Auth.RegistrationMode) == "" {
 		cfg.Auth.RegistrationMode = AuthRegistrationModeSelfServe
+	}
+
+	// WEKNORA_AUTH_REGISTRATION_MODE 是 registration_mode 的专用 env 覆盖。
+	// 放在历史 DISABLE_REGISTRATION 处理之后:两者同时设置时专用变量优先。
+	if value := strings.TrimSpace(os.Getenv("WEKNORA_AUTH_REGISTRATION_MODE")); value != "" {
+		switch mode := strings.ToLower(value); mode {
+		case AuthRegistrationModeSelfServe,
+			AuthRegistrationModeInviteOnly,
+			AuthRegistrationModeInviteRegister:
+			cfg.Auth.RegistrationMode = mode
+		default:
+			fmt.Printf(
+				"[config] WEKNORA_AUTH_REGISTRATION_MODE=%q is not one of "+
+					"self_serve/invite_only/invite_register, ignoring\n",
+				value,
+			)
+		}
 	}
 
 	if value := strings.TrimSpace(os.Getenv("WEKNORA_AUTH_COMPLEX_PASSWORD_ENABLED")); value != "" {

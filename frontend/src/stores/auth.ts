@@ -59,6 +59,10 @@ export const useAuthStore = defineStore('auth', () => {
   // deployment never briefly flashes a create action the backend would
   // then reject with 403/2005.
   const canCreateTenant = ref(false)
+  // accessRevoked 镜像 /auth/me(以及登录响应)的 capabilities.access_revoked。
+  // 为 true 表示用户已被移出所有空间:引导页隐藏创建/邀请入口,后端拒绝
+  // POST /tenants。仅用于 UI;真实权限以服务端为准(与 canCreateTenant 同)。
+  const accessRevoked = ref(false)
 
   const autoAcceptInvitation = ref(false)
 
@@ -309,6 +313,10 @@ export const useAuthStore = defineStore('auth', () => {
     canCreateTenant.value = allowed
   }
 
+  const setAccessRevoked = (revoked: boolean) => {
+    accessRevoked.value = revoked === true
+  }
+
   const setAutoAcceptInvitation = (enabled: boolean) => {
     autoAcceptInvitation.value = enabled
   }
@@ -401,6 +409,8 @@ export const useAuthStore = defineStore('auth', () => {
       setCanCreateTenant(createCapability)
     }
 
+    setAccessRevoked(response.data?.capabilities?.access_revoked === true)
+
     setAutoAcceptInvitation(response.data?.capabilities?.auto_accept_invitation === true)
 
     authMeSynced = true
@@ -456,6 +466,7 @@ export const useAuthStore = defineStore('auth', () => {
     memberships.value = []
     pendingInvitationCount.value = 0
     canCreateTenant.value = false
+    accessRevoked.value = false
     autoAcceptInvitation.value = false
     authMeSynced = false
     // 飞行中的 /auth/me 作废：登出之后才返回的响应不能再 setUser / setTenant。
@@ -583,6 +594,7 @@ export const useAuthStore = defineStore('auth', () => {
     memberships,
     pendingInvitationCount,
     canCreateTenant,
+    accessRevoked,
     autoAcceptInvitation,
 
     // 计算属性
@@ -610,6 +622,7 @@ export const useAuthStore = defineStore('auth', () => {
     setMemberships,
     setPendingInvitationCount,
     setCanCreateTenant,
+    setAccessRevoked,
     setAutoAcceptInvitation,
     fetchPendingInvitationCount,
     refreshFromAuthMe,

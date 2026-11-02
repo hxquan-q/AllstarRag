@@ -188,6 +188,18 @@ func (r *fakeTenantMemberRepo) HasAnyMembers(ctx context.Context, tenantID uint6
 	return false, nil
 }
 
+// CountDeletedByUser 模拟生产仓库的 Unscoped 计数:只统计该用户被软删的行
+// (见 HasRevokedAccess)。
+func (r *fakeTenantMemberRepo) CountDeletedByUser(_ context.Context, userID string) (int64, error) {
+	var n int64
+	for _, e := range r.rows {
+		if e.UserID == userID && e.DeletedAt.Valid {
+			n++
+		}
+	}
+	return n, nil
+}
+
 // DemoteOwnerAtomically and RemoveOwnerAtomically mimic the production
 // repo's transactional invariants: count other active Owners, fail
 // closed when there are none, otherwise apply the role change /

@@ -139,6 +139,11 @@ func (f *fakeMemberService) RemoveMember(ctx context.Context, userID string, ten
 	return nil
 }
 
+// HasRevokedAccess 是占位实现:auth-role 中间件不会读取该标志。
+func (f *fakeMemberService) HasRevokedAccess(context.Context, string) (bool, error) {
+	return false, nil
+}
+
 var _ interfaces.TenantMemberService = (*fakeMemberService)(nil)
 
 func cfgWithRBAC(enabled bool) *config.Config {

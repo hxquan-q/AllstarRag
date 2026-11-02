@@ -139,7 +139,7 @@ flowchart TD
 
 `internal/router/router.go` 的 `NewRouter(params RouterParams)`（`RouterParams` 为 `dig.In` 结构体）按以下顺序装配，**顺序即安全语义**：
 
-1. `gin.New()` + `MultipartFormCleanup`（请求结束后删除 multipart 解析落盘的临时文件）+ `SetTrustedProxies`（`WEKNORA_TRUSTED_PROXIES`，默认仅信任回环与私网段，防止伪造 `X-Forwarded-For` 绕过按 IP 限流）；
+1. `gin.New()` + `MultipartFormCleanup`（请求结束后删除 multipart 解析落盘的临时文件）+ `SetTrustedProxies`（`WEKNORA_TRUSTED_PROXIES`，默认信任回环与私网段**不足以**防伪造；生产必须把 `WEKNORA_TRUSTED_PROXIES` 收紧到实际代理地址，代理应覆盖（而非追加不可信）`X-Forwarded-For`）；
 2. 全局中间件：`cors` → `RequestID` → `Language` → `Logger` → `Recovery` → `ErrorHandler`；
 3. 免认证端点：`GET /health`；非 release 模式挂载 `/swagger/*any`；
 4. Embed 页面 `frame-ancestors` CSP 中间件；Lite 版内嵌前端静态资源（`handler.Edition == "lite"`）；

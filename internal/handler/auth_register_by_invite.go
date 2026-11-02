@@ -23,7 +23,7 @@ import (
 // wants to register.
 type registerByInviteRequest struct {
 	Token    string `json:"token"    binding:"required"`
-	Email    string `json:"email"    binding:"required,email"`
+	Email    string `json:"email"    binding:"required,email,max=320"`
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password" binding:"required,min=6"`
 }

@@ -57,6 +57,12 @@ type UserPreferences struct {
 	// gallery renders the same activation state on every device. Nil = the
 	// user never touched the gallery controls (mode defaults to "all").
 	Gallery *GalleryUserPrefs `json:"gallery,omitempty"`
+
+	// BoundAgentIDsByTenant 是客户版产线的绑定列表，按工作区分键（键 = 工作区 id 的十进制字符串）。
+	// 每条产线就是一个 agent，数组顺序即展示顺序。
+	// 按工作区分键，是为了让同一个人加入多个工作区时，各工作区的绑定互不覆盖。
+	// 写入空数组时删掉该工作区的键，不留空数组；nil 表示该用户从未绑定过。
+	BoundAgentIDsByTenant map[string][]string `json:"bound_agent_ids_by_tenant,omitempty"`
 }
 
 // GalleryUserPrefs is the user-tier slice of the gallery configuration. The
@@ -165,7 +171,9 @@ type AuthToken struct {
 
 // LoginRequest represents a login request
 type LoginRequest struct {
-	Email    string `json:"email"    binding:"required,email"`
+	// max=320 与 RFC 5321 的邮箱最大长度一致;也限制登录限速 key
+	// (email|ip)的长度,避免超长 key 在限速桶表里长期驻留。
+	Email    string `json:"email"    binding:"required,email,max=320"`
 	Password string `json:"password" binding:"required,min=6"`
 }
 
@@ -213,7 +221,7 @@ type OIDCUserInfo struct {
 // RegisterRequest represents a registration request
 type RegisterRequest struct {
 	Username string `json:"username" binding:"required,min=2,max=50"`
-	Email    string `json:"email"    binding:"required,email"`
+	Email    string `json:"email"    binding:"required,email,max=320"`
 	Password string `json:"password" binding:"required,min=6"`
 
 	// TenantProvisioning is server-controlled registration context. It is
@@ -269,6 +277,21 @@ type LoginResponse struct {
 	Memberships  []Membership `json:"memberships"`
 	Token        string       `json:"token,omitempty"`
 	RefreshToken string       `json:"refresh_token,omitempty"`
+	// Capabilities 与 GET /auth/me 的 capabilities 结构保持一致,让客户端
+	// 在登录后、首次 /auth/me 返回前就能决定是否展示创建空间入口。
+	// 非成功响应不带该字段。
+	Capabilities *LoginCapabilities `json:"capabilities,omitempty"`
+}
+
+// LoginCapabilities 是登录成功时返回的能力投影,需与 GET /auth/me 的
+// capabilities 字段保持同步。
+type LoginCapabilities struct {
+	// CanCreateTenant 是实际生效的建空间权限,已折叠 access_revoked
+	// (被移除的账号恒为 false)。
+	CanCreateTenant bool `json:"can_create_tenant"`
+	// AccessRevoked 表示用户已被移出所有曾加入的空间。客户端据此隐藏
+	// 创建/邀请入口;后端在 POST /tenants 独立拦截。
+	AccessRevoked bool `json:"access_revoked"`
 }
 
 // RegisterResponse represents a registration response

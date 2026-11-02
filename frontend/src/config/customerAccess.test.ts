@@ -54,10 +54,10 @@ test('customer menu keeps only creatChat and the landing path is the chat page',
   assert.equal(CUSTOMER_LANDING_PATH, '/platform/creatChat')
 })
 
-test('customer settings whitelist is exactly general/userprofile/mymemory', () => {
+test('customer settings whitelist is exactly general/userprofile/mymemory/agentlines', () => {
   assert.deepEqual(
     [...CUSTOMER_SETTINGS_SECTIONS],
-    ['general', 'userprofile', 'mymemory'],
+    ['general', 'userprofile', 'mymemory', 'agentlines'],
   )
   for (const section of CUSTOMER_SETTINGS_SECTIONS) {
     assert.equal(isCustomerSettingsSection(section), true, section)

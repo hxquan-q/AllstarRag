@@ -1,0 +1,299 @@
+// session-cleanup 清理客户（viewer）创建的、无法归入其当前绑定产线的存量会话。
+//
+// 默认行为是 dry-run：只打印待删清单，不删数据、不写审计文件。
+// 只有显式 --apply --tenant <id> --confirm <N> 且审计文件不存在时才会删除。
+package main
+
+import (
+	"context"
+	"errors"
+	"flag"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"gorm.io/gorm"
+
+	"github.com/Tencent/WeKnora/internal/container"
+	"github.com/Tencent/WeKnora/internal/runtime"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
+)
+
+const sampleLimit = 20
+
+// options 是命令行参数。
+type options struct {
+	apply     bool
+	tenantID  uint64
+	confirm   int
+	auditDir  string
+	drainWait time.Duration
+}
+
+func main() {
+	if err := run(os.Args[1:]); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return
+		}
+		_, _ = fmt.Fprintf(os.Stderr, "错误：%v\n", err)
+		os.Exit(1)
+	}
+}
+
+// parseOptions 解析参数并做互斥/必填校验：
+//   - 不传 --apply 即 dry-run；
+//   - --apply 必须同时传 --tenant 与 --confirm；
+//   - --apply 与 --dry-run 不能同时出现；
+//   - --apply 必须显式传 --audit-dir 且为绝对路径（F10）：默认的相对路径 "."
+//     随工作目录漂移，换目录即绕过一次性审计闸。
+func parseOptions(args []string) (*options, error) {
+	fs := flag.NewFlagSet("session-cleanup", flag.ContinueOnError)
+	apply := fs.Bool("apply", false, "实际执行删除（必须同时给 --tenant 与 --confirm）")
+	dryRun := fs.Bool("dry-run", false, "只打印待删清单（默认行为）")
+	tenantID := fs.Uint64("tenant", 0, "工作区 id；--apply 必填，dry-run 省略表示扫全部工作区")
+	confirm := fs.Int("confirm", -1, "确认删除的会话总数，必须等于本次筛选结果")
+	auditDir := fs.String("audit-dir", ".", "审计文件目录（--apply 必须显式传绝对路径）")
+	drainWait := fs.Duration("drain-wait", 5*time.Second,
+		"删除后等待异步清理（聊天历史知识）的宽限时间；0 表示不等待")
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+	// 显式传入的 flag 集合：audit-dir 的默认值 "." 不能算显式传入（F10）。
+	explicit := make(map[string]bool)
+	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	if *apply && *dryRun {
+		return nil, errors.New("--apply 与 --dry-run 不能同时使用")
+	}
+	if *apply && *tenantID == 0 {
+		return nil, errors.New("--apply 必须传 --tenant <id>")
+	}
+	if *apply && *confirm < 0 {
+		return nil, errors.New("--apply 必须传 --confirm <N>")
+	}
+	if *apply && !explicit["audit-dir"] {
+		return nil, errors.New(
+			"--apply 必须显式传 --audit-dir <绝对路径>（默认的 . 随工作目录漂移，会绕过一次性审计闸）")
+	}
+	if *apply && !filepath.IsAbs(*auditDir) {
+		return nil, errors.New(
+			"--apply 的 --audit-dir 必须是绝对路径（相对路径随工作目录漂移，会绕过一次性审计闸）")
+	}
+	return &options{
+		apply:     *apply,
+		tenantID:  *tenantID,
+		confirm:   *confirm,
+		auditDir:  filepath.Clean(*auditDir),
+		drainWait: *drainWait,
+	}, nil
+}
+
+func run(args []string) error {
+	opts, err := parseOptions(args)
+	if err != nil {
+		return err
+	}
+
+	// 安全闸之一：同工作区已有审计文件时拒绝执行（一次性迁移语义）。
+	if opts.apply {
+		// F10：打印解析后的审计目录绝对路径，操作者可核对这道闸钉在哪个目录上。
+		printf("审计目录: %s\n", opts.auditDir)
+		existing, err := findAuditFile(opts.auditDir, opts.tenantID)
+		if err != nil {
+			return fmt.Errorf("检查审计文件失败: %w", err)
+		}
+		if existing != "" {
+			return fmt.Errorf("审计文件已存在（%s），拒绝重复执行；确认要重跑请先手工改名", existing)
+		}
+	}
+
+	ctx := context.Background()
+	digContainer := container.BuildContainer(runtime.GetContainer())
+	var db *gorm.DB
+	if err := digContainer.Invoke(func(g *gorm.DB) { db = g }); err != nil {
+		return fmt.Errorf("初始化数据库失败: %w", err)
+	}
+
+	data, err := loadScanData(ctx, db, opts.tenantID)
+	if err != nil {
+		return err
+	}
+	currentPlan := buildPlan(data)
+	printPlan(data, currentPlan)
+
+	if !opts.apply {
+		printf("\n这是 dry-run，未删除任何数据、未写审计文件。\n")
+		return nil
+	}
+
+	// 安全闸之二：--confirm 必须等于本次筛选出的总数。
+	if err := checkConfirm(opts.confirm, currentPlan.SessionCount()); err != nil {
+		return err
+	}
+
+	var sessionService interfaces.SessionService
+	if err := digContainer.Invoke(func(service interfaces.SessionService) {
+		sessionService = service
+	}); err != nil {
+		return fmt.Errorf("初始化会话服务失败: %w", err)
+	}
+
+	// 安全闸之三（F2）：删除开始前原子创建占位审计文件。O_EXCL 保证已存在即失败，
+	// 与开头的 findAuditFile 合成同一道一次性闸：此后进程被杀或审计写盘失败，
+	// 占位文件仍在，下一轮会被拒绝，不会把此后新产生的会话再删一遍（AC-16）。
+	generatedAt := nowFunc()
+	auditPath := filepath.Join(opts.auditDir, auditFileName(opts.tenantID, generatedAt))
+	if err := createAuditPlaceholder(auditPath); err != nil {
+		return fmt.Errorf("创建审计占位文件失败（%s），拒绝执行: %w", auditPath, err)
+	}
+
+	printf("\n开始删除 %d 条会话（按 tenant + owner 分组，删除前逐组复核绑定）...\n",
+		currentPlan.SessionCount())
+	groupErrs, attempted, rebindKept, protectedOwners := applyPlan(
+		ctx, currentPlan,
+		func(reloadCtx context.Context, key ownerKey) ([]string, error) {
+			return reloadOwnerBindings(reloadCtx, db, key)
+		},
+		sessionService.BatchDeleteSessions)
+	if rebindKept > 0 {
+		printf("删除前复核：%d 条会话因绑定已更新而保留，不再删除\n", rebindKept)
+	}
+	if protectedOwners > 0 {
+		printf("删除前复核：%d 个属主已被提升为平台管理员，其会话整组跳过（AC-16）\n", protectedOwners)
+	}
+	deletedIDs, failedIDs, verifyErrs := verifyDeletion(ctx, db, attempted)
+	allErrs := append(append([]string{}, groupErrs...), verifyErrs...)
+
+	record := auditRecord{
+		TenantID:                opts.tenantID,
+		GeneratedAt:             generatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		TotalCandidates:         currentPlan.SessionCount(),
+		DeletedCount:            len(deletedIDs),
+		FailedCount:             len(failedIDs),
+		DeletedSessionIDs:       nonNilStrings(deletedIDs),
+		FailedSessionIDs:        nonNilStrings(failedIDs),
+		ByUser:                  planByUser(currentPlan),
+		ZeroBindingUsers:        zeroBindingUserKeys(currentPlan),
+		ZeroBindingSessionCount: currentPlan.ZeroBindingSessionCount,
+		RebindKept:              rebindKept,
+		Errors:                  allErrs,
+	}
+	// 覆盖写回占位文件（同一路径）。写失败也保留占位文件，避免下次被当成首次执行。
+	if err := writeAuditTo(auditPath, record); err != nil {
+		return fmt.Errorf(
+			"写审计文件失败: %w（占位文件 %s 已保留，本次已删除 %d 条，请人工核对后处理，勿直接重跑）",
+			err, auditPath, len(deletedIDs))
+	}
+
+	// 审计文件已落盘后再等异步清理：BatchDeleteSessions 的「清聊天历史知识」
+	// 是 fire-and-forget goroutine，CLI 立刻退出会截断它。默认 5s best-effort。
+	if opts.drainWait > 0 {
+		printf("等待异步清理 %s ...\n", opts.drainWait)
+		time.Sleep(opts.drainWait)
+	}
+
+	printf("\n实际删除: %d\n失败: %d\n审计文件: %s\n", len(deletedIDs), len(failedIDs), auditPath)
+	for _, message := range allErrs {
+		printf("  失败详情: %s\n", message)
+	}
+	// F12：有组被跳过（删除前重读绑定失败）或有会话删除失败时必须非零退出，
+	// 否则脚本/操作者按退出码判断会误以为一次性清理已全部完成。dry-run 不走这里。
+	if len(groupErrs) > 0 || len(failedIDs) > 0 {
+		return fmt.Errorf("有 %d 组被跳过/失败、%d 条会话未能删除，详见审计文件 %s",
+			len(groupErrs), len(failedIDs), auditPath)
+	}
+	return nil
+}
+
+// printPlan 输出 dry-run / apply 前的清单：
+// 总数、零绑定用户数及其会话数、按用户汇总、前 20 条样本。
+func printPlan(data *scanData, currentPlan *plan) {
+	printf("待删会话总数: %d\n", currentPlan.SessionCount())
+	printf("零绑定用户: %d 人，其会话 %d 条\n",
+		len(currentPlan.ZeroBindingOwners), currentPlan.ZeroBindingSessionCount)
+	printZeroBindingOwners(currentPlan)
+
+	printf("\n按用户汇总（工作区/用户 绑定数 待删数）:\n")
+	keys := make([]ownerKey, 0, len(currentPlan.ByOwner))
+	for key := range currentPlan.ByOwner {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+	if len(keys) == 0 {
+		printf("  （无）\n")
+	}
+	for _, key := range keys {
+		printf("  %s 绑定=%d 待删=%d\n",
+			key.String(), len(data.Bindings[key]), len(currentPlan.ByOwner[key]))
+	}
+
+	printf("\n样本（最多 %d 条）:\n", sampleLimit)
+	if len(currentPlan.Sessions) == 0 {
+		printf("  （无）\n")
+		return
+	}
+	for index, session := range currentPlan.Sessions {
+		if index >= sampleLimit {
+			printf("  ... 其余 %d 条省略\n", len(currentPlan.Sessions)-sampleLimit)
+			break
+		}
+		printf("  id=%s user=%s title=%q product_line=%q\n",
+			session.ID, session.UserID, shortenTitle(session.Title), session.ProductLine)
+	}
+}
+
+func printZeroBindingOwners(currentPlan *plan) {
+	if len(currentPlan.ZeroBindingOwners) == 0 {
+		return
+	}
+	limit := len(currentPlan.ZeroBindingOwners)
+	if limit > sampleLimit {
+		limit = sampleLimit
+	}
+	for _, key := range currentPlan.ZeroBindingOwners[:limit] {
+		printf("  - %s 会话=%d\n", key.String(), len(currentPlan.ByOwner[key]))
+	}
+	if len(currentPlan.ZeroBindingOwners) > limit {
+		printf("  ... 其余 %d 人省略\n", len(currentPlan.ZeroBindingOwners)-limit)
+	}
+}
+
+// shortenTitle 把标题压成单行并按字符截断，避免输出被换行撑乱。
+func shortenTitle(title string) string {
+	title = strings.Join(strings.Fields(title), " ")
+	runes := []rune(title)
+	if len(runes) <= 40 {
+		return title
+	}
+	return string(runes[:40]) + "..."
+}
+
+func planByUser(currentPlan *plan) map[string]int {
+	out := make(map[string]int, len(currentPlan.ByOwner))
+	for key, group := range currentPlan.ByOwner {
+		out[key.String()] = len(group)
+	}
+	return out
+}
+
+func zeroBindingUserKeys(currentPlan *plan) []string {
+	out := make([]string, 0, len(currentPlan.ZeroBindingOwners))
+	for _, key := range currentPlan.ZeroBindingOwners {
+		out = append(out, key.String())
+	}
+	return out
+}
+
+func nonNilStrings(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
+}
+
+// printf 统一走 Fprintf，避免 errcheck 报未检查的 fmt 返回值。
+func printf(format string, args ...any) {
+	_, _ = fmt.Fprintf(os.Stdout, format, args...)
+}
