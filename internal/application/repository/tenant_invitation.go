@@ -311,3 +311,69 @@ func (r *tenantInvitationRepository) IncrementAcceptedCount(
 	}
 	return nil
 }
+
+// ReserveRegistrationQuota 原子预占一个注册名额：只有 pending、未过期、
+// 且名额未满（不限或已注册数小于上限）时才把 registered_count 加一。
+// 由数据库行锁串行化并发写入，不会超卖。返回 true 表示预占成功；
+// false 表示满额 / 过期 / 已撤销，调用方应统一按链接失效处理。
+func (r *tenantInvitationRepository) ReserveRegistrationQuota(
+	ctx context.Context,
+	id uint64,
+	now time.Time,
+) (bool, error) {
+	res := r.db.WithContext(ctx).
+		Model(&types.TenantInvitation{}).
+		Where("id = ? AND status = ? AND expires_at > ? "+
+			"AND (max_registrations IS NULL OR registered_count < max_registrations)",
+			id, types.TenantInvitationStatusPending, now).
+		Updates(map[string]any{
+			"registered_count": gorm.Expr("registered_count + 1"),
+			"updated_at":       now,
+		})
+	if res.Error != nil {
+		return false, res.Error
+	}
+	return res.RowsAffected == 1, nil
+}
+
+// ReleaseRegistrationQuota 在注册失败时退回已预占的名额。
+// 只在 registered_count > 0 时递减，避免并发下减成负数。
+func (r *tenantInvitationRepository) ReleaseRegistrationQuota(
+	ctx context.Context,
+	id uint64,
+) error {
+	res := r.db.WithContext(ctx).
+		Model(&types.TenantInvitation{}).
+		Where("id = ? AND registered_count > 0", id).
+		UpdateColumn("registered_count", gorm.Expr("registered_count - 1"))
+	return res.Error
+}
+
+// ApplyShareLinkOptions 在共享链接创建后补写配额与有效期。
+// 只更新非空字段，并要求行仍为 pending；未命中（不存在或已非 pending）
+// 返回 gorm.ErrRecordNotFound 供 service 层映射。
+func (r *tenantInvitationRepository) ApplyShareLinkOptions(
+	ctx context.Context,
+	id uint64,
+	maxRegistrations *int,
+	expiresAt *time.Time,
+) error {
+	updates := map[string]any{"updated_at": time.Now()}
+	if maxRegistrations != nil {
+		updates["max_registrations"] = *maxRegistrations
+	}
+	if expiresAt != nil {
+		updates["expires_at"] = *expiresAt
+	}
+	res := r.db.WithContext(ctx).
+		Model(&types.TenantInvitation{}).
+		Where("id = ? AND status = ?", id, types.TenantInvitationStatusPending).
+		Updates(updates)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
+	return nil
+}

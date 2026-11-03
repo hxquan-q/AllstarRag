@@ -2,6 +2,7 @@ package interfaces
 
 import (
 	"context"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -101,4 +102,15 @@ type TenantInvitationService interface {
 	// into accepted when auto-accept joins the invitee without inbox
 	// confirmation. No-op when no pending row exists.
 	MarkPendingAcceptedIfExists(ctx context.Context, tenantID uint64, inviteeUserID string) error
+
+	// ReserveRegistrationQuota 原子预占一个注册名额。未抢到名额
+	// （满额 / 过期 / 已撤销）返回 ErrInvitationTokenInvalid。
+	ReserveRegistrationQuota(ctx context.Context, invID uint64) error
+
+	// ReleaseRegistrationQuota 在注册失败时退回已预占的名额。
+	ReleaseRegistrationQuota(ctx context.Context, invID uint64) error
+
+	// ApplyShareLinkOptions 在共享链接创建后补写配额与有效期，
+	// 传 nil 的字段不更新。
+	ApplyShareLinkOptions(ctx context.Context, invID uint64, maxRegistrations *int, expiresAt *time.Time) error
 }
