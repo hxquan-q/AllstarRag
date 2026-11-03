@@ -554,6 +554,12 @@ export interface RegisterByInviteRequest {
   password: string
 }
 
+// 失败时把 HTTP 状态码一并返回，落地页据此区分「邮箱已注册（409）」
+// 与「链接失效（410/403）」；成功路径不携带 status。
+export interface RegisterByInviteResponse extends LoginResponse {
+  status?: number
+}
+
 /**
  * Resolve a share-link token (no auth) into the context the
  * registration page needs (tenant name, role, expiry). Returns 410
@@ -576,11 +582,15 @@ export async function getInvitationByToken(token: string): Promise<InviteLookupR
  * their own email — the token is the authorisation, not an identity
  * lock.
  */
-export async function registerByInvite(data: RegisterByInviteRequest): Promise<LoginResponse> {
+export async function registerByInvite(data: RegisterByInviteRequest): Promise<RegisterByInviteResponse> {
   try {
     const response = await post('/api/v1/auth/register-by-invite', data)
-    return response as unknown as LoginResponse
+    return response as unknown as RegisterByInviteResponse
   } catch (error: any) {
-    return { success: false, message: error.message || t('error.auth.registerFailed') }
+    return {
+      success: false,
+      message: error.message || t('error.auth.registerFailed'),
+      status: typeof error?.status === 'number' ? error.status : undefined,
+    }
   }
 }
