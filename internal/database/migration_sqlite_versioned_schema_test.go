@@ -71,15 +71,16 @@ var versionedSQLiteColumns = map[string][]string{
 		"owner_auth_source",        // 000046
 		"product_line",             // 000051
 	},
-	"session_sandbox_assignments": {"released_at", "cleanup_due_at"},    // 000047
-	"tenant_invitations":          {"token", "accepted_count"},          // 000054
-	"embed_channels":              {"allow_memory"},                     // 000060
-	"im_channels":                 {"locale"},                           // 000030
-	"chunks":                      {"source_locators"},                  // 000033
-	"mcp_oauth_tokens":            {"principal_type", "principal_id"},   // 000064
-	"mcp_tool_approvals":          {"enabled", "risk", "observed_risk"}, // 000091, 000126
-	"mcp_services":                {"usage_instructions"},               // 000092
-	"message_artifacts":           {"deleted_at"},                       // 000107
+	"session_sandbox_assignments": {"released_at", "cleanup_due_at"}, // 000047
+	// 000054, 000053: 共享邀请链接的 token / 已加入数与注册配额
+	"tenant_invitations": {"token", "accepted_count", "max_registrations", "registered_count"},
+	"embed_channels":     {"allow_memory"},                     // 000060
+	"im_channels":        {"locale"},                           // 000030
+	"chunks":             {"source_locators"},                  // 000033
+	"mcp_oauth_tokens":   {"principal_type", "principal_id"},   // 000064
+	"mcp_tool_approvals": {"enabled", "risk", "observed_risk"}, // 000091, 000126
+	"mcp_services":       {"usage_instructions"},               // 000092
+	"message_artifacts":  {"deleted_at"},                       // 000107
 	"tenant_skills": {
 		"envs", "served", "catalog_id", "install_session_id", "install_message_id",
 	}, // 000028
@@ -89,7 +90,7 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-const expectedSQLiteMigrationVersion = 52
+const expectedSQLiteMigrationVersion = 53
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
@@ -285,6 +286,31 @@ func TestSQLiteSandboxAllocationMigrationRollsBack(t *testing.T) {
 	require.True(t, sqliteIndexExists(t, sqlDB, "idx_session_sandbox_assignments_live_machine"))
 }
 
+// 000053 新增的两列必须能随 down 迁移干净移除，避免回滚后残留列。
+func TestSQLiteInvitationQuotaMigrationRollsBack(t *testing.T) {
+	repoRoot := sqliteRepoRoot(t)
+	chdirAndRestore(t, repoRoot)
+
+	dbPath := filepath.Join(t.TempDir(), "invitation-quota-down.db")
+	require.NoError(t, RunMigrationsWithOptions("sqlite3://unused", MigrationOptions{SQLiteDBPath: dbPath}))
+	db := openSQLiteDB(t, dbPath)
+	for _, column := range versionedSQLiteColumns["tenant_invitations"] {
+		require.Truef(t, sqliteColumnExists(t, db, "tenant_invitations", column),
+			"up 后应存在列 tenant_invitations.%s", column)
+	}
+
+	down, err := os.ReadFile(filepath.Join(
+		repoRoot, "migrations/sqlite/000053_tenant_invitation_registration_quota.down.sql",
+	))
+	require.NoError(t, err)
+	_, err = db.Exec(string(down))
+	require.NoError(t, err)
+	for _, column := range []string{"max_registrations", "registered_count"} {
+		require.Falsef(t, sqliteColumnExists(t, db, "tenant_invitations", column),
+			"down 后应删除列 tenant_invitations.%s", column)
+	}
+}
+
 func sqliteRepoRoot(t *testing.T) string {
 	t.Helper()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -393,6 +419,15 @@ func assertSQLiteShareLinkInvitationsWork(t *testing.T, db *sql.DB) {
 		"SELECT COUNT(*) FROM tenant_invitations WHERE tenant_id = 1 AND invitee_user_id = '' AND status = 'pending'",
 	).Scan(&count))
 	require.Equal(t, 2, count)
+
+	// 000053 新增两列的默认值：存量/新插入的共享链接不限人数、注册数为 0。
+	var maxRegistrations sql.NullInt64
+	var registeredCount int
+	require.NoError(t, db.QueryRow(
+		"SELECT max_registrations, registered_count FROM tenant_invitations WHERE token = ?", "token-a",
+	).Scan(&maxRegistrations, &registeredCount))
+	require.False(t, maxRegistrations.Valid, "max_registrations 默认必须是 NULL（不限）")
+	require.Zero(t, registeredCount, "registered_count 默认必须是 0")
 }
 
 func assertSQLiteMCPOAuthPrincipalUpsertWorks(t *testing.T, db *sql.DB) {
