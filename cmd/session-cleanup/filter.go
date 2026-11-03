@@ -459,19 +459,6 @@ func auditFileName(tenantID uint64, now time.Time) string {
 	return fmt.Sprintf("session-cleanup-%d-%s.json", tenantID, now.Format("20060102-150405"))
 }
 
-// writeAudit 把审计记录写到 dir，返回实际路径。
-func writeAudit(dir string, record auditRecord) (string, error) {
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
-	// 文件名与 record.GeneratedAt 用同一个 nowFunc：单测固定时间后两者一致（F7）。
-	path := filepath.Join(dir, auditFileName(record.TenantID, nowFunc()))
-	if err := writeAuditTo(path, record); err != nil {
-		return "", err
-	}
-	return path, nil
-}
-
 // createAuditPlaceholder 在删除开始前原子创建占位审计文件（F2）：
 // O_CREATE|O_EXCL 保证「已存在即失败」，与 findAuditFile 是同一道一次性闸。
 // 之后进程即便在删除中途被杀、或最终审计写盘失败，这个文件也会挡住下一轮重删。

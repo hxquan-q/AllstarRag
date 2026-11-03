@@ -53,8 +53,6 @@ const visibleLines = computed(() => {
   const maxVisible = isMobileLayout.value ? MOBILE_MAX_LINE_COUNT : COLLAPSED_LINE_COUNT
   return computeVisibleLines(lines.value, currentLine.value?.id, maxVisible)
 })
-/** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
-const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
 /**
  * 未绑定 agent 时进入欢迎页自动弹提示（W5）。
  * 只在 agents 已就绪且确实 0 条时弹；加载失败走既有重试，不弹。

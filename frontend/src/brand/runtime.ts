@@ -123,18 +123,11 @@ function readRawBrandFromWindow(): unknown {
   return (window as WindowWithBrandConfig).__RUNTIME_CONFIG__?.BRAND
 }
 
-/** 运行时只读，防止调用方改到单例后影响其他页面。 */
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object') {
-    Object.values(value as unknown as Record<string, unknown>).forEach(deepFreeze)
-    Object.freeze(value)
-  }
-  return value
-}
-
 /** 启动时读取一次的品牌配置单例。 */
 const startupRawBrand = readRawBrandFromWindow()
-export const brandConfig: Readonly<BrandConfig> = deepFreeze(readBrandConfig(startupRawBrand))
+
+/** 品牌配置运行时只读：BrandConfig 全扁平，单层冻结足够，防止调用方改到单例。 */
+export const brandConfig: Readonly<BrandConfig> = Object.freeze(readBrandConfig(startupRawBrand))
 
 /**
  * 浅色、深色各算一份品牌变量。
