@@ -42,6 +42,12 @@ export interface TenantInvitation {
   // through this invitation. Surfaced in the management UI for
   // share-link rows ("已加入 N 人").
   accepted_count?: number
+  // max_registrations caps how many new accounts may register through a
+  // share link; null/absent means unlimited. Set at creation only.
+  max_registrations?: number | null
+  // registered_count counts new accounts created through the share link
+  // (existing accounts joining are not counted).
+  registered_count?: number
 }
 
 export interface ListInvitationsResponse {
@@ -239,6 +245,10 @@ export async function declineInvitation(invId: number): Promise<SimpleResponse> 
 export interface CreateInviteLinkRequest {
   role: TenantRole
   message?: string
+  // 1–1000; omitted means unlimited.
+  max_registrations?: number
+  // RFC3339 timestamp; must be in the future.
+  expires_at?: string
 }
 
 export interface CreateInviteLinkResponse {
