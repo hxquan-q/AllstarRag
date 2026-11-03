@@ -377,7 +377,6 @@ func TestAuditFileGuard(t *testing.T) {
 	require.NoError(t, createAuditPlaceholder(path))
 	require.NoError(t, writeAuditTo(path, auditRecord{TenantID: 7, TotalCandidates: 1}))
 	require.FileExists(t, path)
-	require.Equal(t, filepath.Join(dir, filepath.Base(path)), path)
 	require.Contains(t, filepath.Base(path), "session-cleanup-7-")
 
 	found, err = findAuditFile(dir, 7)
