@@ -109,7 +109,8 @@ func TestMemberGuardCreateMemberAccountRoute(t *testing.T) {
 		t.Run("system_admin_with_"+string(role)+"_reaches_handler", func(t *testing.T) {
 			code := postMemberRoute(t, memberGuardSession{role: role, userID: "u-sysadmin", systemAdmin: true}, path)
 			require.Equal(t, http.StatusBadRequest, code,
-				"system admin with workspace role %s must pass the route guard and reach the handler (403 means the guard rejected them)", role)
+				"system admin with workspace role %s must pass the route guard and reach the handler "+
+					"(403 means the guard rejected them)", role)
 		})
 	}
 
@@ -145,7 +146,8 @@ func TestMemberGuardResetMemberPasswordRoute(t *testing.T) {
 		t.Run("system_admin_with_"+string(role)+"_reaches_handler", func(t *testing.T) {
 			code := postMemberRoute(t, memberGuardSession{role: role, userID: "u-sysadmin", systemAdmin: true}, path)
 			require.Equal(t, http.StatusBadRequest, code,
-				"system admin with workspace role %s must pass the route guard and reach the handler (403 means the guard rejected them)", role)
+				"system admin with workspace role %s must pass the route guard and reach the handler "+
+					"(403 means the guard rejected them)", role)
 		})
 	}
 
