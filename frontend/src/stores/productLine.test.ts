@@ -215,6 +215,10 @@ function createStore(options: HarnessOptions = {}) {
     ensureAgentsCalls: () => resources.ensureAgentsCalls,
     resolveAgents: () => ensures.at(-1)?.resolve(),
     rejectAgents: (error: Error) => ensures.at(-1)?.reject(error),
+    // T02：按索引操作指定一次自举的 deferred。账号切换场景要单独放行/放失败
+    // 旧账号（下标小）的在飞请求，不能总操作最后一个。
+    resolveAgentsAt: (index: number) => ensures[index]?.resolve(),
+    rejectAgentsAt: (index: number, error: Error) => ensures[index]?.reject(error),
     close: () => {
       stops.forEach((stop) => stop())
       storage.restore()
@@ -451,6 +455,109 @@ test('switching accounts resets loadFailed and re-bootstraps (AC-10 / F6)', asyn
     await flush()
     assert.equal(h.store.loadFailed.value, false, 'a new account starts from a clean failure state')
     assert.equal(h.ensureAgentsCalls(), 2, 'the new account bootstraps its own agents')
+  } finally {
+    h.close()
+  }
+})
+
+test('a late success from the previous account must not mark the new session ready (T02 / AC-10 / W5)', async () => {
+  const h = createStore({
+    userId: 'user-a',
+    tenantId: 1,
+    boundByTenant: { '1': ['agent-a'] },
+    agents: [],
+    agentsLoaded: false,
+  })
+  try {
+    await flush()
+    assert.equal(h.ensureAgentsCalls(), 1, 'A 登录后发起自己的自举')
+    assert.equal(h.store.ready.value, false, 'A 的数据未到：不就绪')
+
+    // SPA 内退出 A、登录 B：watch(currentUserId) 重置 ready、清 bootstrapPromise、为 B 重新自举。
+    h.authState.user = {
+      id: 'user-b',
+      preferences: { bound_agent_ids_by_tenant: { '1': ['agent-b'] } },
+    }
+    await flush()
+    assert.equal(h.ensureAgentsCalls(), 2, 'B 发起自己的自举')
+    assert.equal(h.store.ready.value, false, 'B 的数据未到：不就绪')
+
+    // A 的旧请求此刻迟到成功：成功回调必须认身份（与 catch 的 F14 判断同理），
+    // 不得把 B 的会话提前标成就绪。
+    h.resolveAgentsAt(0)
+    await flush()
+    assert.equal(h.store.ready.value, false, '旧账号迟到成功不得提前置 ready')
+    // 欢迎页弹提示的触发条件（CustomerWelcome.vue：ready && !loadFailed && len===0）
+    // 本测试只挂 store，弹窗开不开由该组件 watch 派生，这里按同一条件在 store 可观测面断言。
+    const noAgentDialogWouldOpen = Boolean(
+      h.store.ready.value && !h.store.loadFailed.value && h.store.lines.value.length === 0,
+    )
+    assert.equal(noAgentDialogWouldOpen, false, '未绑定提示的触发条件不得被旧请求点亮')
+  } finally {
+    h.close()
+  }
+})
+
+test('the new account becomes ready only after its own request succeeds (T02 / AC-8.2)', async () => {
+  const h = createStore({
+    userId: 'user-a',
+    tenantId: 1,
+    boundByTenant: { '1': ['agent-a'] },
+    agents: [],
+    agentsLoaded: false,
+  })
+  try {
+    await flush()
+    h.authState.user = {
+      id: 'user-b',
+      preferences: { bound_agent_ids_by_tenant: { '1': ['agent-b'] } },
+    }
+    await flush()
+    assert.equal(h.store.ready.value, false)
+
+    // B 自己的请求成功（快照就位）后正常就绪、正常出产线。
+    h.resources.agents = [AGENT_B]
+    h.resources.loaded = true
+    h.resolveAgentsAt(1)
+    await flush()
+    assert.equal(h.store.ready.value, true)
+    assert.deepEqual(plain(h.store.lines.value).map((line) => line.id), ['agent-b'])
+    assert.equal(h.store.currentLineId.value, 'agent-b')
+  } finally {
+    h.close()
+  }
+})
+
+test('a late failure from the previous account must not pollute the new session (T02 / F14)', async () => {
+  const h = createStore({
+    userId: 'user-a',
+    tenantId: 1,
+    boundByTenant: { '1': ['agent-a'] },
+    agents: [],
+    agentsLoaded: false,
+  })
+  try {
+    await flush()
+    h.authState.user = {
+      id: 'user-b',
+      preferences: { bound_agent_ids_by_tenant: { '1': ['agent-b'] } },
+    }
+    await flush()
+
+    // A 的旧请求迟到失败：catch 里的身份判断（F14）不得把失败态留在 B 的会话上。
+    h.rejectAgentsAt(0, new Error('A 的旧请求失败'))
+    await flush()
+    assert.equal(h.store.loadFailed.value, false, '旧账号迟到失败不得给新账号置 loadFailed')
+    assert.equal(h.store.ready.value, false)
+    assert.deepEqual(plain(h.store.lines.value), [])
+
+    // 旧失败也不得清掉 B 的自举 promise：B 自己成功后仍能就绪。
+    h.resources.agents = [AGENT_B]
+    h.resources.loaded = true
+    h.resolveAgentsAt(1)
+    await flush()
+    assert.equal(h.store.ready.value, true)
+    assert.equal(h.store.loadFailed.value, false)
   } finally {
     h.close()
   }

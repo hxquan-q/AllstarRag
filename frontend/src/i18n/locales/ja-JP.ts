@@ -3050,7 +3050,8 @@ export default {
       inviteOnlyNotice: 'このアカウントは招待によってのみ既存のワークスペースに参加できます',
       help: '今すぐワークスペースを作成することも、後で戻って招待を承諾することもできます。',
       inviteOnlyHelp: 'まだ招待がありませんか？登録したメールアドレスをワークスペース管理者に伝えて、招待を依頼してください。',
-      accessRevoked: '申し訳ありませんが、あなたはワークスペースから削除されたため、アクセス権がありません。'
+      accessRevoked: '申し訳ありませんが、あなたはワークスペースから削除されたため、アクセス権がありません。',
+      accessRevokedRejoin: 'オーナーから再度招待された場合は、ここで招待を確認して承認するとアクセスを回復できます。'
     }
   },
   authStore: {
@@ -3332,7 +3333,7 @@ export default {
     goToAgentSettings: 'エージェント設定に移動'
   },
   createChat: {
-    title: 'こんにちは、WeKnoraです。あなたのナレッジを、すぐそばに',
+    title: 'こんにちは、{name}です。あなたのナレッジを、すぐそばに',
     newSessionTitle: '新しいセッション',
     openProject: 'プロジェクトを選択',
     clearProject: '解除',

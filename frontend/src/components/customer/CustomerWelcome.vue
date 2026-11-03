@@ -5,6 +5,7 @@ import type { ProductLine } from '@/brand/types'
 import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 import { useProductLineStore } from '@/stores/productLine'
 import { useUIStore } from '@/stores/ui'
+import { computeVisibleLines } from './visibleLines'
 
 /**
  * 客户新对话欢迎区：欢迎语 + 产线卡片 + 当前产线示例问题 + 底部提示。
@@ -35,8 +36,6 @@ const lines = computed(() => productLineStore.lines)
 const currentLine = computed(() => productLineStore.currentLine)
 const samples = computed(() => currentLine.value?.samples ?? [])
 
-/** 展开状态只作用于桌面欢迎区卡片；输入区下拉始终全量（AC-13）。 */
-const expanded = ref(false)
 const hasOverflow = computed(() => lines.value.length > COLLAPSED_LINE_COUNT)
 /** 移动端是否溢出：超过 2 张就需要「查看更多」弹窗（T10）；桌面恒为 false。 */
 const hasMobileOverflow = computed(
@@ -49,13 +48,11 @@ const pickerLines = computed(() => {
   return [current, ...lines.value.filter((line) => line.id !== current.id)]
 })
 const visibleLines = computed(() => {
-  // 移动端 >2 张：只显示弹窗列表前两张 = [当前选中, 其余第一]（T10）；≤2 张走下方全量分支。
-  if (hasMobileOverflow.value) return pickerLines.value.slice(0, MOBILE_MAX_LINE_COUNT)
-  // 桌面：超过 4 条折叠、可就地展开（AC-12），顺序不变。
-  return hasOverflow.value && !expanded.value ? lines.value.slice(0, COLLAPSED_LINE_COUNT) : lines.value
+  // 未超限：保留绑定顺序（点击只改高亮，不因选中重排换位）；
+  // 超限：当前选中置顶，其余按绑定顺序补足可见数量（移动 2 / 桌面 4），多余的收进「查看更多」弹窗。
+  const maxVisible = isMobileLayout.value ? MOBILE_MAX_LINE_COUNT : COLLAPSED_LINE_COUNT
+  return computeVisibleLines(lines.value, currentLine.value?.id, maxVisible)
 })
-/** agents 未就绪时不显示空态，避免冷启动闪一下（AC-10 / 02-plan 5.1）。 */
-const showEmptyState = computed(() => productLineStore.ready && lines.value.length === 0)
 /**
  * 未绑定 agent 时进入欢迎页自动弹提示（W5）。
  * 只在 agents 已就绪且确实 0 条时弹；加载失败走既有重试，不弹。
@@ -78,10 +75,6 @@ const showLoadFailed = computed(
 
 function retryLoadAgents(): void {
   productLineStore.retryBootstrapAgents()
-}
-
-function toggleExpanded(): void {
-  expanded.value = !expanded.value
 }
 
 function chooseLine(line: ProductLine): void {
@@ -132,10 +125,10 @@ function ask(question: string): void {
         aria-haspopup="dialog" @click="agentPickerVisible = true">
         {{ t('brand.welcome.showMoreLines') }}
       </button>
-      <!-- 桌面超过 4 条仍就地展开/收起，不跳页、不弹层（AC-12）；移动端不渲染 inline toggle。 -->
+      <!-- 桌面超过 4 条：点「查看更多」打开 agent 选择弹窗，不再就地展开（T01/AC-1）；移动端不渲染此按钮。 -->
       <button v-else-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"
-        :aria-expanded="expanded" aria-controls="customer-welcome-lines" @click="toggleExpanded">
-        {{ expanded ? t('brand.welcome.collapseLines') : t('brand.welcome.showMoreLines') }}
+        aria-haspopup="dialog" @click="agentPickerVisible = true">
+        {{ t('brand.welcome.showMoreLines') }}
       </button>
 
       <!-- 未绑定时不再在欢迎区显示副标题/去绑定按钮，改由可关闭弹窗承接（W5–W9）。 -->
@@ -162,8 +155,8 @@ function ask(question: string): void {
     <!-- 产线 = 当前工作区绑定的 agent（无绑定时由上面的空态提示承担） -->
     <!-- 免责声明已移到输入框下方（creatChat 页面底部） -->
 
-    <!-- 移动端「查看更多」选择弹窗（T10）：全部 agent、当前排第一，点选即切线并关闭。
-         弹层挂在 body 上，宽度由 customer-mobile.css 的 .t-dialog 限宽兜住（≤1023）。 -->
+    <!-- 产线选择弹窗：PC / 移动共用，列表为全部 agent、当前选中置顶，点选即切线并关闭。
+         宽度由本模板的 width="480px" 固定；移动端另有 customer-mobile.css 限宽（仅 <1024 生效）。 -->
     <t-dialog
       v-model:visible="agentPickerVisible"
       :header="t('brand.welcome.chooseAgent')"

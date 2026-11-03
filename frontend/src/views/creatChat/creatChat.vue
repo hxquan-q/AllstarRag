@@ -4,9 +4,9 @@
              非客户不加任何 wrapper，DOM 与改造前完全一致（C6）。 -->
         <CustomerTopBar v-if="isCustomer" />
         <div class="dialogue-answers">
-            <!-- 原标题含 WeKnora 字样，客户版由顶栏产品名代替，管理员分支保持原样 -->
+            <!-- 品牌名大标题（{name} 插值，值取 runtime 品牌配置）；客户版由 CustomerTopBar 产品名代替 -->
             <div v-if="!isCustomer" class="dialogue-title" style="--wails-draggable: drag">
-                <span style="--wails-draggable: drag">{{ $t('createChat.title') }}</span>
+                <span style="--wails-draggable: drag">{{ $t('createChat.title', { name: brandConfig.productName }) }}</span>
             </div>
             <!-- 客户新对话：欢迎区 + 产线卡片 + 示例问题；creatChat 本身就是无消息的新会话，
                  所以这里只按客户视角判断。管理员分支的推荐问题逻辑完全不动（C6）。 -->
@@ -368,12 +368,21 @@ async function openProjectDir() {
     flex-direction: column;
     justify-content: flex-start;
     align-items: stretch;
+    min-height: 0;
     position: relative;
     // 浅色网格背景（替换原来的纯白底）
     background-color: #F6F8FB;
     background-image:
         repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px),
         repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
+}
+
+/* 深色主题：客户壳换深底+白线网格，正文走主题变量不再浅底白字（管理员不带 customer-shell 零命中，C6）。 */
+html[theme-mode="dark"] .dialogue-wrap.customer-shell {
+    background-color: var(--td-bg-color-page);
+    background-image:
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 40px),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 40px);
 }
 
 /* 固定在页面最底部的免责声明（绝对定位，不占布局高度） */
