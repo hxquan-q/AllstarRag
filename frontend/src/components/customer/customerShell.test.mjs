@@ -28,8 +28,8 @@ test('customer welcome renders agent title, visible line cards and samples', () 
   // 免责声明已移到 creatChat 输入框下方（用户反馈「放到最底部」），欢迎区不再渲染。
   assert.doesNotMatch(welcome, /brandConfig\.chatDisclaimer/)
   assert.match(creatChat, /customer-disclaimer/)
-  // 旧 productLinesFallback 提示已删除（AC-10）；showEmptyState 空态 computed 是
-  // 死码（模板无消费），T04 待删——空态提示统一由下方 W9 弹窗承接。
+  // 旧 productLinesFallback 提示已删除（AC-10）；showEmptyState 空态 computed
+  // 已随 T04 删除（模板本无消费）——空态提示统一由下方 W9 弹窗承接。
   // W9：欢迎区不再自己渲染空态副标题/去绑定按钮，未绑定提示交由 CustomerNoAgentDialog 承接。
   assert.doesNotMatch(welcome, /customer-welcome__subtitle/)
   assert.doesNotMatch(welcome, /customer-welcome__bind-btn/)
