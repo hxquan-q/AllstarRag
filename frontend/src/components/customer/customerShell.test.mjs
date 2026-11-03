@@ -188,3 +188,44 @@ test('logo sizing: sidebar fixed 108px for both roles, login uses runtime logoWi
   assert.doesNotMatch(menuVue, /html\[theme-mode="dark"\][\s\S]{0,200}\.logo[\s\S]{0,200}(?:invert|hue-rotate)/)
   assert.doesNotMatch(menuVue, /\.logo\s*\{[^}]*filter:/)
 })
+
+test('customer shell dark theme swaps to page background with white grid, light grid intact (T03)', () => {
+  // T03 / AC-9：两个客户壳在 theme-mode="dark" 下换既有主题页面底变量 + 低透明度白线网格，
+  // 不新造色值；AC-10：dark 块不强制文字色（正文走主题变量）。管理员页不带 customer-shell，
+  // 规则零命中（C6）。浅色（默认）网格定义必须原样保留。真机深色观感由用户在 8084 复验。
+  const shells = [
+    ['chat/index.vue', chatView, '.chat.customer-shell'],
+    ['creatChat.vue', creatChat, '.dialogue-wrap.customer-shell'],
+  ]
+  for (const [name, source, selector] of shells) {
+    const escaped = selector.replace(/\./g, '\\.')
+
+    // AC-9：dark 覆盖块存在，背景用 --td-bg-color-page，网格线横竖两向都是 0.04 白线。
+    const darkBlock = new RegExp(`html\\[theme-mode="dark"\\] ${escaped} \\{([^}]*)\\}`).exec(source)
+    assert.ok(darkBlock, `${name} 缺少 html[theme-mode="dark"] + ${selector} 深色覆盖块`)
+    assert.match(
+      darkBlock[1],
+      /background-color:\s*var\(--td-bg-color-page\);/,
+      `${name} dark 块背景未用 --td-bg-color-page`,
+    )
+    for (const deg of ['0deg', '90deg']) {
+      assert.match(
+        darkBlock[1],
+        new RegExp(`repeating-linear-gradient\\(${deg},\\s*rgba\\(255,\\s*255,\\s*255,\\s*0\\.04\\)`),
+        `${name} dark 块缺 ${deg} 白线网格`,
+      )
+    }
+
+    // AC-10：dark 块不得出现 color 声明（background-color 不算），不全局强制文字色。
+    assert.doesNotMatch(darkBlock[1], /(^|[^-\w])color\s*:/, `${name} dark 块出现 color 声明`)
+
+    // AC-9：浅色（默认）网格定义原样保留——#F6F8FB 底 + 深色细线网格。
+    const lightBlock = new RegExp(`${escaped} \\{([^}]*)\\}`).exec(source)
+    assert.ok(lightBlock, `${name} 浅色 ${selector} 背景定义缺失`)
+    assert.match(lightBlock[1], /background-color:\s*#F6F8FB;/, `${name} 浅色 #F6F8FB 底色缺失`)
+    assert.match(lightBlock[1], /rgba\(15,\s*23,\s*42,\s*0\.035\)/, `${name} 浅色网格线定义缺失`)
+
+    // F21/F22 守卫口径：这两份壳文件不出现 :global(（要跨作用域的规则进全局 CSS）。
+    assert.doesNotMatch(source, /:global\(/, `${name} 不得使用 :global(`)
+  }
+})
