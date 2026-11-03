@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -49,6 +51,16 @@ type invitationLookupRequest struct {
 	Token string `json:"token" binding:"required"`
 }
 
+// replyInvitationGone 统一输出「链接无效 / 已撤销 / 名额已满」的 410。
+// 调用方不得暴露具体失效原因，避免泄露 token 曾经的状态。
+func replyInvitationGone(c *gin.Context) {
+	_ = c.Error(&apperrors.AppError{
+		Code:     apperrors.ErrNotFound,
+		Message:  "invitation link is invalid or has been revoked",
+		HTTPCode: http.StatusGone,
+	})
+}
+
 // LookupInvitationByToken godoc
 // @Summary      解析共享邀请链接 token
 // @Description  根据邀请链接中的 token 返回邀请上下文（空间名 / 角色 / 过期时间），
@@ -84,11 +96,12 @@ func (h *AuthHandler) LookupInvitationByToken(c *gin.Context) {
 	if err != nil {
 		// Collapse "unknown / expired / revoked" into 410 to avoid
 		// leaking which slot a stolen token used to occupy.
-		c.Error(&apperrors.AppError{
-			Code:     apperrors.ErrNotFound,
-			Message:  "invitation link is invalid or has been revoked",
-			HTTPCode: http.StatusGone,
-		})
+		replyInvitationGone(c)
+		return
+	}
+	if inv.IsRegistrationFull() {
+		// 名额已满与过期 / 撤销同语义：页面统一展示「链接已失效」。
+		replyInvitationGone(c)
 		return
 	}
 
@@ -156,11 +169,7 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 
 	inv, err := h.invitationSvc.LookupByToken(ctx, req.Token)
 	if err != nil {
-		c.Error(&apperrors.AppError{
-			Code:     apperrors.ErrNotFound,
-			Message:  "invitation link is invalid or has been revoked",
-			HTTPCode: http.StatusGone,
-		})
+		replyInvitationGone(c)
 		return
 	}
 
@@ -181,6 +190,28 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 		_ = c.Error(apperrors.NewValidationError(err.Error()))
 		return
 	}
+
+	// 先预占名额再建号：满额 / 过期 / 已撤销时 reserve 返回
+	// ErrInvitationTokenInvalid，对外仍统一 410，不暴露具体原因。
+	// 预占后的任何失败都通过 defer 释放，避免名额泄漏。
+	if err := h.invitationSvc.ReserveRegistrationQuota(ctx, inv.ID); err != nil {
+		logger.Errorf(ctx, "register-by-invite: reserve quota failed for invitation %d: %v", inv.ID, err)
+		replyInvitationGone(c)
+		return
+	}
+	committed := false
+	defer func() {
+		if committed {
+			return
+		}
+		// 用独立上下文释放：请求上下文可能已被取消，释放仍须完成。
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if releaseErr := h.invitationSvc.ReleaseRegistrationQuota(releaseCtx, inv.ID); releaseErr != nil {
+			logger.Errorf(releaseCtx, "register-by-invite: release quota failed for invitation %d: %v",
+				inv.ID, releaseErr)
+		}
+	}()
 
 	user, err := h.userService.Register(ctx, &types.RegisterRequest{
 		Username:           req.Username,
@@ -222,6 +253,9 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 		})
 		return
 	}
+	// 账号与成员关系都已建立，视为一次成功注册：后续签发 token
+	// 失败不再释放名额。
+	committed = true
 
 	accessToken, refreshToken, err := h.userService.GenerateTokens(ctx, user)
 	if err != nil {
