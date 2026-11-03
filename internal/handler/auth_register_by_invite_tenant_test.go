@@ -60,6 +60,16 @@ func (s *invitedRegistrationInvitationService) AcceptByToken(context.Context, st
 	return &types.TenantMember{TenantID: 42, Role: types.TenantRoleViewer}, nil
 }
 
+// ReserveRegistrationQuota / ReleaseRegistrationQuota 是测试桩的空实现：
+// 本文件不测注册配额，只借嵌入式接口满足 TenantInvitationService。
+func (s *invitedRegistrationInvitationService) ReserveRegistrationQuota(context.Context, uint64) error {
+	return nil
+}
+
+func (s *invitedRegistrationInvitationService) ReleaseRegistrationQuota(context.Context, uint64) error {
+	return nil
+}
+
 type invitedRegistrationTenantService struct {
 	interfaces.TenantService
 }
