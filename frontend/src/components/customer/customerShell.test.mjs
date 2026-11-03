@@ -17,7 +17,7 @@ const chatView = readFileSync(new URL('../../views/chat/index.vue', import.meta.
 const menuVue = readFileSync(new URL('../menu.vue', import.meta.url), 'utf8')
 const loginVue = readFileSync(new URL('../../views/auth/Login.vue', import.meta.url), 'utf8')
 
-test('customer welcome renders agent title, visible line cards, samples and the empty state', () => {
+test('customer welcome renders agent title, visible line cards and samples', () => {
   // AC-21：标题改为「选择你的 agent」字标（中文环境用图片，其他语言保留本地化文字）。
   assert.match(welcome, /brand\/choose-agent-wordmark\.png/)
   assert.match(welcome, /t\('brand\.welcome\.chooseAgent'\)/)
@@ -28,10 +28,9 @@ test('customer welcome renders agent title, visible line cards, samples and the 
   // 免责声明已移到 creatChat 输入框下方（用户反馈「放到最底部」），欢迎区不再渲染。
   assert.doesNotMatch(welcome, /brandConfig\.chatDisclaimer/)
   assert.match(creatChat, /customer-disclaimer/)
-  // AC-10 / W5：空态只在已就绪且 0 条时出现；旧 productLinesFallback 提示已删除。
-  assert.match(welcome, /const showEmptyState = computed\(\(\) => productLineStore\.ready && lines\.value\.length === 0\)/)
+  // 旧 productLinesFallback 提示已删除（AC-10）；showEmptyState 空态 computed 是
+  // 死码（模板无消费），T04 待删——空态提示统一由下方 W9 弹窗承接。
   // W9：欢迎区不再自己渲染空态副标题/去绑定按钮，未绑定提示交由 CustomerNoAgentDialog 承接。
-  assert.doesNotMatch(welcome, /v-if="showEmptyState"/)
   assert.doesNotMatch(welcome, /customer-welcome__subtitle/)
   assert.doesNotMatch(welcome, /customer-welcome__bind-btn/)
   assert.doesNotMatch(welcome, /productLinesFallback/)

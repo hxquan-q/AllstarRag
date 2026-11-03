@@ -371,8 +371,11 @@ func TestAuditFileGuard(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, found)
 
-	path, err := writeAudit(dir, auditRecord{TenantID: 7, TotalCandidates: 1})
-	require.NoError(t, err)
+	// 改走生产组合（与 main.go 的 apply 路径同式）：先原子占位再覆盖写，
+	// 不再依赖 writeAudit 旧入口（T04 待删）。
+	path := filepath.Join(dir, auditFileName(7, nowFunc()))
+	require.NoError(t, createAuditPlaceholder(path))
+	require.NoError(t, writeAuditTo(path, auditRecord{TenantID: 7, TotalCandidates: 1}))
 	require.FileExists(t, path)
 	require.Equal(t, filepath.Join(dir, filepath.Base(path)), path)
 	require.Contains(t, filepath.Base(path), "session-cleanup-7-")
