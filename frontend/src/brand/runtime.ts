@@ -123,18 +123,11 @@ function readRawBrandFromWindow(): unknown {
   return (window as WindowWithBrandConfig).__RUNTIME_CONFIG__?.BRAND
 }
 
-/** 运行时只读，防止调用方改到单例后影响其他页面。 */
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object') {
-    Object.values(value as unknown as Record<string, unknown>).forEach(deepFreeze)
-    Object.freeze(value)
-  }
-  return value
-}
-
 /** 启动时读取一次的品牌配置单例。 */
 const startupRawBrand = readRawBrandFromWindow()
-export const brandConfig: Readonly<BrandConfig> = deepFreeze(readBrandConfig(startupRawBrand))
+
+/** 品牌配置运行时只读：BrandConfig 全扁平，单层冻结足够，防止调用方改到单例。 */
+export const brandConfig: Readonly<BrandConfig> = Object.freeze(readBrandConfig(startupRawBrand))
 
 /**
  * 浅色、深色各算一份品牌变量。
@@ -214,9 +207,9 @@ export function initCustomerBrandTheme(): void {
 }
 
 export interface ApplyDocumentBrandOptions {
-  /** 客户版或登录页传 true；管理员端保持默认，不设置该属性 */
+  /** 是否应用客户版主题：客户版传 true，非客户传 false（缺省按 false 处理） */
   customer?: boolean
-  /** 是否覆盖浏览器标题；管理员端传 false 保持 WeKnora 默认标题 */
+  /** 是否覆盖浏览器标题：默认覆盖为品牌名，仅显式传 false 时跳过（当前无调用方使用） */
   title?: boolean
 }
 

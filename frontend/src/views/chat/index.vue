@@ -2247,6 +2247,14 @@ onBeforeRouteUpdate((to, from, next) => {
         repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
 }
 
+/* 深色主题：客户壳换深底+白线网格，正文走主题变量不再浅底白字（管理员不带 customer-shell 零命中，C6）。 */
+html[theme-mode="dark"] .chat.customer-shell {
+    background-color: var(--td-bg-color-page);
+    background-image:
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 40px),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 40px);
+}
+
 /* —— T03：客户移动态（仅 .is-mobile，桌面与管理员分支不命中）—— */
 .chat.customer-shell.is-mobile {
     // 消息列左右各 12px，320px 下仍有足够正文宽度。

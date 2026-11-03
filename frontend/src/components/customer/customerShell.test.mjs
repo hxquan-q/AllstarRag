@@ -17,7 +17,7 @@ const chatView = readFileSync(new URL('../../views/chat/index.vue', import.meta.
 const menuVue = readFileSync(new URL('../menu.vue', import.meta.url), 'utf8')
 const loginVue = readFileSync(new URL('../../views/auth/Login.vue', import.meta.url), 'utf8')
 
-test('customer welcome renders agent title, visible line cards, samples and the empty state', () => {
+test('customer welcome renders agent title, visible line cards and samples', () => {
   // AC-21：标题改为「选择你的 agent」字标（中文环境用图片，其他语言保留本地化文字）。
   assert.match(welcome, /brand\/choose-agent-wordmark\.png/)
   assert.match(welcome, /t\('brand\.welcome\.chooseAgent'\)/)
@@ -28,10 +28,9 @@ test('customer welcome renders agent title, visible line cards, samples and the 
   // 免责声明已移到 creatChat 输入框下方（用户反馈「放到最底部」），欢迎区不再渲染。
   assert.doesNotMatch(welcome, /brandConfig\.chatDisclaimer/)
   assert.match(creatChat, /customer-disclaimer/)
-  // AC-10 / W5：空态只在已就绪且 0 条时出现；旧 productLinesFallback 提示已删除。
-  assert.match(welcome, /const showEmptyState = computed\(\(\) => productLineStore\.ready && lines\.value\.length === 0\)/)
+  // 旧 productLinesFallback 提示已删除（AC-10）；showEmptyState 空态 computed
+  // 已随 T04 删除（模板本无消费）——空态提示统一由下方 W9 弹窗承接。
   // W9：欢迎区不再自己渲染空态副标题/去绑定按钮，未绑定提示交由 CustomerNoAgentDialog 承接。
-  assert.doesNotMatch(welcome, /v-if="showEmptyState"/)
   assert.doesNotMatch(welcome, /customer-welcome__subtitle/)
   assert.doesNotMatch(welcome, /customer-welcome__bind-btn/)
   assert.doesNotMatch(welcome, /productLinesFallback/)
@@ -42,18 +41,25 @@ test('customer welcome renders agent title, visible line cards, samples and the 
   assert.doesNotMatch(welcome, /api\/|fetch\(|axios|knowledge-chat/)
 })
 
-test('customer welcome collapses cards above four on desktop and keeps both toggle branches', () => {
-  // 桌面：阈值 4（AC-12，E2E 反馈修订，>4 才折叠）、折叠切片、就地展开收起。
+test('customer welcome opens the agent picker dialog from the desktop toggle above four (T01)', () => {
+  // 桌面：阈值 4（AC-12，E2E 反馈修订，>4 才折叠）保留；PC「查看更多」改为打开选择弹窗（T01/AC-1）。
   assert.match(welcome, /const COLLAPSED_LINE_COUNT = 4/)
   assert.match(welcome, /const hasOverflow = computed\(\(\) => lines\.value\.length > COLLAPSED_LINE_COUNT\)/
   )
-  assert.match(welcome, /function toggleExpanded\(\): void \{\s*expanded\.value = !expanded\.value\s*\}/)
-  // T10：两个 toggle 分支并存——移动「查看更多」按钮在前（弹窗入口），桌面 inline toggle 改挂 v-else-if。
+  // T10/T01：两个 toggle 分支并存——移动「查看更多」按钮在前（弹窗入口），桌面按钮改挂 v-else-if。
   assert.match(welcome, /<button v-if="hasMobileOverflow" type="button" class="sample-chip customer-welcome__toggle"/)
   assert.match(welcome, /aria-haspopup="dialog" @click="agentPickerVisible = true"/)
   assert.match(welcome, /<button v-else-if="hasOverflow" type="button" class="sample-chip customer-welcome__toggle"/)
-  assert.match(welcome, /:aria-expanded="expanded" aria-controls="customer-welcome-lines" @click="toggleExpanded"/)
-  assert.match(welcome, /t\('brand\.welcome\.(showMoreLines|collapseLines)'\)/)
+  // AC-1：桌面按钮语义改为 aria-haspopup="dialog"，点击打开同一个 T10 选择弹窗，不再内联展开。
+  assert.match(
+    welcome,
+    /<button v-else-if="hasOverflow"[^>]*aria-haspopup="dialog" @click="agentPickerVisible = true"/,
+  )
+  // AC-1：桌面按钮无 aria-expanded 切换（折叠/展开语义整体移除）。
+  assert.doesNotMatch(welcome, /aria-expanded/)
+  // AC-1：按钮文案固定 showMoreLines，不再有「收起」态（旧的 expanded?collapseLines 三态消失）。
+  assert.match(welcome, /t\('brand\.welcome\.showMoreLines'\)/)
+  assert.doesNotMatch(welcome, /t\('brand\.welcome\.collapseLines'\)/)
 })
 
 test('mobile welcome shows two cards with the current line first and opens a picker dialog (T10)', () => {
@@ -68,17 +74,30 @@ test('mobile welcome shows two cards with the current line first and opens a pic
     welcome,
     /const pickerLines = computed\(\(\) => \{\s*const current = currentLine\.value\s*if \(!current\) return lines\.value\s*return \[current, \.\.\.lines\.value\.filter\(\(line\) => line\.id !== current\.id\)\]\s*\}\)/,
   )
-  // visibleLines 移动分支在前：>2 张取弹窗列表前两张；桌面折叠逻辑在后（顺序不可颠倒）。
+  // T02 排序修复：visibleLines 统一交给纯函数 computeVisibleLines——未超限保留绑定顺序、
+  // 超限当前选中置顶并按顺序补足。真实排序行为由 visibleLines.test.mjs 单测覆盖，这里钉接线。
   const visibleStart = welcome.indexOf('const visibleLines = computed')
   assert.ok(visibleStart >= 0, 'visibleLines not found')
-  // 该 computed 连注释约 300 字符，取 700 字符窗口足够覆盖两个分支且不引入后续代码。
-  const visibleBody = welcome.slice(visibleStart, visibleStart + 700)
-  const mobileAt = visibleBody.indexOf('if (hasMobileOverflow.value) return pickerLines.value.slice(0, MOBILE_MAX_LINE_COUNT)')
-  const desktopAt = visibleBody.indexOf(
-    'return hasOverflow.value && !expanded.value ? lines.value.slice(0, COLLAPSED_LINE_COUNT) : lines.value',
+  const visibleBody = welcome.slice(visibleStart, visibleStart + 400)
+  assert.match(
+    welcome,
+    /import \{ computeVisibleLines \} from '\.\/visibleLines'/,
+    'visibleLines 未接入可见列表纯函数 computeVisibleLines',
   )
-  assert.ok(mobileAt >= 0, 'mobile-first slice branch missing from visibleLines')
-  assert.ok(desktopAt > mobileAt, 'desktop collapse branch must come after the mobile branch')
+  assert.match(
+    visibleBody,
+    /const maxVisible = isMobileLayout\.value \? MOBILE_MAX_LINE_COUNT : COLLAPSED_LINE_COUNT/,
+    '布局上限映射（移动 2 / 桌面 4）缺失',
+  )
+  assert.match(
+    visibleBody,
+    /return computeVisibleLines\(lines\.value, currentLine\.value\?\.id, maxVisible\)/,
+    'visibleLines 未调用 computeVisibleLines',
+  )
+  // AC-3：桌面不再有 expanded 全量分支；expanded / toggleExpanded 整体移除。
+  assert.doesNotMatch(visibleBody, /expanded\.value/)
+  assert.doesNotMatch(welcome, /\bexpanded\b/)
+  assert.doesNotMatch(welcome, /toggleExpanded/)
   // 查看更多只打开选择弹窗（t-dialog + 全量 pickerLines），点选切线并关闭。
   assert.match(welcome, /<t-dialog\s+v-model:visible="agentPickerVisible"/)
   assert.match(welcome, /:close-btn="true"/)
@@ -167,4 +186,45 @@ test('logo sizing: sidebar fixed 108px for both roles, login uses runtime logoWi
   // 深色模式只允许对菜单图标做 invert；logo 不再走反色滤镜（AC-5 深色可辨）。
   assert.doesNotMatch(menuVue, /html\[theme-mode="dark"\][\s\S]{0,200}\.logo[\s\S]{0,200}(?:invert|hue-rotate)/)
   assert.doesNotMatch(menuVue, /\.logo\s*\{[^}]*filter:/)
+})
+
+test('customer shell dark theme swaps to page background with white grid, light grid intact (T03)', () => {
+  // T03 / AC-9：两个客户壳在 theme-mode="dark" 下换既有主题页面底变量 + 低透明度白线网格，
+  // 不新造色值；AC-10：dark 块不强制文字色（正文走主题变量）。管理员页不带 customer-shell，
+  // 规则零命中（C6）。浅色（默认）网格定义必须原样保留。真机深色观感由用户在 8084 复验。
+  const shells = [
+    ['chat/index.vue', chatView, '.chat.customer-shell'],
+    ['creatChat.vue', creatChat, '.dialogue-wrap.customer-shell'],
+  ]
+  for (const [name, source, selector] of shells) {
+    const escaped = selector.replace(/\./g, '\\.')
+
+    // AC-9：dark 覆盖块存在，背景用 --td-bg-color-page，网格线横竖两向都是 0.04 白线。
+    const darkBlock = new RegExp(`html\\[theme-mode="dark"\\] ${escaped} \\{([^}]*)\\}`).exec(source)
+    assert.ok(darkBlock, `${name} 缺少 html[theme-mode="dark"] + ${selector} 深色覆盖块`)
+    assert.match(
+      darkBlock[1],
+      /background-color:\s*var\(--td-bg-color-page\);/,
+      `${name} dark 块背景未用 --td-bg-color-page`,
+    )
+    for (const deg of ['0deg', '90deg']) {
+      assert.match(
+        darkBlock[1],
+        new RegExp(`repeating-linear-gradient\\(${deg},\\s*rgba\\(255,\\s*255,\\s*255,\\s*0\\.04\\)`),
+        `${name} dark 块缺 ${deg} 白线网格`,
+      )
+    }
+
+    // AC-10：dark 块不得出现 color 声明（background-color 不算），不全局强制文字色。
+    assert.doesNotMatch(darkBlock[1], /(^|[^-\w])color\s*:/, `${name} dark 块出现 color 声明`)
+
+    // AC-9：浅色（默认）网格定义原样保留——#F6F8FB 底 + 深色细线网格。
+    const lightBlock = new RegExp(`${escaped} \\{([^}]*)\\}`).exec(source)
+    assert.ok(lightBlock, `${name} 浅色 ${selector} 背景定义缺失`)
+    assert.match(lightBlock[1], /background-color:\s*#F6F8FB;/, `${name} 浅色 #F6F8FB 底色缺失`)
+    assert.match(lightBlock[1], /rgba\(15,\s*23,\s*42,\s*0\.035\)/, `${name} 浅色网格线定义缺失`)
+
+    // F21/F22 守卫口径：这两份壳文件不出现 :global(（要跨作用域的规则进全局 CSS）。
+    assert.doesNotMatch(source, /:global\(/, `${name} 不得使用 :global(`)
+  }
 })

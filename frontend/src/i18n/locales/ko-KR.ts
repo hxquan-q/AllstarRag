@@ -6345,7 +6345,7 @@ export default {
     }
   },
   createChat: {
-    title: '안녕하세요, WeKnora입니다 — 당신의 지식을 손끝에',
+    title: '안녕하세요, {name}입니다 — 당신의 지식을 손끝에',
     newSessionTitle: '새 세션',
     openProject: '프로젝트 선택',
     clearProject: '바인딩 해제',
@@ -6695,7 +6695,8 @@ export default {
       inviteOnlyNotice: '이 계정은 초대를 통해서만 기존 공간에 참여할 수 있습니다',
       help: '지금 작업 공간을 만들거나 나중에 돌아와 초대를 수락할 수 있습니다.',
       inviteOnlyHelp: '초대가 없다면 등록 이메일을 공간 관리자에게 전달하고 초대를 요청하세요.',
-      accessRevoked: '죄송합니다. 현재 작업 공간에서 제거되어 접근 권한이 없습니다.'
+      accessRevoked: '죄송합니다. 현재 작업 공간에서 제거되어 접근 권한이 없습니다.',
+      accessRevokedRejoin: '소유자가 다시 초대하면 여기에서 초대를 확인하고 수락하여 접근 권한을 복구할 수 있습니다.'
     }
   },
   inviteRegister: {

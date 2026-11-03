@@ -159,7 +159,10 @@ export const useProductLineStore = defineStore('productLine', () => {
     const current: Promise<void> = chatResources
       .ensureAgents()
       .then(() => {
-        ready.value = true
+        // 与 catch 同理（F14）：账号切换后旧请求迟到成功，不得提前标记新会话就绪。
+        if (bootstrapPromise === current) {
+          ready.value = true
+        }
       })
       .catch((error) => {
         // 只有这次 promise 仍是当前自举时才清引用、置 loadFailed（F14）：
