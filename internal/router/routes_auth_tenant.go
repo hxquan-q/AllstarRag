@@ -138,7 +138,8 @@ func RegisterTenantRoutes(
 				// 处理（tenant_member.go ResetMemberPassword 内），特权目标
 				// 保护（F1 门禁）不变。JWT-only：不通过 apiKeyRoute 声明，
 				// API key 默认拒绝。
-				tenantByID.POST("/members/:user_id/reset-password", g.AdminOrSystemAdmin(), memberHandler.ResetMemberPassword)
+				tenantByID.POST("/members/:user_id/reset-password",
+					g.AdminOrSystemAdmin(), memberHandler.ResetMemberPassword)
 				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.UpdateMemberRole)
 				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.RemoveMember)
 				tenantByID.POST("/leave", g.Viewer(), memberHandler.LeaveTenant)

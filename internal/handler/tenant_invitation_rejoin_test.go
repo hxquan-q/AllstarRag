@@ -213,7 +213,9 @@ func (e *rejoinEnv) assertRejoined(t *testing.T, userID string, tenantID uint64,
 	}
 }
 
-func (e *rejoinEnv) postJSON(t *testing.T, method, path, caller, body string) (*httptest.ResponseRecorder, map[string]any) {
+func (e *rejoinEnv) postJSON(
+	t *testing.T, method, path, caller, body string,
+) (*httptest.ResponseRecorder, map[string]any) {
 	t.Helper()
 	req := httptest.NewRequest(method, path, bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
