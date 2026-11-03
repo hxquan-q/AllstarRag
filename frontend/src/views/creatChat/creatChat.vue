@@ -377,6 +377,14 @@ async function openProjectDir() {
         repeating-linear-gradient(90deg, rgba(15, 23, 42, 0.035) 0 1px, transparent 1px 40px);
 }
 
+/* 深色主题：客户壳换深底+白线网格，正文走主题变量不再浅底白字（管理员不带 customer-shell 零命中，C6）。 */
+html[theme-mode="dark"] .dialogue-wrap.customer-shell {
+    background-color: var(--td-bg-color-page);
+    background-image:
+        repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 40px),
+        repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.04) 0 1px, transparent 1px 40px);
+}
+
 /* 固定在页面最底部的免责声明（绝对定位，不占布局高度） */
 .customer-disclaimer {
     position: absolute;
