@@ -343,6 +343,32 @@ test('F19 非密码字段校验失败：toast 仍取该字段第一条本地化�
   assert.equal(f.vm.submitting, false, 'finally 必须复位 submitting')
 })
 
+test('F21 校验失败取不到消息：toast 兜底 formInvalid，不误称「注册失败」', async (t: TestContext) => {
+  // F21：校验失败但结果里取不到任何 message（未知字段/空数组形态）时，
+  // 兜底文案从 inviteRegister.failed（尚未发请求，与事实不符）改为
+  // inviteRegister.formInvalid（「请检查表单填写内容」）。
+  const f = await registerFormFixture(t, {
+    complexPasswordEnabled: false,
+    t: (key, params) => translate(zhCN, key, params),
+    validate: async () => ({ weirdField: [] }),
+  })
+  f.vm.form.password = 'bad'
+  await f.vm.handleSubmit()
+  assert.deepEqual(
+    f.messages,
+    [['error', zhCN.inviteRegister.formInvalid]],
+    'F21：取不到校验消息时 toast 应为表单填写兜底提示',
+  )
+  assert.notEqual(
+    f.messages[0][1],
+    zhCN.inviteRegister.failed,
+    '校验失败尚未发请求，不应误称「注册失败，请稍后重试」',
+  )
+  assert.equal(f.calls.length, 0, '校验失败不应调用注册接口')
+  assert.deepEqual(f.events, [])
+  assert.equal(f.vm.submitting, false, 'finally 必须复位 submitting')
+})
+
 test('网络异常展示错误并停留表单，不误发 login/invalid', async (t: TestContext) => {
   const f = await registerFormFixture(t, { throwError: new Error('网络错误') })
   await f.vm.handleSubmit()
