@@ -333,10 +333,13 @@ type LoginOptions = {
   lookupFails?: boolean
   config?: any
   loginResponse?: any
+  // F11：让 acceptInvitationByTokenAndRefresh 可配置成功/失败（默认成功）。
+  acceptResult?: { ok: boolean }
 }
 
 async function loginFixture(t: TestContext, options: LoginOptions = {}) {
   const f = fixture(t)
+  const messages: Array<[string, string]> = []
   const calls = {
     accept: [] as string[],
     replace: [] as string[],
@@ -352,7 +355,7 @@ async function loginFixture(t: TestContext, options: LoginOptions = {}) {
     refreshFromAuthMe: async () => options.refresh ?? false,
     acceptInvitationByTokenAndRefresh: async (token: string) => {
       calls.accept.push(token)
-      return { ok: true }
+      return options.acceptResult ?? { ok: true }
     },
     setUser() {}, setRefreshToken() {}, setTenant() {}, setMemberships() {},
     setCanCreateTenant() {}, setAccessRevoked() {}, setSelectedTenant() {}, setLiteMode() {},
@@ -378,7 +381,12 @@ async function loginFixture(t: TestContext, options: LoginOptions = {}) {
       useRouter: () => ({ replace: (path: string) => calls.replace.push(path) }),
     },
     'tdesign-vue-next': {
-      MessagePlugin: { success() {}, warning() {}, error() {}, info() {} },
+      MessagePlugin: {
+        success: (message: string) => messages.push(['success', message]),
+        warning: (message: string) => messages.push(['warning', message]),
+        error: (message: string) => messages.push(['error', message]),
+        info: (message: string) => messages.push(['info', message]),
+      },
     },
     '@/composables/useRoleLabel': {
       useRoleLabel: () => ({ formatRole: () => '', roleIcon: () => '' }),
@@ -403,7 +411,7 @@ async function loginFixture(t: TestContext, options: LoginOptions = {}) {
     },
   })
   for (let i = 0; i < 10; i++) await flush()
-  return { vm, calls, auth, api }
+  return { vm, calls, auth, api, messages }
 }
 
 const validLookup = { success: true, data: { tenant_id: 7, tenant_name: '团队', role: 'viewer' } }
@@ -455,6 +463,7 @@ test('lookup 返回 success:false + 410：展示本地化「邀请链接已失�
   assert.ok(!f.vm.inviteLookupError.includes('invitation link'), '不应直出服务端英文')
   assert.equal(f.vm.inviteDialogVisible, false)
   assert.equal(f.calls.config, 0)
+  assert.deepEqual(f.calls.accept, [], '未登录时不应尝试 accept 兜底（AC-7 匿名行为不变）')
 })
 
 test('lookup 抛错（网络异常）：同样展示本地化「邀请链接已失效」，不弹窗（AC-7）', async (t: TestContext) => {
@@ -462,6 +471,45 @@ test('lookup 抛错（网络异常）：同样展示本地化「邀请链接已�
   assert.equal(f.vm.inviteLookupError, zhCN.inviteRegister.invalidTitle)
   assert.equal(f.vm.inviteDialogVisible, false)
   assert.equal(f.calls.config, 0)
+  assert.deepEqual(f.calls.accept, [], '未登录时不应尝试 accept 兜底')
+})
+
+test('F11 满额链接（lookup 410）+ 已登录：直接凭 token 加入并进入平台，无失效 banner（AC-1/AC-14）', async (t: TestContext) => {
+  const f = await loginFixture(t, {
+    token: 'tok',
+    lookup: {
+      success: false,
+      status: 410,
+      message: 'registration quota is full',
+    },
+    loggedIn: true,
+    refresh: true,
+  })
+  assert.deepEqual(f.calls.accept, ['tok'], 'lookup 失败后应兜底尝试 accept-by-token')
+  assert.deepEqual(f.messages, [['success', zhCN.inviteRegister.joined]])
+  assert.deepEqual(f.calls.replace, ['/platform/knowledge-bases'])
+  assert.equal(f.vm.inviteLookupError, '', '成功加入不应展示失效 banner')
+  assert.equal(f.vm.inviteDialogVisible, false, '已登录不应弹无账号引导')
+  assert.equal(f.calls.config, 0, '已登录兜底不应再拉注册配置')
+})
+
+test('F11 lookup 失败 + 已登录 + accept 被拒（真过期/撤销）：停留登录页并显示本地化失效文案，不重定向', async (t: TestContext) => {
+  const f = await loginFixture(t, {
+    token: 'tok',
+    lookup: {
+      success: false,
+      status: 410,
+      message: 'invitation link is invalid or has been revoked',
+    },
+    loggedIn: true,
+    refresh: true,
+    acceptResult: { ok: false },
+  })
+  assert.deepEqual(f.calls.accept, ['tok'])
+  assert.deepEqual(f.calls.replace, [], '真失效不应重定向进平台')
+  assert.equal(f.vm.inviteLookupError, zhCN.inviteRegister.invalidTitle)
+  assert.deepEqual(f.messages, [], '兜底失败不应弹 joined 成功提示')
+  assert.equal(f.vm.inviteDialogVisible, false)
 })
 
 test('正常登录页（无 token）不出现任何注册入口', async (t: TestContext) => {
