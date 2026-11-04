@@ -114,6 +114,11 @@ func (h *TenantInvitationHandler) CreateInviteLink(c *gin.Context) {
 	if req.MaxRegistrations != nil || req.ExpiresAt != nil {
 		if err := h.invitationService.ApplyShareLinkOptions(ctx, inv.ID, req.MaxRegistrations, req.ExpiresAt); err != nil {
 			logger.Errorf(ctx, "ApplyShareLinkOptions failed: tenant=%d inv=%d err=%v", tenantID, inv.ID, err)
+			// 补写失败时撤销刚创建的孤儿链接，避免 owner 把「不限人数」的默认链接
+			// 误当成刚请求的限人链接使用；撤销失败只记日志，仍按原错误返回 500。
+			if revokeErr := h.invitationService.Revoke(ctx, inv.ID); revokeErr != nil {
+				logger.Errorf(ctx, "revoke orphan share link failed: tenant=%d inv=%d err=%v", tenantID, inv.ID, revokeErr)
+			}
 			c.Error(apperrors.NewInternalServerError("failed to apply share link options").WithDetails(err.Error()))
 			return
 		}

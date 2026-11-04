@@ -432,7 +432,7 @@ const handleInviteInvalid = () => {
   inviteDialogVisible.value = false
   inviteRegisterVisible.value = false
   inviteLookup.value = null
-  inviteLookupError.value = t('inviteRegister.invalidBody')
+  inviteLookupError.value = t('inviteRegister.invalidTitle')
 }
 
 // Handle login
@@ -482,11 +482,12 @@ onMounted(async () => {
       if (resp.success && resp.data) {
         inviteLookup.value = resp.data
       } else {
-        inviteLookupError.value = resp.message || t('inviteRegister.invalidBody')
+        // 服务端英文 message 不直接展示；统一用本地化的「链接已失效」。
+        inviteLookupError.value = t('inviteRegister.invalidTitle')
         return
       }
     } catch {
-      inviteLookupError.value = t('inviteRegister.invalidBody')
+      inviteLookupError.value = t('inviteRegister.invalidTitle')
       return
     } finally {
       inviteLookupLoading.value = false

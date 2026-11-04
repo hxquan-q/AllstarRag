@@ -21,7 +21,7 @@
         <t-input v-model="form.password" type="password" autocomplete="new-password" size="large"
           :disabled="submitting" :placeholder="$t('inviteRegister.passwordPlaceholder')" @enter="handleSubmit" />
         <p v-if="complexPasswordEnabled" class="invite-register__policy">
-          {{ $t('inviteRegister.passwordPolicyHint') }}
+          {{ $t('inviteRegister.passwordPolicyHint', { specialChars: PASSWORD_SPECIAL_CHARS }) }}
         </p>
       </t-form-item>
 
@@ -41,6 +41,7 @@ import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
 import { registerByInvite, type LoginResponse } from '@/api/auth'
+import { PASSWORD_SPECIAL_CHARS, newPasswordRules } from '@/utils/passwordPolicy'
 
 const props = defineProps<{
   token: string
@@ -63,44 +64,37 @@ const form = reactive({
   password: '',
 })
 
-// 复杂密码开启时，与后端同口径预校验：8–32 位，含大小写字母、数字、特殊字符。
-const COMPLEX_PASSWORD_PATTERN = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{}|;:,.<>?]).{8,32}$/
-
-const rules = computed<Record<string, FormRule[]>>(() => {
-  const passwordRules: FormRule[] = [
-    { required: true, message: t('inviteRegister.passwordTooShort'), trigger: 'blur' },
-    { min: 8, max: 32, message: t('inviteRegister.passwordTooShort'), trigger: 'blur' },
-  ]
-  if (props.complexPasswordEnabled) {
-    passwordRules.push({
-      validator: (val: string) => COMPLEX_PASSWORD_PATTERN.test(val ?? ''),
-      message: t('inviteRegister.passwordPolicyHint'),
+// 复用与后端同口径的密码规则：8–32 位，简单模式要求字母+数字，
+// 复杂模式再要求大小写字母与固定特殊字符集。
+const rules = computed<Record<string, FormRule[]>>(() => ({
+  email: [
+    { required: true, message: t('inviteRegister.emailInvalid'), trigger: 'blur' },
+    { email: true, message: t('inviteRegister.emailInvalid'), trigger: 'blur' },
+  ],
+  username: [
+    {
+      validator: (val: string) => (val ?? '').trim().length > 0,
+      message: t('inviteRegister.usernameRequired'),
       trigger: 'blur',
-    })
-  }
-  return {
-    email: [
-      { required: true, message: t('inviteRegister.emailInvalid'), trigger: 'blur' },
-      { email: true, message: t('inviteRegister.emailInvalid'), trigger: 'blur' },
-    ],
-    username: [
-      {
-        validator: (val: string) => (val ?? '').trim().length > 0,
-        message: t('inviteRegister.usernameRequired'),
-        trigger: 'blur',
-      },
-    ],
-    password: passwordRules,
-  }
-})
+    },
+  ],
+  password: newPasswordRules(t, props.complexPasswordEnabled),
+}))
+
+// 服务端密码策略错误固定带 "password must be 8-32 characters" 前缀，
+// 命中时改用本地化提示，避免六种语言界面直出英文原文。
+function isPasswordPolicyMessage(message?: string): boolean {
+  return typeof message === 'string' && /password must be 8-32 characters/i.test(message)
+}
 
 async function handleSubmit() {
+  // 先置位再校验：表单 submit 与密码框 Enter 可能同时触发，置位后第二次直接返回。
   if (submitting.value) return
-  const valid = await formRef.value?.validate?.()
-  if (valid !== true) return
-
   submitting.value = true
   try {
+    const valid = await formRef.value?.validate?.()
+    if (valid !== true) return
+
     const response = await registerByInvite({
       token: props.token,
       email: form.email.trim(),
@@ -115,14 +109,22 @@ async function handleSubmit() {
     }
 
     // 409：邮箱已有账号，切回登录；410：链接失效；403：注册被禁用。
-    // 三种情况都按票面语义交给父组件处理，避免把密码错误混进登录表单。
     if (response.status === 409) {
       MessagePlugin.info(t('inviteRegister.emailExists'))
       emit('login')
       return
     }
-    if (response.status === 410 || response.status === 403) {
+    if (response.status === 403) {
+      MessagePlugin.warning(t('inviteRegister.registerDisabled'))
+      emit('login')
+      return
+    }
+    if (response.status === 410) {
       emit('invalid')
+      return
+    }
+    if (response.status === 400 && isPasswordPolicyMessage(response.message)) {
+      MessagePlugin.error(t('inviteRegister.passwordPolicyHint', { specialChars: PASSWORD_SPECIAL_CHARS }))
       return
     }
     MessagePlugin.error(response.message || t('inviteRegister.failed'))
