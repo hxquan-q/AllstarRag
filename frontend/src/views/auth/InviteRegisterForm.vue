@@ -103,6 +103,16 @@ function firstValidationMessage(result: unknown): string {
   return ''
 }
 
+// 校验失败结果中是否存在 password 字段条目（数组非空），
+// 与 firstValidationMessage 消费同一形态的结果对象。
+function hasPasswordError(result: unknown): boolean {
+  if (!result || typeof result !== 'object') return false
+  for (const [field, errors] of Object.entries(result)) {
+    if (field === 'password' && Array.isArray(errors) && errors.length > 0) return true
+  }
+  return false
+}
+
 async function handleSubmit() {
   // 先置位再校验：表单 submit 与密码框 Enter 可能同时触发，置位后第二次直接返回。
   if (submitting.value) return
@@ -117,7 +127,12 @@ async function handleSubmit() {
       valid = errors
     }
     if (valid !== true) {
-      MessagePlugin.error(firstValidationMessage(valid) || t('inviteRegister.failed'))
+      // 密码类校验失败统一提示合规要求，不直出具体规则：
+      // TDesign 结果里 password 数组可能带出 required 规则消息（「请输入密码」），会误导用户。
+      const message = hasPasswordError(valid)
+        ? t('inviteRegister.passwordInvalid')
+        : firstValidationMessage(valid) || t('inviteRegister.failed')
+      MessagePlugin.error(message)
       return
     }
 

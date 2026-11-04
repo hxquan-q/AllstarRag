@@ -6739,6 +6739,7 @@ export default {
     usernamePlaceholder: '请输入您的姓名',
     password: '设置密码',
     passwordPlaceholder: '请输入符合要求的密码',
+    passwordInvalid: '请输入符合要求的密码',
     confirmPassword: '确认密码',
     submit: '完成注册',
     submitting: '提交中…',
