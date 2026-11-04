@@ -2986,7 +2986,7 @@ export default {
     username: '表示名',
     usernamePlaceholder: '表示名を入力',
     password: 'パスワードを設定',
-    passwordPlaceholder: '8文字以上',
+    passwordPlaceholder: '要件を満たすパスワードを入力',
     confirmPassword: 'パスワードの確認',
     submit: '登録を完了',
     submitting: '送信中…',

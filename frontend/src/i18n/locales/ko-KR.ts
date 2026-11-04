@@ -6737,7 +6737,7 @@ export default {
     username: '표시 이름',
     usernamePlaceholder: '이름을 입력하세요',
     password: '비밀번호 설정',
-    passwordPlaceholder: '최소 8자 이상',
+    passwordPlaceholder: '요구 사항에 맞는 비밀번호를 입력하세요',
     confirmPassword: '비밀번호 확인',
     submit: '가입 완료',
     submitting: '전송 중…',

@@ -2986,7 +2986,7 @@ export default {
     username: 'Display name',
     usernamePlaceholder: 'Enter your display name',
     password: 'Set a password',
-    passwordPlaceholder: 'At least 8 characters',
+    passwordPlaceholder: 'Enter a password that meets the requirements',
     confirmPassword: 'Confirm password',
     submit: 'Complete registration',
     submitting: 'Submitting…',
