@@ -209,10 +209,11 @@ test('400 展示服务端字段/密码提示并停留在表单', async (t: TestC
   assert.deepEqual(f.events, [])
 })
 
-test('400 密码策略错误展示本地化提示（含特殊字符集插值），不透出服务端英文（F2/F9）', async (t: TestContext) => {
-  const serverMessage = 'password must be 8-32 characters and contain at least one letter and one number'
+test('400 密码策略错误（复杂模式）：展示 passwordPolicyHint 含特殊字符集插值，不透出服务端英文（F2/F9/F12）', async (t: TestContext) => {
+  const serverMessage = 'password must be 8-32 characters and contain uppercase and lowercase letters, numbers and special characters'
   const f = await registerFormFixture(t, {
     response: { success: false, status: 400, message: serverMessage },
+    complexPasswordEnabled: true,
     t: (key, params) => translate(zhCN, key, params),
   })
   await f.vm.handleSubmit()
@@ -220,6 +221,20 @@ test('400 密码策略错误展示本地化提示（含特殊字符集插值）�
     'error',
     `密码需为 8–32 位，并包含大写字母、小写字母、数字和特殊字符（${PASSWORD_SPECIAL_CHARS}）。`,
   ]])
+  assert.equal(f.messages[0][1].includes('password must'), false, '不应直出服务端英文')
+  assert.deepEqual(f.events, [])
+})
+
+test('400 密码策略错误（简单模式）：展示 passwordPolicyHintSimple，不含特殊字符要求，不透出服务端英文（F12）', async (t: TestContext) => {
+  const serverMessage = 'password must be 8-32 characters and contain at least one letter and one number'
+  const f = await registerFormFixture(t, {
+    response: { success: false, status: 400, message: serverMessage },
+    complexPasswordEnabled: false,
+    t: (key, params) => translate(zhCN, key, params),
+  })
+  await f.vm.handleSubmit()
+  assert.deepEqual(f.messages, [['error', zhCN.inviteRegister.passwordPolicyHintSimple]])
+  assert.equal(f.messages[0][1].includes('特殊字符'), false, '简单模式只要求字母+数字，不应提示特殊字符')
   assert.equal(f.messages[0][1].includes('password must'), false, '不应直出服务端英文')
   assert.deepEqual(f.events, [])
 })
@@ -512,6 +527,26 @@ test('F11 lookup 失败 + 已登录 + accept 被拒（真过期/撤销）：停�
   assert.equal(f.vm.inviteDialogVisible, false)
 })
 
+test('F13 会话过期窄窗口（已登录 + refresh 失败）+ lookup 失败：显示 invalidBody 登录引导，不重定向、不调 accept', async (t: TestContext) => {
+  const f = await loginFixture(t, {
+    token: 'tok',
+    lookup: {
+      success: false,
+      status: 410,
+      message: 'registration quota is full',
+    },
+    loggedIn: true,
+    refresh: false,
+  })
+  assert.equal(f.vm.inviteLookupError, zhCN.inviteRegister.invalidBody)
+  assert.ok(f.vm.inviteLookupError.includes('前往登录'), '应包含「前往登录使用现有账号」引导')
+  assert.deepEqual(f.calls.replace, [], '会话过期不应重定向')
+  assert.deepEqual(f.calls.accept, [], '无有效会话不应调 accept 兜底')
+  assert.deepEqual(f.messages, [], '不应弹 joined 成功提示')
+  assert.equal(f.vm.inviteDialogVisible, false)
+  assert.equal(f.calls.config, 0, 'lookup 失败早退，不应拉注册配置')
+})
+
 test('正常登录页（无 token）不出现任何注册入口', async (t: TestContext) => {
   const f = await loginFixture(t)
   assert.equal(f.calls.autoSetup, 1)
@@ -580,6 +615,12 @@ test('6 语言邀请文案：密码提示带特殊字符占位符，韩语敬语
       invite.passwordPolicyHint.includes('{specialChars}'),
       `${name} 的 passwordPolicyHint 缺少 {specialChars} 占位符`,
     )
+    // F12：简单模式提示 6 语言齐备，且不带插值（无需特殊字符集）。
+    assert.ok(invite.passwordPolicyHintSimple.length > 0, `${name} 缺少 passwordPolicyHintSimple`)
+    assert.ok(
+      !invite.passwordPolicyHintSimple.includes('{specialChars}'),
+      `${name} 的 passwordPolicyHintSimple 不应使用 {specialChars} 插值`,
+    )
     assert.ok(invite.invalidTitle.length > 0, `${name} 缺少 invalidTitle`)
     assert.ok(invite.registerDisabled.length > 0, `${name} 缺少 registerDisabled`)
   }
@@ -588,4 +629,6 @@ test('6 语言邀请文案：密码提示带特殊字符占位符，韩语敬语
   // F8：日语统一用波ダッシュ U+301C，不用全角波浪线 U+FF5E。
   assert.ok(jaJP.inviteRegister.passwordPolicyHint.includes('〜'))
   assert.ok(!jaJP.inviteRegister.passwordPolicyHint.includes('～'))
+  assert.ok(jaJP.inviteRegister.passwordPolicyHintSimple.includes('〜'))
+  assert.ok(!jaJP.inviteRegister.passwordPolicyHintSimple.includes('～'))
 })
