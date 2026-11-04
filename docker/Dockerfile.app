@@ -17,7 +17,12 @@ RUN if [ -n "$APK_MIRROR_ARG" ]; then \
     rm -rf /var/lib/apt/lists/*
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
 ENV PATH=/usr/local/cargo/bin:$PATH
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+# 国内网络：经 rsproxy 镜像安装 Rust；失败重试并显式校验 cargo 存在
+ENV RUSTUP_DIST_SERVER=https://rsproxy.cn RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
+RUN set -e; for i in 1 2 3; do \
+        curl --proto '=https' --tlsv1.2 -sSf --retry 3 https://sh.rustup.rs -o /tmp/rustup.sh && \
+        sh /tmp/rustup.sh -y --profile minimal --default-toolchain stable && break || sleep 5; \
+    done; command -v cargo
 COPY scripts/build_browserskill.sh scripts/browserskill-release.json ./scripts/
 ARG TARGETOS
 ARG TARGETARCH
@@ -78,12 +83,15 @@ ENV GO_VERSION=${GO_VERSION_ARG}
 ARG WITH_ANYDOC=1
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo
 ENV PATH=/usr/local/cargo/bin:$PATH
+ENV RUSTUP_DIST_SERVER=https://rsproxy.cn RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     if [ "$WITH_ANYDOC" = "1" ]; then \
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-            | sh -s -- -y --profile minimal --default-toolchain stable && \
-        ./scripts/build-anydoc-lib.sh; \
+        for i in 1 2 3; do \
+            curl --proto '=https' --tlsv1.2 -sSf --retry 3 https://sh.rustup.rs -o /tmp/rustup.sh && \
+            sh /tmp/rustup.sh -y --profile minimal --default-toolchain stable && break || sleep 5; \
+        done; \
+        command -v cargo && ./scripts/build-anydoc-lib.sh; \
     fi
 
 # Build the application with version info. Mount the Go build cache as well as
