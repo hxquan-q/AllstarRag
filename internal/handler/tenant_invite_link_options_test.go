@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
 const shareLinkTestTenantID uint64 = 901
@@ -40,9 +42,10 @@ func (s *shareLinkUserService) GetUsersByIDs(
 }
 
 type shareLinkTestEnv struct {
-	db     *gorm.DB
-	users  *shareLinkUserService
-	router *gin.Engine
+	db      *gorm.DB
+	users   *shareLinkUserService
+	router  *gin.Engine
+	handler *TenantInvitationHandler
 }
 
 // newShareLinkTestEnv 装配创建 / 列表两条路由。权限中间件不在本测试范围
@@ -87,7 +90,7 @@ func newShareLinkTestEnv(t *testing.T) *shareLinkTestEnv {
 	}, errorCapture())
 	r.POST("/tenants/:id/invite-links", h.CreateInviteLink)
 	r.GET("/tenants/:id/invitations", h.ListTenantInvitations)
-	return &shareLinkTestEnv{db: db, users: users, router: r}
+	return &shareLinkTestEnv{db: db, users: users, router: r, handler: h}
 }
 
 func (e *shareLinkTestEnv) do(t *testing.T, method, path, body string) *httptest.ResponseRecorder {
@@ -265,6 +268,69 @@ func TestT02_ListInvitationsProjectsRegisteredAndAcceptedCounts(t *testing.T) {
 	}
 	if !got.IsShareLink || got.InviteURL == "" {
 		t.Fatalf("列表共享链接缺少 is_share_link/invite_url: %+v", got)
+	}
+}
+
+// revokeRecordingInvitationService 包住真实 service，只替换从事务性补写与撤销，
+// 用于验证「补写选项失败 → 撤销孤儿链接 → 返回 500」的清理路径（F4）。
+type revokeRecordingInvitationService struct {
+	interfaces.TenantInvitationService
+	applyErr   error
+	revokeErr  error
+	revokedIDs []uint64
+}
+
+func (s *revokeRecordingInvitationService) ApplyShareLinkOptions(
+	context.Context, uint64, *int, *time.Time,
+) error {
+	return s.applyErr
+}
+
+func (s *revokeRecordingInvitationService) Revoke(_ context.Context, invID uint64) error {
+	s.revokedIDs = append(s.revokedIDs, invID)
+	return s.revokeErr
+}
+
+// AC-10/11（F4）：补写配额/有效期失败时，handler 必须 best-effort 撤销刚创建的
+// 共享链接并返回 500，不能把「不限人数」的默认链接留给 owner 误用。
+func TestT04_ApplyShareLinkOptionsFailureRevokesOrphanLink(t *testing.T) {
+	cases := []struct {
+		name      string
+		revokeErr error
+	}{
+		{name: "撤销成功", revokeErr: nil},
+		{name: "撤销也失败仍返回500", revokeErr: errors.New("revoke failed")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env := newShareLinkTestEnv(t)
+			stub := &revokeRecordingInvitationService{
+				TenantInvitationService: env.handler.invitationService,
+				applyErr:                errors.New("apply options failed"),
+				revokeErr:               tc.revokeErr,
+			}
+			env.handler.invitationService = stub
+
+			w := env.do(t, http.MethodPost, shareLinkPath, `{"role":"viewer","max_registrations":5}`)
+			if w.Code != http.StatusInternalServerError {
+				t.Fatalf("补写失败 status=%d, want 500 (body=%s)", w.Code, w.Body.String())
+			}
+			if len(stub.revokedIDs) != 1 {
+				t.Fatalf("应撤销 1 次孤儿链接, got %d（ids=%v）", len(stub.revokedIDs), stub.revokedIDs)
+			}
+			orphanID := stub.revokedIDs[0]
+
+			var row types.TenantInvitation
+			if err := env.db.First(&row, orphanID).Error; err != nil {
+				t.Fatalf("撤销的链接应确实由本次创建: %v", err)
+			}
+			if row.Token == "" {
+				t.Fatalf("撤销的链接缺少 token，疑似不是刚创建的共享链接: %+v", row)
+			}
+			if row.MaxRegistrations != nil {
+				t.Fatalf("补写失败不应落库配额, got %v", *row.MaxRegistrations)
+			}
+		})
 	}
 }
 

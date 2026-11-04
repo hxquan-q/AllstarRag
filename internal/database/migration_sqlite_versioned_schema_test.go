@@ -311,6 +311,69 @@ func TestSQLiteInvitationQuotaMigrationRollsBack(t *testing.T) {
 	}
 }
 
+// AC-20/F5：存量库先停在 52，插入一条共享链接行后再升级到 53，
+// 断言升级路径上既有行两列默认为 NULL / 0；执行 000053 down 后行仍保留、两列删除。
+func TestSQLiteInvitationQuotaUpgradePreservesExistingRows(t *testing.T) {
+	repoRoot := sqliteRepoRoot(t)
+	chdirAndRestore(t, copySQLiteMigrationsThrough(t, repoRoot, 52))
+
+	dbPath := filepath.Join(t.TempDir(), "invitation-quota-upgrade.db")
+	opts := MigrationOptions{SQLiteDBPath: dbPath}
+	require.NoError(t, RunMigrationsWithOptions("sqlite3://unused", opts))
+
+	db := openSQLiteDB(t, dbPath)
+	versionBefore, dirtyBefore := sqliteMigrationState(t, db)
+	require.Equal(t, 52, versionBefore)
+	require.False(t, dirtyBefore)
+	require.False(t, sqliteColumnExists(t, db, "tenant_invitations", "max_registrations"),
+		"v52 还不应有配额列")
+	require.False(t, sqliteColumnExists(t, db, "tenant_invitations", "registered_count"),
+		"v52 还不应有注册计数列")
+
+	_, err := db.Exec("INSERT INTO tenants (name, business) VALUES (?, ?)",
+		"quota-upgrade-tenant", "quota-upgrade-test")
+	require.NoError(t, err)
+	_, err = db.Exec(
+		"INSERT INTO tenant_invitations (tenant_id, invitee_user_id, token, role, status, expires_at) "+
+			"VALUES (1, '', ?, 'member', 'pending', ?)",
+		"upgrade-share-token", "2099-01-01 00:00:00",
+	)
+	require.NoError(t, err)
+
+	chdirAndRestore(t, repoRoot)
+	require.NoError(t, RunMigrationsWithOptions("sqlite3://unused", opts))
+
+	versionAfter, dirtyAfter := sqliteMigrationState(t, db)
+	require.Equal(t, expectedSQLiteMigrationVersion, versionAfter)
+	require.False(t, dirtyAfter)
+	require.True(t, sqliteColumnExists(t, db, "tenant_invitations", "max_registrations"))
+	require.True(t, sqliteColumnExists(t, db, "tenant_invitations", "registered_count"))
+
+	var maxRegistrations sql.NullInt64
+	var registeredCount int
+	require.NoError(t, db.QueryRow(
+		"SELECT max_registrations, registered_count FROM tenant_invitations WHERE token = ?",
+		"upgrade-share-token",
+	).Scan(&maxRegistrations, &registeredCount))
+	require.False(t, maxRegistrations.Valid, "存量行升级后 max_registrations 必须是 NULL（不限）")
+	require.Zero(t, registeredCount, "存量行升级后 registered_count 必须是 0")
+
+	down, err := os.ReadFile(filepath.Join(
+		repoRoot, "migrations/sqlite/000053_tenant_invitation_registration_quota.down.sql",
+	))
+	require.NoError(t, err)
+	_, err = db.Exec(string(down))
+	require.NoError(t, err)
+	require.False(t, sqliteColumnExists(t, db, "tenant_invitations", "max_registrations"))
+	require.False(t, sqliteColumnExists(t, db, "tenant_invitations", "registered_count"))
+
+	var count int
+	require.NoError(t, db.QueryRow(
+		"SELECT COUNT(*) FROM tenant_invitations WHERE token = ?", "upgrade-share-token",
+	).Scan(&count))
+	require.Equal(t, 1, count, "down 回滚后共享链接行必须保留")
+}
+
 func sqliteRepoRoot(t *testing.T) string {
 	t.Helper()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))

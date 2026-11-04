@@ -5,6 +5,16 @@ import { parse } from '@vue/compiler-sfc'
 import { createSSRApp, ref } from 'vue'
 import { renderToString } from '@vue/server-renderer'
 import zhCN from '../../i18n/locales/zh-CN'
+import zhTW from '../../i18n/locales/zh-TW'
+import enUS from '../../i18n/locales/en-US'
+import jaJP from '../../i18n/locales/ja-JP'
+import koKR from '../../i18n/locales/ko-KR'
+import ruRU from '../../i18n/locales/ru-RU'
+import {
+  PASSWORD_SPECIAL_CHARS,
+  PASSWORD_SPECIAL_CHAR_REGEX,
+  newPasswordRules,
+} from '../../utils/passwordPolicy'
 import { fixture, flush } from '../../test-utils/vueFixture.ts'
 
 // T05 整体回归：邀请落地页弹窗 / 注册表单 / Login 接线。
@@ -15,6 +25,14 @@ function translate(message: any, key: string, params: Record<string, unknown> = 
   const value = key.split('.').reduce<any>((node, part) => node?.[part], message)
   if (typeof value !== 'string') throw new Error(`缺少 i18n key: ${key}`)
   return value.replace(/\{(\w+)\}/g, (_, name: string) => String(params[name] ?? ''))
+}
+
+// SSR 会把文本里的 & < > 转义；断言密码字符集时先按同样规则转义。
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 function registerUiStubs(app: any) {
@@ -97,6 +115,7 @@ type RegisterFormOptions = {
   response?: any
   throwError?: Error
   complexPasswordEnabled?: boolean
+  t?: (key: string, params?: Record<string, unknown>) => string
 }
 
 async function registerFormFixture(t: TestContext, options: RegisterFormOptions = {}) {
@@ -104,13 +123,20 @@ async function registerFormFixture(t: TestContext, options: RegisterFormOptions 
   const calls: any[] = []
   const messages: Array<[string, string]> = []
   const events: string[] = []
+  const tFn = options.t ?? ((key: string) => key)
   const { vm } = f.component(new URL('./InviteRegisterForm.vue', import.meta.url), {
-    'vue-i18n': { useI18n: () => ({ t: (key: string) => key }) },
+    'vue-i18n': { useI18n: () => ({ t: tFn }) },
     'tdesign-vue-next': {
       MessagePlugin: {
         info: (message: string) => messages.push(['info', message]),
+        warning: (message: string) => messages.push(['warning', message]),
         error: (message: string) => messages.push(['error', message]),
       },
+    },
+    '@/utils/passwordPolicy': {
+      PASSWORD_SPECIAL_CHARS,
+      PASSWORD_SPECIAL_CHAR_REGEX,
+      newPasswordRules,
     },
     '@/api/auth': {
       registerByInvite: async (body: any) => {
@@ -156,16 +182,23 @@ test('409 邮箱已注册：提示后切回登录，不提示注册失败', asyn
   assert.deepEqual(f.events, ['login'])
 })
 
-for (const status of [410, 403]) {
-  test(`${status} 统一走链接失效分支，不展示表单`, async (t: TestContext) => {
-    const f = await registerFormFixture(t, {
-      response: { success: false, status, message: 'gone' },
-    })
-    await f.vm.handleSubmit()
-    assert.deepEqual(f.events, ['invalid'])
-    assert.deepEqual(f.messages, [], '不应额外提示')
+test('410 链接失效：回到失效分支，不展示表单', async (t: TestContext) => {
+  const f = await registerFormFixture(t, {
+    response: { success: false, status: 410, message: 'gone' },
   })
-}
+  await f.vm.handleSubmit()
+  assert.deepEqual(f.events, ['invalid'])
+  assert.deepEqual(f.messages, [], '不应额外提示')
+})
+
+test('403 注册已禁用：警告 registerDisabled 并切回登录，不按链接失效率处理（F6）', async (t: TestContext) => {
+  const f = await registerFormFixture(t, {
+    response: { success: false, status: 403, message: 'registration disabled' },
+  })
+  await f.vm.handleSubmit()
+  assert.deepEqual(f.messages, [['warning', 'inviteRegister.registerDisabled']])
+  assert.deepEqual(f.events, ['login'])
+})
 
 test('400 展示服务端字段/密码提示并停留在表单', async (t: TestContext) => {
   const f = await registerFormFixture(t, {
@@ -174,6 +207,29 @@ test('400 展示服务端字段/密码提示并停留在表单', async (t: TestC
   await f.vm.handleSubmit()
   assert.deepEqual(f.messages, [['error', '密码不合规']])
   assert.deepEqual(f.events, [])
+})
+
+test('400 密码策略错误展示本地化提示（含特殊字符集插值），不透出服务端英文（F2/F9）', async (t: TestContext) => {
+  const serverMessage = 'password must be 8-32 characters and contain at least one letter and one number'
+  const f = await registerFormFixture(t, {
+    response: { success: false, status: 400, message: serverMessage },
+    t: (key, params) => translate(zhCN, key, params),
+  })
+  await f.vm.handleSubmit()
+  assert.deepEqual(f.messages, [[
+    'error',
+    `密码需为 8–32 位，并包含大写字母、小写字母、数字和特殊字符（${PASSWORD_SPECIAL_CHARS}）。`,
+  ]])
+  assert.equal(f.messages[0][1].includes('password must'), false, '不应直出服务端英文')
+  assert.deepEqual(f.events, [])
+})
+
+test('并发提交（表单 submit + 密码框 Enter）只调用一次注册接口（F3）', async (t: TestContext) => {
+  const f = await registerFormFixture(t)
+  await Promise.all([f.vm.handleSubmit(), f.vm.handleSubmit()])
+  assert.equal(f.calls.length, 1, '重复提交必须被前置守卫拦下')
+  assert.deepEqual(f.events, ['success'])
+  assert.equal(f.vm.submitting, false, '提交结束后必须复位 submitting')
 })
 
 test('网络异常展示错误并停留表单，不误发 login/invalid', async (t: TestContext) => {
@@ -185,36 +241,86 @@ test('网络异常展示错误并停留表单，不误发 login/invalid', async 
 
 test('复杂密码开启时展示规则提示，并追加大小写/数字/特殊字符校验', async (t: TestContext) => {
   const file = new URL('./InviteRegisterForm.vue', import.meta.url)
+  const policyHint = `密码需为 8–32 位，并包含大写字母、小写字母、数字和特殊字符（${PASSWORD_SPECIAL_CHARS}）。`
   const htmlOn = await renderSfc(file, componentTemplate(file), {
     form: { email: '', username: '', password: '' },
     complexPasswordEnabled: true,
     submitting: false,
     rules: {},
+    PASSWORD_SPECIAL_CHARS,
   })
-  assert.ok(htmlOn.includes('密码需为 8–32 位，并包含大写字母、小写字母、数字和特殊字符。'))
+  assert.ok(
+    htmlOn.includes(escapeHtml(policyHint)),
+    `复杂密码提示应插值特殊字符集；实际渲染：${htmlOn}`,
+  )
 
   const weak = await registerFormFixture(t, { complexPasswordEnabled: true })
-  const strengthen = weak.vm.rules.password
-  assert.equal(strengthen.length, 3)
-  assert.equal(strengthen[2].validator('Abcdef1!'), true)
-  assert.equal(strengthen[2].validator('abcdefg1!'), false)
-  assert.equal(strengthen[2].validator('ABCDEFG1!'), false)
-  assert.equal(strengthen[2].validator('Abcdefg!!'), false)
-  assert.equal(strengthen[2].validator('Abcdef12'), false)
+  const rules = weak.vm.rules.password as any[]
+  // 与后端同口径：必填/最短/最长 + 小写/大写/数字/特殊字符，共 7 条。
+  assert.equal(rules.length, 7)
+  assert.ok(rules.some((rule) => rule.required === true), '缺少必填规则')
+  assert.ok(rules.some((rule) => rule.min === 8), '缺少最短 8 位规则')
+  assert.ok(rules.some((rule) => rule.max === 32), '缺少最长 32 位规则')
+
+  function patternRule(source: string) {
+    const rule = rules.find(
+      (item) => item.pattern && typeof item.pattern.test === 'function' && item.pattern.source === source,
+    )
+    assert.ok(rule, `缺少 pattern ${source} 的规则`)
+    return rule as { pattern: RegExp; message: string }
+  }
+  const lowercase = patternRule('[a-z]')
+  const uppercase = patternRule('[A-Z]')
+  const digit = patternRule('\\d')
+  const special = patternRule(PASSWORD_SPECIAL_CHAR_REGEX.source)
+
+  assert.equal(lowercase.message, 'auth.passwordMustContainLowercaseLetter')
+  assert.equal(uppercase.message, 'auth.passwordMustContainUppercaseLetter')
+  assert.equal(digit.message, 'auth.passwordMustContainNumber')
+  assert.equal(special.message, 'auth.passwordMustContainSpecialChar')
+
+  assert.equal(lowercase.pattern.test('Abcdef1!'), true)
+  assert.equal(lowercase.pattern.test('ABCDEF1!'), false)
+  assert.equal(uppercase.pattern.test('Abcdef1!'), true)
+  assert.equal(uppercase.pattern.test('abcdef1!'), false)
+  assert.equal(digit.pattern.test('Abcdef1!'), true)
+  assert.equal(digit.pattern.test('Abcdefg!'), false)
+  assert.equal(special.pattern.test('Abcdef1!'), true)
+  assert.equal(special.pattern.test('Abcdef12'), false)
 })
 
-test('复杂密码关闭时不显示规则提示，密码规则只有长度校验', async (t: TestContext) => {
+test('复杂密码关闭时不显示规则提示，密码规则为长度 + 字母 + 数字', async (t: TestContext) => {
   const file = new URL('./InviteRegisterForm.vue', import.meta.url)
   const htmlOff = await renderSfc(file, componentTemplate(file), {
     form: { email: '', username: '', password: '' },
     complexPasswordEnabled: false,
     submitting: false,
     rules: {},
+    PASSWORD_SPECIAL_CHARS,
   })
-  assert.ok(!htmlOff.includes('密码需为 8–32 位，并包含大写字母、小写字母、数字和特殊字符。'))
+  assert.ok(!htmlOff.includes('密码需为 8–32 位'))
 
   const plain = await registerFormFixture(t, { complexPasswordEnabled: false })
-  assert.equal(plain.vm.rules.password.length, 2)
+  const plainRules = plain.vm.rules.password as any[]
+  // 必填/最短/最长 + 字母 + 数字，共 5 条。
+  assert.equal(plainRules.length, 5)
+  assert.ok(plainRules.some((rule) => rule.required === true), '缺少必填规则')
+  assert.ok(plainRules.some((rule) => rule.min === 8), '缺少最短 8 位规则')
+  assert.ok(plainRules.some((rule) => rule.max === 32), '缺少最长 32 位规则')
+
+  const letter = plainRules.find(
+    (rule) => rule.pattern && typeof rule.pattern.test === 'function' && rule.pattern.source === '[a-zA-Z]',
+  )
+  const digit = plainRules.find(
+    (rule) => rule.pattern && typeof rule.pattern.test === 'function' && rule.pattern.source === '\\d',
+  )
+  assert.ok(letter, '简单模式缺少字母规则')
+  assert.ok(digit, '简单模式缺少数字规则')
+  assert.equal(letter.pattern.test('12345678'), false)
+  assert.equal(letter.pattern.test('abcdefgh'), true)
+  assert.equal(digit.pattern.test('abcdefgh'), false)
+  assert.equal(digit.pattern.test('12345678'), true)
+  assert.equal(letter.pattern.test('Abcdef12') && digit.pattern.test('Abcdef12'), true)
 })
 
 // ---------- Login.vue 接线（AC-1 / AC-5 / AC-6 / AC-7 / AC-8） ----------
@@ -281,7 +387,11 @@ async function loginFixture(t: TestContext, options: LoginOptions = {}) {
     '@/api/auth': api,
     '@/stores/auth': { useAuthStore: () => auth },
     'vue-i18n': {
-      useI18n: () => ({ t: (key: string) => key, tm: () => ({}), locale: ref('zh-CN') }),
+      useI18n: () => ({
+        t: (key: string, params?: Record<string, unknown>) => translate(zhCN, key, params),
+        tm: () => ({}),
+        locale: ref('zh-CN'),
+      }),
     },
     '@/brand': {
       applyDocumentBrand() {},
@@ -332,9 +442,24 @@ test('邀请链接 + 有效登录态：不弹窗，直接凭 token 加入并进�
   assert.deepEqual(f.calls.replace, ['/platform/knowledge-bases'])
 })
 
-test('lookup 失败：展示链接失效错误，不弹窗也不拉注册配置', async (t: TestContext) => {
+test('lookup 返回 success:false + 410：展示本地化「邀请链接已失效」，不透出服务端英文（AC-7/F10）', async (t: TestContext) => {
+  const f = await loginFixture(t, {
+    token: 'tok',
+    lookup: {
+      success: false,
+      status: 410,
+      message: 'invitation link is invalid or has been revoked',
+    },
+  })
+  assert.equal(f.vm.inviteLookupError, zhCN.inviteRegister.invalidTitle)
+  assert.ok(!f.vm.inviteLookupError.includes('invitation link'), '不应直出服务端英文')
+  assert.equal(f.vm.inviteDialogVisible, false)
+  assert.equal(f.calls.config, 0)
+})
+
+test('lookup 抛错（网络异常）：同样展示本地化「邀请链接已失效」，不弹窗（AC-7）', async (t: TestContext) => {
   const f = await loginFixture(t, { token: 'tok', lookupFails: true })
-  assert.equal(f.vm.inviteLookupError, 'inviteRegister.invalidBody')
+  assert.equal(f.vm.inviteLookupError, zhCN.inviteRegister.invalidTitle)
   assert.equal(f.vm.inviteDialogVisible, false)
   assert.equal(f.calls.config, 0)
 })
@@ -362,7 +487,7 @@ test('弹窗操作：创建 → 注册表单；返回登录 / 链接失效 → �
   f.vm.handleInviteInvalid()
   assert.equal(f.vm.inviteRegisterVisible, false)
   assert.equal(f.vm.inviteLookup, null)
-  assert.equal(f.vm.inviteLookupError, 'inviteRegister.invalidBody')
+  assert.equal(f.vm.inviteLookupError, zhCN.inviteRegister.invalidTitle)
 })
 
 test('注册成功：持久化会话后进入平台', async (t: TestContext) => {
@@ -395,4 +520,24 @@ test('已有账号：登录成功后凭邀请 token 加入并进入平台（AC-5
   assert.deepEqual(f.calls.tokens, ['access-token'])
   assert.deepEqual(f.calls.accept, ['tok'])
   assert.equal(f.calls.replace.at(-1), '/platform/knowledge-bases')
+})
+
+// ---------- 6 语言文案回归（AC-21 / F7 / F8 / F9 / F10） ----------
+
+test('6 语言邀请文案：密码提示带特殊字符占位符，韩语敬语与日语波浪线符合修复口径', () => {
+  const bundles: Record<string, any> = { zhCN, zhTW, enUS, jaJP, koKR, ruRU }
+  for (const [name, bundle] of Object.entries(bundles)) {
+    const invite = bundle.inviteRegister
+    assert.ok(
+      invite.passwordPolicyHint.includes('{specialChars}'),
+      `${name} 的 passwordPolicyHint 缺少 {specialChars} 占位符`,
+    )
+    assert.ok(invite.invalidTitle.length > 0, `${name} 缺少 invalidTitle`)
+    assert.ok(invite.registerDisabled.length > 0, `${name} 缺少 registerDisabled`)
+  }
+  // F7：韩语敬语 -시- 前 ㄹ 脱落。
+  assert.ok(koKR.inviteRegister.noAccountTitle.includes('만드시겠습니까'))
+  // F8：日语统一用波ダッシュ U+301C，不用全角波浪线 U+FF5E。
+  assert.ok(jaJP.inviteRegister.passwordPolicyHint.includes('〜'))
+  assert.ok(!jaJP.inviteRegister.passwordPolicyHint.includes('～'))
 })
