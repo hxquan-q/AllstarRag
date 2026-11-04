@@ -408,6 +408,23 @@ const acceptAndEnter = async (token: string) => {
   }
 }
 
+// lookup 失败（含名额已满的统一 410）后的兜底：后端 accept-by-token 不检查
+// 配额（AC-14），有有效会话时仍直接兑换 token 加入（AC-1）；真失效（过期/撤销）
+// 或匿名访客才停留登录页，统一显示本地化「链接已失效」（AC-7/F10）。
+const handleInviteLookupFailure = async (token: string) => {
+  if (authStore.isLoggedIn && (await authStore.refreshFromAuthMe())) {
+    const result = await authStore.acceptInvitationByTokenAndRefresh(token)
+    if (result.ok) {
+      MessagePlugin.success(t('inviteRegister.joined'))
+      await nextTick()
+      router.replace('/platform/knowledge-bases')
+      return
+    }
+  }
+  // 服务端英文 message 不直接展示；统一用本地化的「链接已失效」。
+  inviteLookupError.value = t('inviteRegister.invalidTitle')
+}
+
 // ---- 邀请落地页：无账号引导 ----
 // 创建新账号：关弹窗，露出注册表单；邀请 banner 继续保留。
 const openInviteRegister = () => {
@@ -471,23 +488,22 @@ const handleLogin = async () => {
 // Check if already logged in; for lite edition, attempt transparent auto-setup
 onMounted(async () => {
   // 邀请链接（?token=）优先处理：先校验 token，避免已登录重定向把它丢掉。
-  // 校验失败时停在登录页内联报错，用户仍可用已有账号登录。
+  // 校验失败时已登录用户尝试直接加入，其余停留登录页内联报错。
   const tokenFromQuery = String(route.query.token || '').trim()
   if (tokenFromQuery) {
     inviteToken.value = tokenFromQuery
     inviteLookupLoading.value = true
-    // 1. 先校验 token：无效/过期则停在登录页报错。
+    // 1. 先校验 token：满额/无效/过期时走已登录兜底，否则停在登录页报错。
     try {
       const resp = await getInvitationByToken(tokenFromQuery)
       if (resp.success && resp.data) {
         inviteLookup.value = resp.data
       } else {
-        // 服务端英文 message 不直接展示；统一用本地化的「链接已失效」。
-        inviteLookupError.value = t('inviteRegister.invalidTitle')
+        await handleInviteLookupFailure(tokenFromQuery)
         return
       }
     } catch {
-      inviteLookupError.value = t('inviteRegister.invalidTitle')
+      await handleInviteLookupFailure(tokenFromQuery)
       return
     } finally {
       inviteLookupLoading.value = false
