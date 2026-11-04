@@ -6721,6 +6721,7 @@ export default {
     registerTitle: 'Create a new account',
     registerHint: 'Enter your email, name, and password to create an account and join this workspace.',
     passwordPolicyHint: 'Password must be 8–32 characters and include uppercase and lowercase letters, numbers, and special characters ({specialChars}).',
+    passwordPolicyHintSimple: 'Password must be 8–32 characters and contain both letters and numbers.',
     emailExists: 'This email is already registered. Please log in instead.',
     registerDisabled: 'Registration is currently disabled. Please log in with an existing account.',
     loading: 'Verifying invitation link…',

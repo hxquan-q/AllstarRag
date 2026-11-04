@@ -124,7 +124,10 @@ async function handleSubmit() {
       return
     }
     if (response.status === 400 && isPasswordPolicyMessage(response.message)) {
-      MessagePlugin.error(t('inviteRegister.passwordPolicyHint', { specialChars: PASSWORD_SPECIAL_CHARS }))
+      // 简单模式只要求字母+数字，只有复杂模式才提示特殊字符集，避免误导。
+      MessagePlugin.error(props.complexPasswordEnabled
+        ? t('inviteRegister.passwordPolicyHint', { specialChars: PASSWORD_SPECIAL_CHARS })
+        : t('inviteRegister.passwordPolicyHintSimple'))
       return
     }
     MessagePlugin.error(response.message || t('inviteRegister.failed'))

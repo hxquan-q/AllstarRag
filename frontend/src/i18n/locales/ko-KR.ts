@@ -6721,6 +6721,7 @@ export default {
     registerTitle: '새 계정 만들기',
     registerHint: '이메일, 이름, 비밀번호를 입력하면 계정을 만들고 이 워크스페이스에 참여합니다.',
     passwordPolicyHint: '비밀번호는 8–32자이며 대문자, 소문자, 숫자, 특수 문자({specialChars})를 모두 포함해야 합니다.',
+    passwordPolicyHintSimple: '비밀번호는 8–32자이며 영문자와 숫자를 모두 포함해야 합니다.',
     emailExists: '이미 등록된 이메일입니다. 로그인해 주세요.',
     registerDisabled: '현재 회원가입이 비활성화되어 있습니다. 기존 계정으로 로그인해 주세요.',
     loading: '초대 링크를 확인하는 중…',

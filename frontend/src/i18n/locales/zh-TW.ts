@@ -6722,6 +6722,7 @@ export default {
     registerTitle: '建立新帳號',
     registerHint: '填寫電子信箱、姓名和密碼，即可建立帳號並加入此空間。',
     passwordPolicyHint: '密碼需為 8–32 位，且包含大寫字母、小寫字母、數字與特殊字元（{specialChars}）。',
+    passwordPolicyHintSimple: '密碼需為 8–32 位，且同時包含字母與數字。',
     emailExists: '此電子信箱已註冊，請直接登入。',
     registerDisabled: '目前不開放註冊，請使用現有帳號登入。',
     loading: '正在驗證邀請連結…',

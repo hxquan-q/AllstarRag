@@ -410,18 +410,28 @@ const acceptAndEnter = async (token: string) => {
 
 // lookup 失败（含名额已满的统一 410）后的兜底：后端 accept-by-token 不检查
 // 配额（AC-14），有有效会话时仍直接兑换 token 加入（AC-1）；真失效（过期/撤销）
-// 或匿名访客才停留登录页，统一显示本地化「链接已失效」（AC-7/F10）。
+// 或匿名访客才停留登录页显示「链接已失效」（AC-7/F10）。会话已过期但本机有
+// 残留登录态的窄窗口里，链接可能只是名额已满、重新登录仍可加入，改用带
+// 「前往登录」引导的 invalidBody（F13）。
 const handleInviteLookupFailure = async (token: string) => {
-  if (authStore.isLoggedIn && (await authStore.refreshFromAuthMe())) {
-    const result = await authStore.acceptInvitationByTokenAndRefresh(token)
-    if (result.ok) {
-      MessagePlugin.success(t('inviteRegister.joined'))
-      await nextTick()
-      router.replace('/platform/knowledge-bases')
-      return
-    }
+  // 完全未登录的匿名访客：统一显示本地化「链接已失效」（AC-7）。
+  if (!authStore.isLoggedIn) {
+    inviteLookupError.value = t('inviteRegister.invalidTitle')
+    return
   }
-  // 服务端英文 message 不直接展示；统一用本地化的「链接已失效」。
+  // 本机有残留登录态但会话已过期：提示登录后仍可加入，避免误以为链接报废。
+  if (!(await authStore.refreshFromAuthMe())) {
+    inviteLookupError.value = t('inviteRegister.invalidBody')
+    return
+  }
+  const result = await authStore.acceptInvitationByTokenAndRefresh(token)
+  if (result.ok) {
+    MessagePlugin.success(t('inviteRegister.joined'))
+    await nextTick()
+    router.replace('/platform/knowledge-bases')
+    return
+  }
+  // 有效会话下兑换仍失败：链接真失效（过期/撤销），服务端英文 message 不直出。
   inviteLookupError.value = t('inviteRegister.invalidTitle')
 }
 

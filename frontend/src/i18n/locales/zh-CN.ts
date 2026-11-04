@@ -6722,6 +6722,7 @@ export default {
     registerTitle: '创建新账号',
     registerHint: '填写邮箱、姓名和密码，即可创建账号并加入该空间。',
     passwordPolicyHint: '密码需为 8–32 位，并包含大写字母、小写字母、数字和特殊字符（{specialChars}）。',
+    passwordPolicyHintSimple: '密码需为 8–32 位，且同时包含字母和数字。',
     emailExists: '该邮箱已注册，请直接登录。',
     registerDisabled: '当前未开放注册，请使用已有账号登录。',
     loading: '正在校验邀请链接…',

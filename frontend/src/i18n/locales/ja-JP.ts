@@ -2970,6 +2970,7 @@ export default {
     registerTitle: '新しいアカウントを作成',
     registerHint: 'メールアドレス、名前、パスワードを入力すると、アカウントを作成してこのワークスペースに参加します。',
     passwordPolicyHint: 'パスワードは8〜32文字で、大文字・小文字・数字・記号（{specialChars}）をすべて含める必要があります。',
+    passwordPolicyHintSimple: 'パスワードは8〜32文字で、英字と数字を両方含める必要があります。',
     emailExists: 'このメールアドレスは既に登録されています。ログインしてください。',
     registerDisabled: '現在、新規登録は無効です。既存のアカウントでログインしてください。',
     loading: '招待リンクを確認中…',
