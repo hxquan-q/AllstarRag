@@ -159,32 +159,42 @@
           <div v-else-if="inviteLookupError" class="invite-banner invite-banner--error">
             {{ inviteLookupError }}
           </div>
-          <div class="form-header">
-            <h2 class="form-title">{{ brandConfig.productName }}</h2>
-            <p class="form-subtitle">{{ brandConfig.loginSubtitle }}</p>
-            <p class="form-hint">{{ $t('brand.loginHint') }}</p>
-          </div>
+          <template v-if="!inviteRegisterVisible">
+            <div class="form-header">
+              <h2 class="form-title">{{ brandConfig.productName }}</h2>
+              <p class="form-subtitle">{{ brandConfig.loginSubtitle }}</p>
+              <p class="form-hint">{{ $t('brand.loginHint') }}</p>
+            </div>
 
-          <div class="form-content">
-            <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
-              label-align="top">
-              <t-form-item :label="$t('brand.emailLabel')" name="email">
-                <t-input v-model="formData.email" :placeholder="$t('brand.emailPlaceholder')" type="text"
-                  autocomplete="email" size="large" :disabled="loading" />
-              </t-form-item>
+            <div class="form-content">
+              <t-form ref="formRef" :data="formData" :rules="formRules" @submit="handleLogin" layout="vertical"
+                label-align="top">
+                <t-form-item :label="$t('brand.emailLabel')" name="email">
+                  <t-input v-model="formData.email" :placeholder="$t('brand.emailPlaceholder')" type="text"
+                    autocomplete="email" size="large" :disabled="loading" />
+                </t-form-item>
 
-              <t-form-item :label="$t('brand.passwordLabel')" name="password">
-                <t-input v-model="formData.password" :placeholder="$t('brand.passwordPlaceholder')" type="password"
-                  autocomplete="current-password" size="large" :disabled="loading" @enter="handleLogin" />
-              </t-form-item>
+                <t-form-item :label="$t('brand.passwordLabel')" name="password">
+                  <t-input v-model="formData.password" :placeholder="$t('brand.passwordPlaceholder')" type="password"
+                    autocomplete="current-password" size="large" :disabled="loading" @enter="handleLogin" />
+                </t-form-item>
 
-              <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
-                {{ loading ? $t('brand.loggingIn') : $t('brand.loginButton') }}
-              </t-button>
-            </t-form>
-          </div>
+                <t-button type="submit" theme="primary" size="large" block :loading="loading" class="submit-button">
+                  {{ loading ? $t('brand.loggingIn') : $t('brand.loginButton') }}
+                </t-button>
+              </t-form>
+            </div>
+          </template>
+
+          <!-- 邀请注册：仅在邀请落地页由「创建新账号」进入（AC-6）。 -->
+          <InviteRegisterForm v-else :token="inviteToken" :complex-password-enabled="inviteComplexPasswordEnabled"
+            @success="handleInviteRegisterSuccess" @login="showInviteLogin" @invalid="handleInviteInvalid" />
         </div>
       </div>
+
+      <!-- 无账号引导弹窗：关闭等同「我已有账号」，露出登录表单。 -->
+      <InviteNoAccountDialog v-model:visible="inviteDialogVisible" :brand-name="brandConfig.productName"
+        @create="openInviteRegister" @login="showInviteLogin" />
     </div>
   </div>
 </template>
@@ -200,11 +210,17 @@ import {
   autoSetup,
   userInfoFromApi,
   getInvitationByToken,
+  getAuthConfig,
+  type AuthConfigResponse,
   type InviteLookup,
+  type LoginResponse,
 } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 import { useI18n } from 'vue-i18n'
 import { applyDocumentBrand, brandConfig } from '@/brand'
+import InviteNoAccountDialog from './InviteNoAccountDialog.vue'
+import InviteRegisterForm from './InviteRegisterForm.vue'
+import { canRegister } from './registrationPolicy'
 
 const router = useRouter()
 const route = useRoute()
@@ -239,6 +255,13 @@ const inviteToken = ref('')
 const inviteLookup = ref<InviteLookup | null>(null)
 const inviteLookupError = ref('')
 const inviteLookupLoading = ref(false)
+// 邀请落地页的无账号引导：弹窗 → 注册表单 →（成功）进入平台 /（409）回登录。
+const inviteDialogVisible = ref(false)
+const inviteRegisterVisible = ref(false)
+const inviteAuthConfig = ref<AuthConfigResponse | null>(null)
+const inviteComplexPasswordEnabled = computed(
+  () => inviteAuthConfig.value?.complex_password_enabled === true,
+)
 
 // Language options
 const languageOptions = [
@@ -385,6 +408,60 @@ const acceptAndEnter = async (token: string) => {
   }
 }
 
+// lookup 失败（含名额已满的统一 410）后的兜底：后端 accept-by-token 不检查
+// 配额（AC-14），有有效会话时仍直接兑换 token 加入（AC-1）；真失效（过期/撤销）
+// 或匿名访客才停留登录页显示「链接已失效」（AC-7/F10）。会话已过期但本机有
+// 残留登录态的窄窗口里，链接可能只是名额已满、重新登录仍可加入，改用带
+// 「前往登录」引导的 invalidBody（F13）。
+const handleInviteLookupFailure = async (token: string) => {
+  // 完全未登录的匿名访客：统一显示本地化「链接已失效」（AC-7）。
+  if (!authStore.isLoggedIn) {
+    inviteLookupError.value = t('inviteRegister.invalidTitle')
+    return
+  }
+  // 本机有残留登录态但会话已过期：提示登录后仍可加入，避免误以为链接报废。
+  if (!(await authStore.refreshFromAuthMe())) {
+    inviteLookupError.value = t('inviteRegister.invalidBody')
+    return
+  }
+  const result = await authStore.acceptInvitationByTokenAndRefresh(token)
+  if (result.ok) {
+    MessagePlugin.success(t('inviteRegister.joined'))
+    await nextTick()
+    router.replace('/platform/knowledge-bases')
+    return
+  }
+  // 有效会话下兑换仍失败：链接真失效（过期/撤销），服务端英文 message 不直出。
+  inviteLookupError.value = t('inviteRegister.invalidTitle')
+}
+
+// ---- 邀请落地页：无账号引导 ----
+// 创建新账号：关弹窗，露出注册表单；邀请 banner 继续保留。
+const openInviteRegister = () => {
+  inviteDialogVisible.value = false
+  inviteRegisterVisible.value = true
+}
+
+// 已有账号 / 409 邮箱冲突：关弹窗和注册表单，回到既有登录表单。
+const showInviteLogin = () => {
+  inviteDialogVisible.value = false
+  inviteRegisterVisible.value = false
+}
+
+// 注册成功服务端已建号并加入租户，直接持久化会话进入平台。
+const handleInviteRegisterSuccess = async (response: LoginResponse) => {
+  await persistLoginResponse(response, true)
+  router.replace('/platform/knowledge-bases')
+}
+
+// 链接失效/满额/注册被禁用：统一回到「链接已失效」，不再展示注册表单。
+const handleInviteInvalid = () => {
+  inviteDialogVisible.value = false
+  inviteRegisterVisible.value = false
+  inviteLookup.value = null
+  inviteLookupError.value = t('inviteRegister.invalidTitle')
+}
+
 // Handle login
 const handleLogin = async () => {
   try {
@@ -421,22 +498,22 @@ const handleLogin = async () => {
 // Check if already logged in; for lite edition, attempt transparent auto-setup
 onMounted(async () => {
   // 邀请链接（?token=）优先处理：先校验 token，避免已登录重定向把它丢掉。
-  // 校验失败时停在登录页内联报错，用户仍可用已有账号登录。
+  // 校验失败时已登录用户尝试直接加入，其余停留登录页内联报错。
   const tokenFromQuery = String(route.query.token || '').trim()
   if (tokenFromQuery) {
     inviteToken.value = tokenFromQuery
     inviteLookupLoading.value = true
-    // 1. 先校验 token：无效/过期则停在登录页报错。
+    // 1. 先校验 token：满额/无效/过期时走已登录兜底，否则停在登录页报错。
     try {
       const resp = await getInvitationByToken(tokenFromQuery)
       if (resp.success && resp.data) {
         inviteLookup.value = resp.data
       } else {
-        inviteLookupError.value = resp.message || t('inviteRegister.invalidBody')
+        await handleInviteLookupFailure(tokenFromQuery)
         return
       }
     } catch {
-      inviteLookupError.value = t('inviteRegister.invalidBody')
+      await handleInviteLookupFailure(tokenFromQuery)
       return
     } finally {
       inviteLookupLoading.value = false
@@ -446,6 +523,14 @@ onMounted(async () => {
     //    登录成功后 handleLogin 会复用 inviteToken 自动加入。
     if (authStore.isLoggedIn && (await authStore.refreshFromAuthMe())) {
       await acceptAndEnter(tokenFromQuery)
+      return
+    }
+
+    // 3. 无有效登录态：按注册模式决定是否弹「创建新账号」引导（AC-8）。
+    //    invite_only 或配置读取失败时不弹窗，仅保留登录表单。
+    inviteAuthConfig.value = await getAuthConfig()
+    if (canRegister(inviteAuthConfig.value.registration_mode, true)) {
+      inviteDialogVisible.value = true
     }
     return
   }

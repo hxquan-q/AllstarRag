@@ -107,6 +107,12 @@ type TenantInvitation struct {
 	// "已加入 N 人" caption so Owners can see whether a link is fresh
 	// or has already been used widely.
 	AcceptedCount int `json:"accepted_count" gorm:"column:accepted_count;not null;default:0"`
+	// MaxRegistrations 是共享链接允许注册的最大人数。nil 表示不限；
+	// 存量链接该列为 NULL，因此同样视为不限。
+	MaxRegistrations *int `json:"max_registrations,omitempty" gorm:"column:max_registrations"`
+	// RegisteredCount 是已通过该链接成功创建的新账号数，默认 0。
+	// 已有账号登录加入不计数；用单行计数避免实时聚合账号/成员大表。
+	RegisteredCount int `json:"registered_count" gorm:"column:registered_count;not null;default:0"`
 }
 
 // TableName binds TenantInvitation to the tenant_invitations table.
@@ -120,6 +126,14 @@ func (inv *TenantInvitation) IsExpired(at time.Time) bool {
 		return false
 	}
 	return inv.ExpiresAt.Before(at)
+}
+
+// IsRegistrationFull 判断该邀请的注册名额是否已用完。
+// MaxRegistrations 为 nil 表示不限，永远不算满。
+func (inv *TenantInvitation) IsRegistrationFull() bool {
+	return inv != nil &&
+		inv.MaxRegistrations != nil &&
+		inv.RegisteredCount >= *inv.MaxRegistrations
 }
 
 // TenantInvitationResponse is the API projection joined with tenant
@@ -155,4 +169,8 @@ type TenantInvitationResponse struct {
 	// for share-link rows so the management UI can show "N 人已通过此
 	// 链接加入"; informational only for per-user invitations.
 	AcceptedCount int `json:"accepted_count,omitempty"`
+	// MaxRegistrations 是注册人数上限，nil 表示不限。
+	MaxRegistrations *int `json:"max_registrations,omitempty"`
+	// RegisteredCount 是已成功注册的新账号数。
+	RegisteredCount int `json:"registered_count"`
 }

@@ -97,18 +97,20 @@ func projectInvitation(
 	tenantsByID map[uint64]*types.Tenant,
 ) types.TenantInvitationResponse {
 	resp := types.TenantInvitationResponse{
-		ID:            inv.ID,
-		TenantID:      inv.TenantID,
-		InviteeUserID: inv.InviteeUserID,
-		InvitedBy:     inv.InvitedBy,
-		Role:          inv.Role,
-		Status:        inv.Status,
-		Message:       inv.Message,
-		ExpiresAt:     inv.ExpiresAt,
-		RespondedAt:   inv.RespondedAt,
-		CreatedAt:     inv.CreatedAt,
-		IsShareLink:   inv.InviteeUserID == "",
-		AcceptedCount: inv.AcceptedCount,
+		ID:               inv.ID,
+		TenantID:         inv.TenantID,
+		InviteeUserID:    inv.InviteeUserID,
+		InvitedBy:        inv.InvitedBy,
+		Role:             inv.Role,
+		Status:           inv.Status,
+		Message:          inv.Message,
+		ExpiresAt:        inv.ExpiresAt,
+		RespondedAt:      inv.RespondedAt,
+		CreatedAt:        inv.CreatedAt,
+		IsShareLink:      inv.InviteeUserID == "",
+		AcceptedCount:    inv.AcceptedCount,
+		MaxRegistrations: inv.MaxRegistrations,
+		RegisteredCount:  inv.RegisteredCount,
 	}
 	if u, ok := usersByID[inv.InviteeUserID]; ok && u != nil {
 		resp.InviteeEmail = u.Email

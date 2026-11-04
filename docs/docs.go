@@ -22612,7 +22612,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "生成一条多次使用的共享邀请链接：谁拿到链接谁就能注册并加入当前空间。\n链接持续有效，直到过期或被撤销。",
+                "description": "生成一条多次使用的共享邀请链接：谁拿到链接谁就能注册并加入当前空间。\n可通过 max_registrations 限制该链接最多注册人数（1–1000，留空不限），\n通过 expires_at 指定有效期（RFC3339，必须晚于当前时间，留空默认 7 天）。\n链接创建后不可修改配额与有效期，但可随时撤销。",
                 "consumes": [
                     "application/json"
                 ],
@@ -22658,6 +22658,18 @@ const docTemplate = `{
                                     }
                                 }
                             ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误（人数非法或有效期已过）",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "创建后补写配额/有效期失败",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
                     }
                 }
@@ -31237,11 +31249,11 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "access_revoked": {
-                    "description": "AccessRevoked is true when the user was removed from every workspace\nthey used to belong to. The client hides creation/invitation entry\npoints; the backend independently rejects POST /tenants.",
+                    "description": "AccessRevoked 表示用户已被移出所有曾加入的空间。客户端据此隐藏\n创建/邀请入口;后端在 POST /tenants 独立拦截。",
                     "type": "boolean"
                 },
                 "can_create_tenant": {
-                    "description": "CanCreateTenant is the effective permission to create a workspace,\nalready folded with access_revoked (revoked users always get false).",
+                    "description": "CanCreateTenant 是实际生效的建空间权限,已折叠 access_revoked\n(被移除的账号恒为 false)。",
                     "type": "boolean"
                 }
             }
@@ -31254,7 +31266,9 @@ const docTemplate = `{
             ],
             "properties": {
                 "email": {
-                    "type": "string"
+                    "description": "max=320 与 RFC 5321 的邮箱最大长度一致;也限制登录限速 key\n(email|ip)的长度,避免超长 key 在限速桶表里长期驻留。",
+                    "type": "string",
+                    "maxLength": 320
                 },
                 "password": {
                     "type": "string",
@@ -31274,7 +31288,7 @@ const docTemplate = `{
                     ]
                 },
                 "capabilities": {
-                    "description": "Capabilities mirrors the capabilities object on GET /auth/me so the\nclient can gate the create-workspace UI right after login, before\nthe first /auth/me round-trip. Omitted on the non-success paths.",
+                    "description": "Capabilities 与 GET /auth/me 的 capabilities 结构保持一致,让客户端\n在登录后、首次 /auth/me 返回前就能决定是否展示创建空间入口。\n非成功响应不带该字段。",
                     "allOf": [
                         {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.LoginCapabilities"
@@ -33528,7 +33542,8 @@ const docTemplate = `{
             ],
             "properties": {
                 "email": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 320
                 },
                 "password": {
                     "type": "string",
@@ -35614,8 +35629,16 @@ const docTemplate = `{
                     "description": "IsShareLink is a convenience flag so the SPA doesn't have to\nspecial-case \"invitee_user_id == ''\" everywhere when distinguishing\nshare-link rows from per-user invitations.",
                     "type": "boolean"
                 },
+                "max_registrations": {
+                    "description": "MaxRegistrations 是注册人数上限，nil 表示不限。",
+                    "type": "integer"
+                },
                 "message": {
                     "type": "string"
+                },
+                "registered_count": {
+                    "description": "RegisteredCount 是已成功注册的新账号数。",
+                    "type": "integer"
                 },
                 "responded_at": {
                     "type": "string"
@@ -42222,6 +42245,14 @@ const docTemplate = `{
                 "role"
             ],
             "properties": {
+                "expires_at": {
+                    "type": "string"
+                },
+                "max_registrations": {
+                    "type": "integer",
+                    "maximum": 1000,
+                    "minimum": 1
+                },
                 "message": {
                     "type": "string"
                 },
@@ -42421,7 +42452,8 @@ const docTemplate = `{
             ],
             "properties": {
                 "email": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 320
                 },
                 "password": {
                     "type": "string",

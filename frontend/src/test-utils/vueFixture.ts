@@ -24,7 +24,14 @@ export function fixture(t: TestContext) {
     window, CustomEvent, setTimeout, clearTimeout, setInterval, clearInterval,
     localStorage: storage, sessionStorage: storage,
     requestAnimationFrame: (callback: () => void) => setTimeout(callback, 16),
-    document: { documentElement: { clientHeight: 900 }, querySelector: () => null },
+    // Login.vue 的 onMounted 会注册全局 click 监听；测试渲染器不产生 DOM，
+    // 这里给 document 补空实现，避免挂载组件时报 addEventListener 不存在。
+    document: {
+      documentElement: { clientHeight: 900 },
+      querySelector: () => null,
+      addEventListener() {},
+      removeEventListener() {},
+    },
   }
   function evaluate(source: string, dependencies: Record<string, unknown>, fallback?: (name: string) => unknown) {
     const exports: any = {}

@@ -32,10 +32,11 @@ func IsGeneratedQuestionSource(chunkID, sourceID string, sourceType SourceType) 
 	return len(sourceID) > len(chunkID)+1 && sourceID[:len(chunkID)+1] == chunkID+"-"
 }
 
-// GeneratedQuestionRowPredicate is the SQL form of IsGeneratedQuestionSource.
-// alias is the table qualifier without a dot, or empty for an unqualified
-// column. source_type is inlined; chunk ids are ASCII so length and substr
-// agree on PostgreSQL and SQLite.
+// GeneratedQuestionRowPredicate 是 IsGeneratedQuestionSource 的 SQL 形式，仅 SQLite 使用；
+// PostgreSQL 调用方必须改用 PostgresGeneratedQuestionRowPredicate：
+// ParadeDB 的 pg_search 会以 "Unsupported query shape" 拒绝下面的列间比较。
+// alias 是不带点号的表限定名，空串表示列不加限定；source_type 直接内联为常量；
+// chunk id 均为 ASCII，length 与 substr 在 PostgreSQL 和 SQLite 上结果一致。
 func GeneratedQuestionRowPredicate(alias string) string {
 	col := func(name string) string {
 		if alias == "" {
@@ -49,6 +50,26 @@ func GeneratedQuestionRowPredicate(alias string) string {
 		col("chunk_id"),
 		col("source_id"), col("chunk_id"),
 		col("source_id"), col("chunk_id"), col("chunk_id"),
+	)
+}
+
+// PostgresGeneratedQuestionRowPredicate 是 GeneratedQuestionRowPredicate 的 PostgreSQL 版。
+// ParadeDB 的 pg_search 在 BM25 扫描里拒绝列间比较（source_id <> chunk_id 与
+// substr(...) 相等判断都会报 "Unsupported query shape"），但接受 starts_with。
+// starts_with 本身已蕴含 source_id 非空且不等于 chunk_id；
+// 保留 chunk_id 非空判断，是为了维持 IsGeneratedQuestionSource 的空 chunk 守卫。
+func PostgresGeneratedQuestionRowPredicate(alias string) string {
+	col := func(name string) string {
+		if alias == "" {
+			return name
+		}
+		return alias + "." + name
+	}
+	return fmt.Sprintf(
+		"%s = %d AND %s <> '' AND starts_with(%s, %s || '-')",
+		col("source_type"), int(ChunkSourceType),
+		col("chunk_id"),
+		col("source_id"), col("chunk_id"),
 	)
 }
 

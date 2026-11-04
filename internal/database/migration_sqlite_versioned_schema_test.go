@@ -71,15 +71,16 @@ var versionedSQLiteColumns = map[string][]string{
 		"owner_auth_source",        // 000046
 		"product_line",             // 000051
 	},
-	"session_sandbox_assignments": {"released_at", "cleanup_due_at"},    // 000047
-	"tenant_invitations":          {"token", "accepted_count"},          // 000054
-	"embed_channels":              {"allow_memory"},                     // 000060
-	"im_channels":                 {"locale"},                           // 000030
-	"chunks":                      {"source_locators"},                  // 000033
-	"mcp_oauth_tokens":            {"principal_type", "principal_id"},   // 000064
-	"mcp_tool_approvals":          {"enabled", "risk", "observed_risk"}, // 000091, 000126
-	"mcp_services":                {"usage_instructions"},               // 000092
-	"message_artifacts":           {"deleted_at"},                       // 000107
+	"session_sandbox_assignments": {"released_at", "cleanup_due_at"}, // 000047
+	// 000054, 000053: 共享邀请链接的 token / 已加入数与注册配额
+	"tenant_invitations": {"token", "accepted_count", "max_registrations", "registered_count"},
+	"embed_channels":     {"allow_memory"},                     // 000060
+	"im_channels":        {"locale"},                           // 000030
+	"chunks":             {"source_locators"},                  // 000033
+	"mcp_oauth_tokens":   {"principal_type", "principal_id"},   // 000064
+	"mcp_tool_approvals": {"enabled", "risk", "observed_risk"}, // 000091, 000126
+	"mcp_services":       {"usage_instructions"},               // 000092
+	"message_artifacts":  {"deleted_at"},                       // 000107
 	"tenant_skills": {
 		"envs", "served", "catalog_id", "install_session_id", "install_message_id",
 	}, // 000028
@@ -89,7 +90,7 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-const expectedSQLiteMigrationVersion = 52
+const expectedSQLiteMigrationVersion = 53
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
@@ -285,6 +286,94 @@ func TestSQLiteSandboxAllocationMigrationRollsBack(t *testing.T) {
 	require.True(t, sqliteIndexExists(t, sqlDB, "idx_session_sandbox_assignments_live_machine"))
 }
 
+// 000053 新增的两列必须能随 down 迁移干净移除，避免回滚后残留列。
+func TestSQLiteInvitationQuotaMigrationRollsBack(t *testing.T) {
+	repoRoot := sqliteRepoRoot(t)
+	chdirAndRestore(t, repoRoot)
+
+	dbPath := filepath.Join(t.TempDir(), "invitation-quota-down.db")
+	require.NoError(t, RunMigrationsWithOptions("sqlite3://unused", MigrationOptions{SQLiteDBPath: dbPath}))
+	db := openSQLiteDB(t, dbPath)
+	for _, column := range versionedSQLiteColumns["tenant_invitations"] {
+		require.Truef(t, sqliteColumnExists(t, db, "tenant_invitations", column),
+			"up 后应存在列 tenant_invitations.%s", column)
+	}
+
+	down, err := os.ReadFile(filepath.Join(
+		repoRoot, "migrations/sqlite/000053_tenant_invitation_registration_quota.down.sql",
+	))
+	require.NoError(t, err)
+	_, err = db.Exec(string(down))
+	require.NoError(t, err)
+	for _, column := range []string{"max_registrations", "registered_count"} {
+		require.Falsef(t, sqliteColumnExists(t, db, "tenant_invitations", column),
+			"down 后应删除列 tenant_invitations.%s", column)
+	}
+}
+
+// AC-20/F5：存量库先停在 52，插入一条共享链接行后再升级到 53，
+// 断言升级路径上既有行两列默认为 NULL / 0；执行 000053 down 后行仍保留、两列删除。
+func TestSQLiteInvitationQuotaUpgradePreservesExistingRows(t *testing.T) {
+	repoRoot := sqliteRepoRoot(t)
+	chdirAndRestore(t, copySQLiteMigrationsThrough(t, repoRoot, 52))
+
+	dbPath := filepath.Join(t.TempDir(), "invitation-quota-upgrade.db")
+	opts := MigrationOptions{SQLiteDBPath: dbPath}
+	require.NoError(t, RunMigrationsWithOptions("sqlite3://unused", opts))
+
+	db := openSQLiteDB(t, dbPath)
+	versionBefore, dirtyBefore := sqliteMigrationState(t, db)
+	require.Equal(t, 52, versionBefore)
+	require.False(t, dirtyBefore)
+	require.False(t, sqliteColumnExists(t, db, "tenant_invitations", "max_registrations"),
+		"v52 还不应有配额列")
+	require.False(t, sqliteColumnExists(t, db, "tenant_invitations", "registered_count"),
+		"v52 还不应有注册计数列")
+
+	_, err := db.Exec("INSERT INTO tenants (name, business) VALUES (?, ?)",
+		"quota-upgrade-tenant", "quota-upgrade-test")
+	require.NoError(t, err)
+	_, err = db.Exec(
+		"INSERT INTO tenant_invitations (tenant_id, invitee_user_id, token, role, status, expires_at) "+
+			"VALUES (1, '', ?, 'member', 'pending', ?)",
+		"upgrade-share-token", "2099-01-01 00:00:00",
+	)
+	require.NoError(t, err)
+
+	chdirAndRestore(t, repoRoot)
+	require.NoError(t, RunMigrationsWithOptions("sqlite3://unused", opts))
+
+	versionAfter, dirtyAfter := sqliteMigrationState(t, db)
+	require.Equal(t, expectedSQLiteMigrationVersion, versionAfter)
+	require.False(t, dirtyAfter)
+	require.True(t, sqliteColumnExists(t, db, "tenant_invitations", "max_registrations"))
+	require.True(t, sqliteColumnExists(t, db, "tenant_invitations", "registered_count"))
+
+	var maxRegistrations sql.NullInt64
+	var registeredCount int
+	require.NoError(t, db.QueryRow(
+		"SELECT max_registrations, registered_count FROM tenant_invitations WHERE token = ?",
+		"upgrade-share-token",
+	).Scan(&maxRegistrations, &registeredCount))
+	require.False(t, maxRegistrations.Valid, "存量行升级后 max_registrations 必须是 NULL（不限）")
+	require.Zero(t, registeredCount, "存量行升级后 registered_count 必须是 0")
+
+	down, err := os.ReadFile(filepath.Join(
+		repoRoot, "migrations/sqlite/000053_tenant_invitation_registration_quota.down.sql",
+	))
+	require.NoError(t, err)
+	_, err = db.Exec(string(down))
+	require.NoError(t, err)
+	require.False(t, sqliteColumnExists(t, db, "tenant_invitations", "max_registrations"))
+	require.False(t, sqliteColumnExists(t, db, "tenant_invitations", "registered_count"))
+
+	var count int
+	require.NoError(t, db.QueryRow(
+		"SELECT COUNT(*) FROM tenant_invitations WHERE token = ?", "upgrade-share-token",
+	).Scan(&count))
+	require.Equal(t, 1, count, "down 回滚后共享链接行必须保留")
+}
+
 func sqliteRepoRoot(t *testing.T) string {
 	t.Helper()
 	repoRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -393,6 +482,15 @@ func assertSQLiteShareLinkInvitationsWork(t *testing.T, db *sql.DB) {
 		"SELECT COUNT(*) FROM tenant_invitations WHERE tenant_id = 1 AND invitee_user_id = '' AND status = 'pending'",
 	).Scan(&count))
 	require.Equal(t, 2, count)
+
+	// 000053 新增两列的默认值：存量/新插入的共享链接不限人数、注册数为 0。
+	var maxRegistrations sql.NullInt64
+	var registeredCount int
+	require.NoError(t, db.QueryRow(
+		"SELECT max_registrations, registered_count FROM tenant_invitations WHERE token = ?", "token-a",
+	).Scan(&maxRegistrations, &registeredCount))
+	require.False(t, maxRegistrations.Valid, "max_registrations 默认必须是 NULL（不限）")
+	require.Zero(t, registeredCount, "registered_count 默认必须是 0")
 }
 
 func assertSQLiteMCPOAuthPrincipalUpsertWorks(t *testing.T, db *sql.DB) {

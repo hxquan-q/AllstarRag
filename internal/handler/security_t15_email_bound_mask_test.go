@@ -167,6 +167,16 @@ func (s *t15InviteService) AcceptByToken(context.Context, string, string) (*type
 	return &types.TenantMember{TenantID: 42, Role: types.TenantRoleViewer}, nil
 }
 
+// ReserveRegistrationQuota / ReleaseRegistrationQuota 是测试桩的空实现：
+// 本文件只测邮箱长度边界，不测注册配额。
+func (s *t15InviteService) ReserveRegistrationQuota(context.Context, uint64) error {
+	return nil
+}
+
+func (s *t15InviteService) ReleaseRegistrationQuota(context.Context, uint64) error {
+	return nil
+}
+
 type t15TenantService struct{ interfaces.TenantService }
 
 func (s *t15TenantService) GetTenantByID(context.Context, uint64) (*types.Tenant, error) {

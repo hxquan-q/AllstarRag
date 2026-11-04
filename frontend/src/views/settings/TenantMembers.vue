@@ -117,12 +117,28 @@
                 </div>
                 <div v-if="!shareLinkResult" class="member-invite-form">
                   <p class="invite-confirm-body">
-                    {{ $t('tenantInvitation.shareLink.description', { days: INVITATION_TTL_DAYS }) }}
+                    {{ $t('tenantInvitation.shareLink.description') }}
                   </p>
-                  <t-form :data="shareLinkForm" :label-width="80">
+                  <!-- 标签列 104px：容纳「最多注册人数」六字标签，避免文字盖住控件。 -->
+                  <t-form :data="shareLinkForm" :label-width="104">
                     <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
                       <t-select v-model="shareLinkForm.role" :options="roleOptions"
                         :popup-props="roleSelectPopupProps" />
+                    </t-form-item>
+                    <t-form-item :label="$t('tenantInvitation.shareLink.maxRegistrationsLabel')"
+                      name="maxRegistrations">
+                      <t-input-number :model-value="shareLinkForm.maxRegistrations ?? undefined" :min="1"
+                        :max="1000" :step="1" :decimal-places="0"
+                        :placeholder="$t('tenantInvitation.shareLink.maxRegistrationsPlaceholder')"
+                        @change="onShareLinkMaxRegistrationsChange" />
+                    </t-form-item>
+                    <t-form-item :label="$t('tenantInvitation.shareLink.expiryLabel')" name="expiryPreset">
+                      <t-select v-model="shareLinkForm.expiryPreset" :options="shareLinkExpiryOptions"
+                        :popup-props="roleSelectPopupProps" />
+                      <t-date-picker v-if="shareLinkForm.expiryPreset === 'custom'"
+                        v-model="shareLinkForm.customExpiry" enable-time-picker format="YYYY-MM-DD HH:mm"
+                        value-type="YYYY-MM-DD HH:mm" :disable-date="disablePastDate"
+                        :placeholder="$t('tenantInvitation.shareLink.expiryPlaceholder')" />
                     </t-form-item>
                   </t-form>
                 </div>
@@ -248,6 +264,16 @@
                       {{ (row.accepted_count ?? 0) > 0
                         ? $t('tenantInvitation.shareLink.cellAccepted', { count: row.accepted_count })
                         : $t('tenantInvitation.shareLink.cellEmpty') }}
+                    </span>
+                    <span class="member-email">
+                      {{ row.max_registrations != null
+                        ? $t('tenantInvitation.shareLink.cellRegisteredWithLimit', {
+                            registered: row.registered_count ?? 0,
+                            limit: row.max_registrations,
+                          })
+                        : $t('tenantInvitation.shareLink.cellRegistered', {
+                            registered: row.registered_count ?? 0,
+                          }) }}
                     </span>
                   </template>
                   <template v-else>
@@ -570,6 +596,7 @@ import {
   createInviteLink,
   revokeInvitation,
   type TenantInvitation,
+  type CreateInviteLinkRequest,
 } from '@/api/tenant/invitations'
 import { docsUrl } from '@/utils/docsUrl'
 import {
@@ -608,9 +635,53 @@ const resetTarget = ref<TenantMember | null>(null)
 // invite). shareLinkResult is non-null after a successful create —
 // the popup then switches into "here's your link, copy it" mode.
 const shareLinkPopupVisible = ref(false)
-const shareLinkForm = reactive<{ role: TenantRole }>({ role: 'contributor' })
+// 共享链接创建参数：人数留空表示不限；有效期默认 7 天，也可选自定义时间。
+type ShareLinkExpiryPreset = '7' | '30' | '90' | 'custom'
+const shareLinkForm = reactive<{
+  role: TenantRole
+  maxRegistrations: number | null
+  expiryPreset: ShareLinkExpiryPreset
+  customExpiry: string
+}>({
+  role: 'contributor',
+  maxRegistrations: null,
+  expiryPreset: '7',
+  customExpiry: '',
+})
 const creatingShareLink = ref(false)
 const shareLinkResult = ref<TenantInvitation | null>(null)
+
+const shareLinkExpiryOptions = computed<Array<{ label: string; value: ShareLinkExpiryPreset }>>(() => [
+  { label: t('tenantInvitation.shareLink.expiryPreset7'), value: '7' },
+  { label: t('tenantInvitation.shareLink.expiryPreset30'), value: '30' },
+  { label: t('tenantInvitation.shareLink.expiryPreset90'), value: '90' },
+  { label: t('tenantInvitation.shareLink.expiryCustom'), value: 'custom' },
+])
+
+/** 人数输入框清空时 v-model 给的是空值，统一折算为「不限」。 */
+function onShareLinkMaxRegistrationsChange(value: number | string | undefined) {
+  shareLinkForm.maxRegistrations = value === '' || value == null ? null : Number(value)
+}
+
+/** 自定义有效期不允许选择今天之前的日期；具体时分在提交时再校验。 */
+function disablePastDate(value: string | number | Date): boolean {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return new Date(value).getTime() < today.getTime()
+}
+
+/** 预设值按天累加；自定义值按本地时间解析为 Date，非法输入返回 null。 */
+function resolveShareLinkExpiresAt(): Date | null {
+  if (shareLinkForm.expiryPreset !== 'custom') {
+    const days = Number(shareLinkForm.expiryPreset)
+    return new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  }
+  const raw = shareLinkForm.customExpiry.trim()
+  if (!raw) return null
+  const parsed = new Date(raw.replace(' ', 'T'))
+  return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
 // Two-step invite inside the popup: 'form' renders the email/role inputs;
 // 'confirm' swaps the body for an in-place summary; 'create' is the
 // unregistered-email branch (AC-10), which swaps in the account form.
@@ -1402,6 +1473,9 @@ watch(invitePopupVisible, (open) => {
 watch(shareLinkPopupVisible, (open) => {
   if (!open) return
   shareLinkForm.role = 'contributor'
+  shareLinkForm.maxRegistrations = null
+  shareLinkForm.expiryPreset = '7'
+  shareLinkForm.customExpiry = ''
   shareLinkResult.value = null
 })
 
@@ -1421,9 +1495,27 @@ async function copyText(text: string) {
 }
 
 async function submitShareLink() {
+  const maxRegistrations = shareLinkForm.maxRegistrations
+  if (
+    maxRegistrations !== null
+    && (!Number.isInteger(maxRegistrations) || maxRegistrations < 1 || maxRegistrations > 1000)
+  ) {
+    MessagePlugin.error(t('tenantInvitation.shareLink.invalidMaxRegistrations'))
+    return
+  }
+  const expiresAt = resolveShareLinkExpiresAt()
+  if (!expiresAt || expiresAt.getTime() <= Date.now()) {
+    MessagePlugin.error(t('tenantInvitation.shareLink.invalidExpiry'))
+    return
+  }
   creatingShareLink.value = true
   try {
-    const resp = await createInviteLink(activeTenantId.value, { role: shareLinkForm.role })
+    const body: CreateInviteLinkRequest = {
+      role: shareLinkForm.role,
+      expires_at: expiresAt.toISOString(),
+    }
+    if (maxRegistrations !== null) body.max_registrations = maxRegistrations
+    const resp = await createInviteLink(activeTenantId.value, body)
     if (!resp.success || !resp.data) {
       MessagePlugin.error(resp.message || t('tenantInvitation.errors.generic'))
       return

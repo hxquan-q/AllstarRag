@@ -42,6 +42,12 @@ export interface TenantInvitation {
   // through this invitation. Surfaced in the management UI for
   // share-link rows ("已加入 N 人").
   accepted_count?: number
+  // max_registrations 限制通过分享链接最多能注册多少新账号；
+  // null/缺失表示不限人数，只在创建时设置。
+  max_registrations?: number | null
+  // registered_count 统计通过分享链接注册的新账号数
+  // （已有账号加入不计数）。
+  registered_count?: number
 }
 
 export interface ListInvitationsResponse {
@@ -239,6 +245,10 @@ export async function declineInvitation(invId: number): Promise<SimpleResponse> 
 export interface CreateInviteLinkRequest {
   role: TenantRole
   message?: string
+  // 取值 1–1000；不传表示不限人数。
+  max_registrations?: number
+  // RFC3339 格式时间戳，必须是未来时间。
+  expires_at?: string
 }
 
 export interface CreateInviteLinkResponse {
