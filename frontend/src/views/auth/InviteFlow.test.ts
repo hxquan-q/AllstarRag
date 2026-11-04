@@ -37,8 +37,8 @@ function escapeHtml(value: string): string {
 
 function registerUiStubs(app: any) {
   app.component('t-dialog', {
-    props: ['visible', 'width', 'footer'],
-    template: '<div class="dialog"><slot name="header"/><slot/></div>',
+    props: ['visible', 'width', 'footer', 'placement'],
+    template: '<div class="dialog" :data-placement="placement"><slot name="header"/><slot/></div>',
   })
   app.component('t-icon', { template: '<span />' })
   app.component('t-button', {
@@ -94,6 +94,18 @@ test('无账号弹窗用运行时品牌名插值并给出创建/登录双路文�
   assert.ok(!html.includes('{brand}'), '品牌占位符必须被插值')
 })
 
+test('无账号弹窗垂直居中展示（F16：placement=center，不再停顶部）', async () => {
+  const file = new URL('./InviteNoAccountDialog.vue', import.meta.url)
+  const html = await renderSfc(file, componentTemplate(file), {
+    visible: true,
+    brandName: '星河云',
+  })
+  assert.ok(
+    html.includes('data-placement="center"'),
+    `无账号弹窗应带 placement=center；实际渲染：${html}`,
+  )
+})
+
 test('无账号弹窗按用户操作发出 create / login / update:visible 事件', async (t: TestContext) => {
   const f = fixture(t)
   const events: string[] = []
@@ -116,6 +128,9 @@ type RegisterFormOptions = {
   throwError?: Error
   complexPasswordEnabled?: boolean
   t?: (key: string, params?: Record<string, unknown>) => string
+  // F17：formRef.validate 的可控行为。默认恒真；传函数可模拟 TDesign
+  // 校验失败的两种形态（resolve 失败对象 / reject 失败对象）。
+  validate?: () => unknown | Promise<unknown>
 }
 
 async function registerFormFixture(t: TestContext, options: RegisterFormOptions = {}) {
@@ -153,7 +168,7 @@ async function registerFormFixture(t: TestContext, options: RegisterFormOptions 
     onInvalid: () => events.push('invalid'),
   })
   await flush()
-  vm.formRef = { validate: async () => true }
+  vm.formRef = { validate: options.validate ?? (async () => true) }
   vm.form.email = 'new@example.com'
   vm.form.username = '新人'
   vm.form.password = 'Abcdef1!'
@@ -245,6 +260,53 @@ test('并发提交（表单 submit + 密码框 Enter）只调用一次注册接�
   assert.equal(f.calls.length, 1, '重复提交必须被前置守卫拦下')
   assert.deepEqual(f.events, ['success'])
   assert.equal(f.vm.submitting, false, '提交结束后必须复位 submitting')
+})
+
+test('F17 校验失败（resolve false 形态）：toast 第一条本地化错误，不调注册接口，字段级规则保留', async (t: TestContext) => {
+  // 简单模式：密码 abcdefgh 有字母、缺数字，TDesign resolve 失败对象形态。
+  const digitMessage = translate(zhCN, 'auth.passwordMustContainNumber')
+  const f = await registerFormFixture(t, {
+    complexPasswordEnabled: false,
+    t: (key, params) => translate(zhCN, key, params),
+    validate: async () => ({
+      password: [{ message: digitMessage, result: false, type: 'error' }],
+    }),
+  })
+  f.vm.form.password = 'abcdefgh'
+  await f.vm.handleSubmit()
+  assert.deepEqual(f.messages, [['error', digitMessage]], '应弹出第一条本地化校验错误')
+  assert.equal(f.calls.length, 0, '校验失败不应调用注册接口')
+  assert.deepEqual(f.events, [], '不应触发 success/login/invalid')
+  assert.equal(f.vm.submitting, false, 'finally 必须复位 submitting')
+  // 字段级错误不因此消失：红字由表单按 rules 渲染，规则原样保留。
+  const digitRule = (f.vm.rules.password as any[]).find(
+    (rule) => rule.pattern?.source === '\\d',
+  )
+  assert.ok(digitRule, '简单模式数字规则应保留')
+  assert.equal(digitRule.message, digitMessage)
+})
+
+test('F17 校验失败（reject 形态）：rejection 不再被吞，同样 toast 第一条本地化错误', async (t: TestContext) => {
+  // F17 根因：TDesign validate() 失败可能 reject 而非 resolve false，
+  // 旧实现无提示直接 return；这里验证 reject 也走同一条 toast 分支。
+  const minLengthMessage = translate(zhCN, 'auth.passwordMinLength')
+  const f = await registerFormFixture(t, {
+    complexPasswordEnabled: false,
+    t: (key, params) => translate(zhCN, key, params),
+    validate: async () => {
+      throw { password: [{ message: minLengthMessage, result: false, type: 'error' }] }
+    },
+  })
+  f.vm.form.password = 'abc'
+  await f.vm.handleSubmit()
+  assert.deepEqual(
+    f.messages,
+    [['error', minLengthMessage]],
+    '应取校验结果第一条消息，而不是外层 catch 的通用失败文案',
+  )
+  assert.equal(f.calls.length, 0, '校验失败不应调用注册接口')
+  assert.deepEqual(f.events, [])
+  assert.equal(f.vm.submitting, false, 'finally 必须复位 submitting')
 })
 
 test('网络异常展示错误并停留表单，不误发 login/invalid', async (t: TestContext) => {

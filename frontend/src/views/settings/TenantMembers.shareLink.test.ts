@@ -161,6 +161,31 @@ test('弹层每次重新打开都重置人数/有效期/结果', async (t: TestC
   assert.equal(f.vm.shareLinkResult, null)
 })
 
+// 取包含 marker 的 <t-form ...> 开始标签原文（到第一个 > 为止）。
+function formOpenTag(marker: string): string {
+  const { descriptor } = parse(readFileSync(new URL('./TenantMembers.vue', import.meta.url), 'utf8'))
+  const template = descriptor.template!.content
+  const markerIdx = template.indexOf(marker)
+  assert.ok(markerIdx >= 0, `模板中找不到 ${marker}`)
+  const start = template.lastIndexOf('<t-form', markerIdx)
+  assert.ok(start >= 0, `找不到包含 ${marker} 的 t-form 开始标签`)
+  const end = template.indexOf('>', markerIdx)
+  return template.slice(start, end + 1)
+}
+
+test('共享链接表单标签列加宽到 104px，邮件邀请表单维持 80 不动（F15）', () => {
+  const shareForm = formOpenTag(':data="shareLinkForm"')
+  assert.ok(
+    shareForm.includes(':label-width="104"'),
+    `共享链接表单标签列应为 104（容纳「最多注册人数」六字标签）：${shareForm}`,
+  )
+  const inviteForm = formOpenTag('class="member-invite-form"')
+  assert.ok(
+    inviteForm.includes(':label-width="80"'),
+    `邮件邀请表单应维持原有 80 不动：${inviteForm}`,
+  )
+})
+
 function shareLinkCellTemplate(): string {
   const { descriptor } = parse(readFileSync(new URL('./TenantMembers.vue', import.meta.url), 'utf8'))
   const template = descriptor.template!.content

@@ -192,6 +192,11 @@ func newQuotaTestEnv(t *testing.T) *quotaTestEnv {
 	if err := db.AutoMigrate(&types.Tenant{}, &types.TenantMember{}, &types.TenantInvitation{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	// F14 起共享链接查询带租户存活 EXISTS 条件：夹具补一条存活租户行，
+	// 否则 seedQuotaLink 写入的链接（tenant_id=900）全部查不到。
+	if err := db.Create(&types.Tenant{ID: quotaTestTenantID, Name: "quota-workspace"}).Error; err != nil {
+		t.Fatalf("seed tenant: %v", err)
+	}
 
 	realRepo := apprepo.NewTenantInvitationRepository(db)
 	recorder := &quotaRecordingRepo{
@@ -377,6 +382,47 @@ func TestT03_LookupReturnsGoneWhenQuotaFull(t *testing.T) {
 	w := env.post(t, "/auth/invitations/lookup", "", fmt.Sprintf(`{"token":%q}`, token))
 	if w.Code != http.StatusGone {
 		t.Fatalf("满额 lookup status=%d, want 410 (body=%s)", w.Code, w.Body.String())
+	}
+}
+
+// TestT03_DeletedTenantShareLinkGone 覆盖 F14 行为：
+// 租户软删后，其名下共享链接的 lookup、register-by-invite、
+// accept-by-token 统一 410；注册不创建账号、不消耗名额。
+// 已有账号走 accept 也被拦是 F14 的预期语义（链接随空间整体失效）。
+func TestT03_DeletedTenantShareLinkGone(t *testing.T) {
+	env := newQuotaTestEnv(t)
+	max := 5
+	invID, token := env.seedQuotaLink(t, &max, 0)
+
+	// 软删租户 900（等价 DeleteTenant 对 tenants 表的效果）。
+	if err := env.db.Delete(&types.Tenant{}, quotaTestTenantID).Error; err != nil {
+		t.Fatalf("soft delete tenant: %v", err)
+	}
+
+	w := env.post(t, "/auth/invitations/lookup", "", fmt.Sprintf(`{"token":%q}`, token))
+	if w.Code != http.StatusGone {
+		t.Fatalf("已删租户 lookup status=%d, want 410 (body=%s)", w.Code, w.Body.String())
+	}
+
+	w = env.post(t, "/auth/register-by-invite", "", quotaRegisterBody(token, "deleted@example.com"))
+	if w.Code != http.StatusGone {
+		t.Fatalf("已删租户注册 status=%d, want 410 (body=%s)", w.Code, w.Body.String())
+	}
+	if got := env.users.count(); got != 0 {
+		t.Fatalf("已删租户注册创建了 %d 个账号, want 0", got)
+	}
+	if got := env.registeredCount(t, invID); got != 0 {
+		t.Fatalf("已删租户注册后 registered_count=%d, want 0（不应消耗名额）", got)
+	}
+
+	const existingUserID = "quota-deleted-tenant-user"
+	env.users.users[existingUserID] = &types.User{
+		ID: existingUserID, Email: "existing-deleted@example.com", TenantID: quotaTestTenantID,
+	}
+	w = env.post(t, "/me/invitations/accept-by-token", existingUserID,
+		fmt.Sprintf(`{"token":%q}`, token))
+	if w.Code != http.StatusGone {
+		t.Fatalf("已删租户已有账号加入 status=%d, want 410 (body=%s)", w.Code, w.Body.String())
 	}
 }
 

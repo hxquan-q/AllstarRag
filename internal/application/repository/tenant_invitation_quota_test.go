@@ -17,11 +17,13 @@ import (
 )
 
 // 本文件覆盖 T01 的注册配额仓储原子方法：
-//   - ReserveRegistrationQuota：满额/过期/撤销拒绝，并发不超卖；
+//   - ReserveRegistrationQuota：满额/过期/撤销/租户已删拒绝，并发不超卖；
 //   - ReleaseRegistrationQuota：注册失败退回名额，且不会减成负数；
 //   - ApplyShareLinkOptions：只覆盖非空字段，非 pending 行返回未找到。
 // SQLite 只允许一个写者，这里把连接池限制为 1 并用 busy_timeout 排队，
 // 真实的行锁并发在 Postgres 上验证（无测试库时如实跳过）。
+// F14 起共享链接查询带租户存活 EXISTS 条件，因此夹具同时迁移
+// tenants 表并插入 id=1 的存活租户（newQuotaInvitation 的 tenant_id）。
 
 func newQuotaRepo(t *testing.T) (*tenantInvitationRepository, *gorm.DB) {
 	t.Helper()
@@ -34,7 +36,8 @@ func newQuotaRepo(t *testing.T) (*tenantInvitationRepository, *gorm.DB) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&types.TenantInvitation{}))
+	require.NoError(t, db.AutoMigrate(&types.TenantInvitation{}, &types.Tenant{}))
+	require.NoError(t, db.Create(&types.Tenant{ID: 1, Name: "quota-tenant"}).Error)
 	return NewTenantInvitationRepository(db).(*tenantInvitationRepository), db
 }
 
@@ -106,6 +109,33 @@ func TestReserveRegistrationQuotaRejectsExpiredAndRevoked(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, ok, "撤销链接不能预占")
 	require.Zero(t, reloadQuotaInvitation(t, db, revoked.ID).RegisteredCount)
+}
+
+// TestReserveRegistrationQuotaRejectsDeletedTenant 覆盖 F14 仓储行为：
+// 租户软删（DeleteTenant 的租户侧效果）后，其名下共享链接既不能再
+// 预占注册名额，也不能被 GetActiveByToken 命中（lookup 与
+// accept-by-token 共用该查询，统一按未命中 → 410 处理）。
+func TestReserveRegistrationQuotaRejectsDeletedTenant(t *testing.T) {
+	repo, db := newQuotaRepo(t)
+	ctx := context.Background()
+	inv := newQuotaInvitation(t, db, time.Now().Add(24*time.Hour))
+
+	// 对照：租户存活时同一链接可以预占。
+	ok, err := repo.ReserveRegistrationQuota(ctx, inv.ID, time.Now())
+	require.NoError(t, err)
+	require.True(t, ok, "租户存活时应可预占")
+
+	// 软删租户 1（等价 DeleteTenant 对 tenants 表的效果）。
+	require.NoError(t, db.Delete(&types.Tenant{}, uint64(1)).Error)
+
+	ok, err = repo.ReserveRegistrationQuota(ctx, inv.ID, time.Now())
+	require.NoError(t, err)
+	require.False(t, ok, "租户软删后不能再预占名额")
+	require.Equal(t, 1, reloadQuotaInvitation(t, db, inv.ID).RegisteredCount, "被拒预占不能计数")
+
+	got, err := repo.GetActiveByToken(ctx, inv.Token)
+	require.NoError(t, err)
+	require.Nil(t, got, "租户软删后 GetActiveByToken 不应再命中该链接")
 }
 
 func TestReserveRegistrationQuotaConcurrentDoesNotOversell(t *testing.T) {
