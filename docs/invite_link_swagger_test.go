@@ -54,10 +54,10 @@ func TestInviteLinkSwaggerContract(t *testing.T) {
 			}
 
 			req := spec.Definitions[createRequest].Properties
-			if max, ok := req["max_registrations"]; !ok || max.Type != "integer" ||
-				max.Minimum == nil || *max.Minimum != 1 ||
-				max.Maximum == nil || *max.Maximum != 1000 {
-				t.Errorf("创建请求 max_registrations 契约错误: %+v", max)
+			if maxRegs, ok := req["max_registrations"]; !ok || maxRegs.Type != "integer" ||
+				maxRegs.Minimum == nil || *maxRegs.Minimum != 1 ||
+				maxRegs.Maximum == nil || *maxRegs.Maximum != 1000 {
+				t.Errorf("创建请求 max_registrations 契约错误: %+v", maxRegs)
 			}
 			if _, ok := req["expires_at"]; !ok {
 				t.Error("创建请求缺少 expires_at")

@@ -225,14 +225,14 @@ func TestT02_CreateInviteLinkRejectsMissingRole(t *testing.T) {
 // AC-17：列表投影同时带出「已注册 X/Y」与「已加入 N」所需的字段。
 func TestT02_ListInvitationsProjectsRegisteredAndAcceptedCounts(t *testing.T) {
 	env := newShareLinkTestEnv(t)
-	max := 10
+	maxRegs := 10
 	row := &types.TenantInvitation{
 		TenantID:         shareLinkTestTenantID,
 		Token:            "list-share-token",
 		Role:             types.TenantRoleViewer,
 		Status:           types.TenantInvitationStatusPending,
 		ExpiresAt:        time.Now().Add(time.Hour),
-		MaxRegistrations: &max,
+		MaxRegistrations: &maxRegs,
 		RegisteredCount:  3,
 		AcceptedCount:    7,
 	}

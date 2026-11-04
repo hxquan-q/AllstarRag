@@ -244,7 +244,7 @@ func newQuotaTestEnv(t *testing.T) *quotaTestEnv {
 }
 
 // seedQuotaLink 直接写入一条共享链接行，避免用例依赖 T02 的创建接口。
-func (e *quotaTestEnv) seedQuotaLink(t *testing.T, max *int, registered int) (uint64, string) {
+func (e *quotaTestEnv) seedQuotaLink(t *testing.T, maxRegs *int, registered int) (uint64, string) {
 	t.Helper()
 	e.seq++
 	token := fmt.Sprintf("quota-token-%d", e.seq)
@@ -254,7 +254,7 @@ func (e *quotaTestEnv) seedQuotaLink(t *testing.T, max *int, registered int) (ui
 		Role:             types.TenantRoleViewer,
 		Status:           types.TenantInvitationStatusPending,
 		ExpiresAt:        time.Now().Add(time.Hour),
-		MaxRegistrations: max,
+		MaxRegistrations: maxRegs,
 		RegisteredCount:  registered,
 	}
 	if err := e.db.Create(inv).Error; err != nil {
@@ -293,8 +293,8 @@ func quotaRegisterBody(token, email string) string {
 // 满额链接注册返回 410，且不创建账号（预占必须在建号之前）。
 func TestT03_RegisterRejectedWhenQuotaFull(t *testing.T) {
 	env := newQuotaTestEnv(t)
-	max := 1
-	invID, token := env.seedQuotaLink(t, &max, 1)
+	maxRegs := 1
+	invID, token := env.seedQuotaLink(t, &maxRegs, 1)
 
 	w := env.post(t, "/auth/register-by-invite", "", quotaRegisterBody(token, "full@example.com"))
 	if w.Code != http.StatusGone {
@@ -312,8 +312,8 @@ func TestT03_RegisterRejectedWhenQuotaFull(t *testing.T) {
 // 未满链接注册成功返回 201，registered_count 从 X 变成 X+1。
 func TestT03_SuccessfulRegisterIncrementsCount(t *testing.T) {
 	env := newQuotaTestEnv(t)
-	max := 5
-	invID, token := env.seedQuotaLink(t, &max, 2)
+	maxRegs := 5
+	invID, token := env.seedQuotaLink(t, &maxRegs, 2)
 
 	w := env.post(t, "/auth/register-by-invite", "", quotaRegisterBody(token, "ok@example.com"))
 	if w.Code != http.StatusCreated {
@@ -332,8 +332,8 @@ func TestT03_SuccessfulRegisterIncrementsCount(t *testing.T) {
 func TestT03_FailedRegisterReleasesReservation(t *testing.T) {
 	env := newQuotaTestEnv(t)
 	env.users.updateErr = errors.New("模拟写回用户失败")
-	max := 5
-	invID, token := env.seedQuotaLink(t, &max, 1)
+	maxRegs := 5
+	invID, token := env.seedQuotaLink(t, &maxRegs, 1)
 
 	w := env.post(t, "/auth/register-by-invite", "", quotaRegisterBody(token, "fail@example.com"))
 	if w.Code != http.StatusInternalServerError {
@@ -359,8 +359,8 @@ func TestT03_ExistingAccountAcceptBypassesQuota(t *testing.T) {
 	env.users.users[existingUserID] = &types.User{
 		ID: existingUserID, Email: "existing@example.com", TenantID: quotaTestTenantID,
 	}
-	max := 1
-	invID, token := env.seedQuotaLink(t, &max, 1)
+	maxRegs := 1
+	invID, token := env.seedQuotaLink(t, &maxRegs, 1)
 
 	w := env.post(t, "/me/invitations/accept-by-token", existingUserID,
 		fmt.Sprintf(`{"token":%q}`, token))
@@ -376,8 +376,8 @@ func TestT03_ExistingAccountAcceptBypassesQuota(t *testing.T) {
 // lookup 在满额时返回 410，与过期/撤销统一语义。
 func TestT03_LookupReturnsGoneWhenQuotaFull(t *testing.T) {
 	env := newQuotaTestEnv(t)
-	max := 2
-	_, token := env.seedQuotaLink(t, &max, 2)
+	maxRegs := 2
+	_, token := env.seedQuotaLink(t, &maxRegs, 2)
 
 	w := env.post(t, "/auth/invitations/lookup", "", fmt.Sprintf(`{"token":%q}`, token))
 	if w.Code != http.StatusGone {
@@ -391,8 +391,8 @@ func TestT03_LookupReturnsGoneWhenQuotaFull(t *testing.T) {
 // 已有账号走 accept 也被拦是 F14 的预期语义（链接随空间整体失效）。
 func TestT03_DeletedTenantShareLinkGone(t *testing.T) {
 	env := newQuotaTestEnv(t)
-	max := 5
-	invID, token := env.seedQuotaLink(t, &max, 0)
+	maxRegs := 5
+	invID, token := env.seedQuotaLink(t, &maxRegs, 0)
 
 	// 软删租户 900（等价 DeleteTenant 对 tenants 表的效果）。
 	if err := env.db.Delete(&types.Tenant{}, quotaTestTenantID).Error; err != nil {
@@ -432,8 +432,8 @@ func TestT03_ConcurrentRegistrationsDoNotOversell(t *testing.T) {
 	env := newQuotaTestEnv(t)
 	const limit = 3
 	const attempts = 8
-	max := limit
-	invID, token := env.seedQuotaLink(t, &max, 0)
+	maxRegs := limit
+	invID, token := env.seedQuotaLink(t, &maxRegs, 0)
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
