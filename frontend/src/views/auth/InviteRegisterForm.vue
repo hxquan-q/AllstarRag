@@ -87,13 +87,39 @@ function isPasswordPolicyMessage(message?: string): boolean {
   return typeof message === 'string' && /password must be 8-32 characters/i.test(message)
 }
 
+// 从校验失败结果中取第一条错误消息。TDesign 的 validate() 失败有两种形态：
+// resolve 一个 { 字段: [{ message }] } 对象，或（自定义校验器抛错时）
+// reject 同形态对象——两种都走这里。字段级红字提示由表单自身渲染，
+// 本函数只负责补一条全局 toast。
+function firstValidationMessage(result: unknown): string {
+  if (!result || typeof result !== 'object') return ''
+  for (const field of Object.values(result)) {
+    if (!Array.isArray(field)) continue
+    for (const item of field) {
+      const message = (item as { message?: unknown }).message
+      if (typeof message === 'string' && message) return message
+    }
+  }
+  return ''
+}
+
 async function handleSubmit() {
   // 先置位再校验：表单 submit 与密码框 Enter 可能同时触发，置位后第二次直接返回。
   if (submitting.value) return
   submitting.value = true
   try {
-    const valid = await formRef.value?.validate?.()
-    if (valid !== true) return
+    // 校验失败可能 reject 而非 resolve false，统一接住后按同一分支提示，
+    // 避免 rejection 穿透后被外层 catch 吞成通用失败（或完全无提示）。
+    let valid: unknown
+    try {
+      valid = await formRef.value?.validate?.()
+    } catch (errors) {
+      valid = errors
+    }
+    if (valid !== true) {
+      MessagePlugin.error(firstValidationMessage(valid) || t('inviteRegister.failed'))
+      return
+    }
 
     const response = await registerByInvite({
       token: props.token,

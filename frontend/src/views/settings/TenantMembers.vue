@@ -119,7 +119,8 @@
                   <p class="invite-confirm-body">
                     {{ $t('tenantInvitation.shareLink.description') }}
                   </p>
-                  <t-form :data="shareLinkForm" :label-width="80">
+                  <!-- 标签列 104px：容纳「最多注册人数」六字标签，避免文字盖住控件。 -->
+                  <t-form :data="shareLinkForm" :label-width="104">
                     <t-form-item :label="$t('tenantMember.add.roleLabel')" name="role">
                       <t-select v-model="shareLinkForm.role" :options="roleOptions"
                         :popup-props="roleSelectPopupProps" />

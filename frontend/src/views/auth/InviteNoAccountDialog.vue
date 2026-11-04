@@ -1,6 +1,7 @@
 <template>
   <!-- 邀请落地页无账号引导：主操作去注册，次操作回到登录表单。 -->
-  <t-dialog :visible="visible" width="460px" :footer="false" :close-on-overlay-click="true"
+  <!-- placement="center"：TDesign 1.19.x 支持，弹窗垂直居中（默认顶部）。 -->
+  <t-dialog :visible="visible" width="460px" placement="center" :footer="false" :close-on-overlay-click="true"
     :close-on-esc-keydown="true" @update:visible="onVisibleUpdate">
     <template #header>
       <span class="invite-no-account__header">

@@ -15,6 +15,16 @@ import (
 // service layer maps it to its own sentinel for the handler.
 var ErrPendingInvitationExists = errors.New("repository: pending invitation already exists")
 
+// tenantAliveSQL 是共享链接查询侧的租户存活条件：租户被软删
+// （tenants.deleted_at 非空）后，其名下所有邀请链接应整体失效，
+// lookup / 注册预占 / accept-by-token 统一按 410 链接失效处理。
+// DeleteTenant 的事务不做级联撤销（属上游改动，本轮不扩大），
+// 因此由查询侧拦截。子查询为标准 SQL，PostgreSQL 与 SQLite 均支持；
+// 定向邀请（invitee 非空、token 为空）本来就不会命中这两个查询，不受影响。
+const tenantAliveSQL = " AND EXISTS (SELECT 1 FROM tenants" +
+	" WHERE tenants.id = tenant_invitations.tenant_id" +
+	" AND tenants.deleted_at IS NULL)"
+
 // tenantInvitationRepository implements interfaces.TenantInvitationRepository.
 type tenantInvitationRepository struct {
 	db *gorm.DB
@@ -120,8 +130,9 @@ func (r *tenantInvitationRepository) GetActiveByToken(
 		return nil, nil
 	}
 	var inv types.TenantInvitation
+	// 追加租户存活条件：租户软删后链接整体失效（见 tenantAliveSQL 注释）。
 	err := r.db.WithContext(ctx).
-		Where("token = ? AND status = ?",
+		Where("token = ? AND status = ?"+tenantAliveSQL,
 			token, types.TenantInvitationStatusPending).
 		First(&inv).Error
 	if err != nil {
@@ -313,18 +324,20 @@ func (r *tenantInvitationRepository) IncrementAcceptedCount(
 }
 
 // ReserveRegistrationQuota 原子预占一个注册名额：只有 pending、未过期、
-// 且名额未满（不限或已注册数小于上限）时才把 registered_count 加一。
-// 由数据库行锁串行化并发写入，不会超卖。返回 true 表示预占成功；
-// false 表示满额 / 过期 / 已撤销，调用方应统一按链接失效处理。
+// 名额未满（不限或已注册数小于上限）、且所属租户未被软删时才把
+// registered_count 加一。由数据库行锁串行化并发写入，不会超卖。
+// 返回 true 表示预占成功；false 表示满额 / 过期 / 已撤销 / 租户已删，
+// 调用方应统一按链接失效处理。
 func (r *tenantInvitationRepository) ReserveRegistrationQuota(
 	ctx context.Context,
 	id uint64,
 	now time.Time,
 ) (bool, error) {
+	// 追加租户存活条件：租户软删后链接整体失效（见 tenantAliveSQL 注释）。
 	res := r.db.WithContext(ctx).
 		Model(&types.TenantInvitation{}).
 		Where("id = ? AND status = ? AND expires_at > ? "+
-			"AND (max_registrations IS NULL OR registered_count < max_registrations)",
+			"AND (max_registrations IS NULL OR registered_count < max_registrations)"+tenantAliveSQL,
 			id, types.TenantInvitationStatusPending, now).
 		Updates(map[string]any{
 			"registered_count": gorm.Expr("registered_count + 1"),
