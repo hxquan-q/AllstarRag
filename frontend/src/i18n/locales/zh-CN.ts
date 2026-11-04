@@ -6746,6 +6746,7 @@ export default {
     success: '注册成功，正在进入工作空间…',
     joined: '已加入该团队',
     failed: '注册失败，请稍后重试',
+    formInvalid: '请检查表单填写内容',
     usernameRequired: '请输入姓名',
     passwordTooShort: '密码至少 8 位',
     passwordMismatch: '两次输入的密码不一致'

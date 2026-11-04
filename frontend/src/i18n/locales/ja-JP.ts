@@ -2994,6 +2994,7 @@ export default {
     success: '登録が完了しました。ワークスペースに移動します…',
     joined: 'チームに参加しました。',
     failed: '登録に失敗しました。しばらくしてから再試行してください',
+    formInvalid: '入力内容をご確認ください',
     usernameRequired: '表示名は必須です',
     passwordTooShort: 'パスワードは8文字以上で入力してください',
     passwordMismatch: 'パスワードが一致しません'

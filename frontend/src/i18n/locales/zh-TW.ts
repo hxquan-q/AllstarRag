@@ -6746,6 +6746,7 @@ export default {
     success: '註冊成功，正在進入工作空間…',
     joined: '已加入該團隊',
     failed: '註冊失敗，請稍後重試',
+    formInvalid: '請檢查表單填寫內容',
     usernameRequired: '請輸入姓名',
     passwordTooShort: '密碼至少 8 位',
     passwordMismatch: '兩次輸入的密碼不一致'

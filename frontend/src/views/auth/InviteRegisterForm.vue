@@ -131,7 +131,7 @@ async function handleSubmit() {
       // TDesign 结果里 password 数组可能带出 required 规则消息（「请输入密码」），会误导用户。
       const message = hasPasswordError(valid)
         ? t('inviteRegister.passwordInvalid')
-        : firstValidationMessage(valid) || t('inviteRegister.failed')
+        : firstValidationMessage(valid) || t('inviteRegister.formInvalid')
       MessagePlugin.error(message)
       return
     }

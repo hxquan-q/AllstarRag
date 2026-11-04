@@ -2994,6 +2994,7 @@ export default {
     success: 'Registration successful — entering workspace…',
     joined: 'You have joined the team.',
     failed: 'Registration failed; please try again later',
+    formInvalid: 'Please check the form for errors',
     usernameRequired: 'Display name is required',
     passwordTooShort: 'Password must be at least 8 characters',
     passwordMismatch: 'Passwords do not match'

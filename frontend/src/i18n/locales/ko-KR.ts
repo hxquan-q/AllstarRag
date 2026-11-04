@@ -6745,6 +6745,7 @@ export default {
     success: '가입 완료, 워크스페이스로 이동합니다…',
     joined: '팀에 합류했습니다.',
     failed: '가입에 실패했습니다. 잠시 후 다시 시도해 주세요',
+    formInvalid: '입력한 내용을 확인해 주세요',
     usernameRequired: '이름을 입력하세요',
     passwordTooShort: '비밀번호는 최소 8자 이상이어야 합니다',
     passwordMismatch: '두 비밀번호가 일치하지 않습니다'
