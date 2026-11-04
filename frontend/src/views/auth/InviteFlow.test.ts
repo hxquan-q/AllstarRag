@@ -262,8 +262,9 @@ test('并发提交（表单 submit + 密码框 Enter）只调用一次注册接�
   assert.equal(f.vm.submitting, false, '提交结束后必须复位 submitting')
 })
 
-test('F17 校验失败（resolve false 形态）：toast 第一条本地化错误，不调注册接口，字段级规则保留', async (t: TestContext) => {
+test('F17/F19 校验失败（resolve false 形态）：密码字段 toast 统一合规提示，不调注册接口，字段级规则保留', async (t: TestContext) => {
   // 简单模式：密码 abcdefgh 有字母、缺数字，TDesign resolve 失败对象形态。
+  // F19：结果含 password 条目时 toast 不直出具体规则消息，统一 inviteRegister.passwordInvalid。
   const digitMessage = translate(zhCN, 'auth.passwordMustContainNumber')
   const f = await registerFormFixture(t, {
     complexPasswordEnabled: false,
@@ -274,7 +275,11 @@ test('F17 校验失败（resolve false 形态）：toast 第一条本地化错�
   })
   f.vm.form.password = 'abcdefgh'
   await f.vm.handleSubmit()
-  assert.deepEqual(f.messages, [['error', digitMessage]], '应弹出第一条本地化校验错误')
+  assert.deepEqual(
+    f.messages,
+    [['error', zhCN.inviteRegister.passwordInvalid]],
+    'F19：密码字段 toast 应为统一合规提示',
+  )
   assert.equal(f.calls.length, 0, '校验失败不应调用注册接口')
   assert.deepEqual(f.events, [], '不应触发 success/login/invalid')
   assert.equal(f.vm.submitting, false, 'finally 必须复位 submitting')
@@ -286,9 +291,10 @@ test('F17 校验失败（resolve false 形态）：toast 第一条本地化错�
   assert.equal(digitRule.message, digitMessage)
 })
 
-test('F17 校验失败（reject 形态）：rejection 不再被吞，同样 toast 第一条本地化错误', async (t: TestContext) => {
+test('F17/F19 校验失败（reject 形态）：rejection 不再被吞，密码字段同样 toast 统一合规提示', async (t: TestContext) => {
   // F17 根因：TDesign validate() 失败可能 reject 而非 resolve false，
   // 旧实现无提示直接 return；这里验证 reject 也走同一条 toast 分支。
+  // F19：密码场景 toast 为 inviteRegister.passwordInvalid，不再直出 firstValidationMessage 的规则消息。
   const minLengthMessage = translate(zhCN, 'auth.passwordMinLength')
   const f = await registerFormFixture(t, {
     complexPasswordEnabled: false,
@@ -301,8 +307,36 @@ test('F17 校验失败（reject 形态）：rejection 不再被吞，同样 toas
   await f.vm.handleSubmit()
   assert.deepEqual(
     f.messages,
-    [['error', minLengthMessage]],
-    '应取校验结果第一条消息，而不是外层 catch 的通用失败文案',
+    [['error', zhCN.inviteRegister.passwordInvalid]],
+    'F19：密码字段 toast 应为统一合规提示，而非外层 catch 的通用失败文案',
+  )
+  assert.equal(f.calls.length, 0, '校验失败不应调用注册接口')
+  assert.deepEqual(f.events, [])
+  assert.equal(f.vm.submitting, false, 'finally 必须复位 submitting')
+})
+
+test('F19 非密码字段校验失败：toast 仍取该字段第一条本地化消息，不误入 passwordInvalid 分支', async (t: TestContext) => {
+  // 验证 firstValidationMessage 路径未回归：email 非法时 toast 直出该字段的
+  // 本地化校验消息（组件 email 规则用的就是 inviteRegister.emailInvalid）。
+  const emailMessage = translate(zhCN, 'inviteRegister.emailInvalid')
+  const f = await registerFormFixture(t, {
+    complexPasswordEnabled: false,
+    t: (key, params) => translate(zhCN, key, params),
+    validate: async () => ({
+      email: [{ message: emailMessage, result: false, type: 'error' }],
+    }),
+  })
+  f.vm.form.email = 'not-an-email'
+  await f.vm.handleSubmit()
+  assert.deepEqual(
+    f.messages,
+    [['error', emailMessage]],
+    '非密码字段仍应 toast 第一条本地化校验消息',
+  )
+  assert.notEqual(
+    f.messages[0][1],
+    zhCN.inviteRegister.passwordInvalid,
+    '不应误入密码统一提示分支',
   )
   assert.equal(f.calls.length, 0, '校验失败不应调用注册接口')
   assert.deepEqual(f.events, [])
