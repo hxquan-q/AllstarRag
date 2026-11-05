@@ -23,7 +23,7 @@
                 <!-- WeKnora 助手入口对客户隐藏（H2）；管理员保持原样（保留上游 AssistantButton 写法） -->
                 <t-tooltip v-if="assistantStore.entry === 'sidebar' && !isCustomer" :content="assistantName"
                     placement="bottom">
-                    <AssistantButton icon-only :icon-size="18" :label="assistantName"
+                    <AssistantButton data-guide="assistant-entry" icon-only :icon-size="18" :label="assistantName"
                         :active="assistantStore.visible" @click="assistantStore.toggle()" />
                 </t-tooltip>
                 <t-tooltip placement="bottom">
@@ -108,7 +108,7 @@
                 </t-tooltip>
                 <t-tooltip v-if="assistantStore.entry === 'sidebar' && !isCustomer" :content="assistantName"
                     placement="right">
-                    <AssistantButton class="assistant-sidebar-entry" icon-only :icon-size="18"
+                    <AssistantButton data-guide="assistant-entry" class="assistant-sidebar-entry" icon-only :icon-size="18"
                         :label="assistantName" :active="assistantStore.visible" @click="assistantStore.toggle()" />
                 </t-tooltip>
             </div>
