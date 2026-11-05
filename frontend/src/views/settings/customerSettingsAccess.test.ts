@@ -16,8 +16,9 @@ import {
  *   不出现 agentlines，其余完全不受影响（另有集成分区，不在本用例）；
  * - deep-link 非法 section 由路由归一化到 general（customerAccess.test.ts 已覆盖）。
  *
- * 基数是合入上游后的实测值：23 + defaults + agentlines = 25。
- * 管理员侧不渲染 agentlines（C6），因此 admin/owner/crossTenant 恒为 19、systemAdmin 恒为 24。
+ * 基数是合入上游后的实测值：23 + defaults + agentlines = 25，再加上本 feature 的
+ * user-management = 26。
+ * 管理员侧不渲染 agentlines（C6），因此 admin/owner/crossTenant 恒为 20、systemAdmin 恒为 25。
  */
 
 const settingsSource = readFileSync(new URL('./Settings.vue', import.meta.url), 'utf8')
@@ -59,7 +60,7 @@ const allBlock = navItemsText.slice(allStart, allEnd)
 const baseKeys = [...allBlock.matchAll(/\{\s*key:\s*'([^']+)'/g)].map((match) => match[1]!)
 assert.equal(new Set(baseKeys).size, baseKeys.length, 'base settings keys must be unique')
 
-function visibleFor(role: 'viewer' | 'admin' | 'owner', options: { systemAdmin?: boolean; crossTenant?: boolean } = {}) {
+function visibleFor(role: 'viewer' | 'contributor' | 'admin' | 'owner', options: { systemAdmin?: boolean; crossTenant?: boolean } = {}) {
   const auth = {
     role,
     isSystemAdmin: options.systemAdmin ?? false,
@@ -86,14 +87,15 @@ function visibleFor(role: 'viewer' | 'admin' | 'owner', options: { systemAdmin?:
   return baseKeys.filter((key) => fn(key))
 }
 
-test('settings navigation has 25 non-integration sections (30 with integrations)', () => {
-  assert.equal(baseKeys.length, 25, `base settings keys: ${baseKeys.join(', ')}`)
+test('settings navigation has 26 non-integration sections (31 with integrations)', () => {
+  assert.equal(baseKeys.length, 26, `base settings keys: ${baseKeys.join(', ')}`)
   assert.deepEqual(baseKeys.slice(0, 3), ['general', 'ollama', 'weknoracloud'])
   assert.ok(baseKeys.includes('userprofile'))
   assert.ok(baseKeys.includes('assistant'))
   assert.ok(baseKeys.includes('mymemory'))
   assert.ok(baseKeys.includes('envvars'))
   assert.ok(baseKeys.includes('agentlines'), 'T03 adds the agent lines section')
+  assert.ok(baseKeys.includes('user-management'), 'T09 adds the user management section')
 })
 
 test('customer sees exactly the four allowed sections, in the account group order', () => {
@@ -137,13 +139,28 @@ test('customer hidden sections are all filtered out', () => {
 
 test('admin keeps every workspace section; system admin adds the five global ones', () => {
   // 普通 admin / owner 看不到 5 个系统管理分区（requiresSystemAdmin）；演示用的管理员是系统管理员。
-  // 25 个基础分区里 agentlines 只对客户可见（C6），因此管理员侧为 19、系统管理员为 24。
+  // 26 个基础分区里 agentlines 只对客户可见（C6），user-management 只对 owner 可见
+  // （admin 不可见，T09），因此普通 admin 仍为 19、owner 为 20、系统管理员为 25。
   assert.equal(visibleFor('admin').length, 19)
-  assert.equal(visibleFor('owner').length, 19)
-  assert.equal(visibleFor('admin', { crossTenant: true }).length, 19)
+  assert.equal(visibleFor('owner').length, 20)
+  assert.equal(visibleFor('admin', { crossTenant: true }).length, 20)
   const systemAdmin = visibleFor('admin', { systemAdmin: true })
-  assert.equal(systemAdmin.length, 24)
+  assert.equal(systemAdmin.length, 25)
   assert.deepEqual(systemAdmin, baseKeys.filter((key) => key !== 'agentlines'))
+})
+
+test('user-management section is visible to owner and system admin only (T09/AC-1)', () => {
+  assert.equal(visibleFor('owner').includes('user-management'), true)
+  assert.equal(visibleFor('owner', { systemAdmin: true }).includes('user-management'), true)
+  // 系统管理员即使当前空间角色只是 admin / contributor，也能看到该分区。
+  assert.equal(visibleFor('admin', { systemAdmin: true }).includes('user-management'), true)
+  assert.equal(visibleFor('contributor', { systemAdmin: true }).includes('user-management'), true)
+  // 普通 admin / contributor / viewer 一律不可见（后端仍会 403，C4）。
+  assert.equal(visibleFor('admin').includes('user-management'), false)
+  assert.equal(visibleFor('contributor').includes('user-management'), false)
+  assert.equal(visibleFor('viewer').includes('user-management'), false)
+  // canAccessAllTenants（跨空间 superuser）沿用既有平台级 bypass，与路由层一致。
+  assert.equal(visibleFor('admin', { crossTenant: true }).includes('user-management'), true)
 })
 
 test('Settings.vue renders CustomerGeneralSettings only for customers, GeneralSettings otherwise', () => {

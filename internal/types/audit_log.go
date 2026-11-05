@@ -25,6 +25,31 @@ const (
 	// AuditActionMemberLeft fires on POST /tenants/:id/leave — the
 	// actor and target are the same user.
 	AuditActionMemberLeft AuditAction = "rbac.member_left"
+	// AuditActionMemberBanned fires when an Owner / SystemAdmin bans a
+	// tenant member (users.is_active=false + all tokens revoked). The
+	// Details payload carries the target role and the caller-supplied
+	// reason; passwords, password hashes and token values MUST NOT appear.
+	AuditActionMemberBanned AuditAction = "rbac.member_banned"
+	// AuditActionMemberUnbanned fires when an Owner / SystemAdmin lifts a
+	// ban (users.is_active=true; historical tokens stay revoked). The
+	// Details payload and redaction rules match AuditActionMemberBanned.
+	AuditActionMemberUnbanned AuditAction = "rbac.member_unbanned"
+	// AuditActionMemberPurged fires when an Owner / SystemAdmin tombstones
+	// an account (PII wiped, personal data cleaned, assets kept). The
+	// Details payload carries the target role and the caller-supplied
+	// reason only; emails, passwords, hashes and token values MUST NOT
+	// appear.
+	AuditActionMemberPurged AuditAction = "rbac.member_purged"
+	// AuditActionOwnerProvisioned fires when a SystemAdmin turns an existing
+	// account into a workspace owner (creating the workspace when needed).
+	// The tenant_id is the provisioned workspace, not the platform scope.
+	AuditActionOwnerProvisioned AuditAction = "system.owner_provisioned"
+	// AuditActionOwnerTransferred fires on POST /tenants/:id/transfer-owner.
+	// Actor is the current owner (or system admin), target is the successor.
+	AuditActionOwnerTransferred AuditAction = "rbac.owner_transferred"
+	// AuditActionOwnerInviteCreated fires when a SystemAdmin creates a pending
+	// workspace plus an owner share link. Details never contain the token.
+	AuditActionOwnerInviteCreated AuditAction = "system.owner_invite_created"
 	// AuditActionMemberPasswordReset fires when an Owner / Admin resets
 	// another member's password through
 	// POST /tenants/:id/members/:user_id/reset-password. The Details

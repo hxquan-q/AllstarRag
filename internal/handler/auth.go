@@ -341,12 +341,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// User is already in the correct format from service
 
-	// 能力投影:被移出所有空间的账号即使部署允许自建也不能再建空间。
+	// 能力投影(T11 / AC-44):只有平台级管理员能建空间,与 POST /tenants 的
+	// 硬门禁一致。上游 tenant.self_service_creation_enabled 不再给普通用户
+	// 放行创建能力;被移出所有空间的账号始终为 false。
 	accessRevoked := h.resolveAccessRevoked(ctx, response.User)
-	canCreateTenant := response.User != nil && response.User.CanAccessAllTenants
-	if !canCreateTenant {
-		canCreateTenant = resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
-	}
+	canCreateTenant := response.User != nil &&
+		(response.User.IsSystemAdmin || response.User.CanAccessAllTenants)
 	if accessRevoked {
 		canCreateTenant = false
 	}
@@ -755,11 +755,11 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	// 同步返回当前用户的 memberships，让前端在页面刷新（仅命中 /auth/me）
 	// 后也能恢复 currentTenantRole，避免角色信息只在 login 那一刻可用。
 	memberships := h.userService.BuildLoginMemberships(ctx, user, tenant)
-	// 被移出所有空间的账号:即使部署允许自建,也不再投影创建能力;
-	// access_revoked 供前端隐藏入口并展示提示卡片。
+	// 能力投影(T11 / AC-44):只有平台级管理员能建空间,口径必须与 /auth/login
+	// 和 POST /tenants 完全一致,否则前端会出现“登录瞬间可见、刷新后消失”。
+	// 上游 tenant.self_service_creation_enabled 不再给普通用户放行创建能力。
 	accessRevoked := h.resolveAccessRevoked(ctx, user)
-	canCreateTenant := user.CanAccessAllTenants ||
-		resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
+	canCreateTenant := user.IsSystemAdmin || user.CanAccessAllTenants
 	if accessRevoked {
 		canCreateTenant = false
 	}

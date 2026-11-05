@@ -1637,6 +1637,12 @@ definitions:
     - rbac.member_removed
     - rbac.member_role_changed
     - rbac.member_left
+    - rbac.member_banned
+    - rbac.member_unbanned
+    - rbac.member_purged
+    - system.owner_provisioned
+    - rbac.owner_transferred
+    - system.owner_invite_created
     - rbac.member_password_reset
     - rbac.access_denied
     - rbac.invitation_sent
@@ -1702,6 +1708,12 @@ definitions:
     - AuditActionMemberRemoved
     - AuditActionMemberRoleChanged
     - AuditActionMemberLeft
+    - AuditActionMemberBanned
+    - AuditActionMemberUnbanned
+    - AuditActionMemberPurged
+    - AuditActionOwnerProvisioned
+    - AuditActionOwnerTransferred
+    - AuditActionOwnerInviteCreated
     - AuditActionMemberPasswordReset
     - AuditActionAccessDenied
     - AuditActionInvitationSent
@@ -10823,6 +10835,17 @@ definitions:
     required:
     - ids
     type: object
+  internal_handler.CapabilitiesResponse:
+    properties:
+      capabilities:
+        items:
+          type: string
+        type: array
+      is_system_admin:
+        type: boolean
+      role:
+        type: string
+    type: object
   internal_handler.ClearResponse:
     properties:
       removed:
@@ -11313,6 +11336,14 @@ definitions:
         type: boolean
       registration_mode:
         type: string
+      success:
+        example: true
+        type: boolean
+    type: object
+  internal_handler.GetCapabilitiesResponse:
+    properties:
+      data:
+        $ref: '#/definitions/internal_handler.CapabilitiesResponse'
       success:
         example: true
         type: boolean
@@ -13877,6 +13908,15 @@ definitions:
         type: boolean
         x-agent: true
     type: object
+  internal_handler.createCoOwnerRequest:
+    properties:
+      email:
+        type: string
+      password:
+        type: string
+      username:
+        type: string
+    type: object
   internal_handler.createInvitationRequest:
     properties:
       email:
@@ -13921,6 +13961,15 @@ definitions:
     - password
     - role
     - username
+    type: object
+  internal_handler.createOwnerInviteRequest:
+    properties:
+      email:
+        type: string
+      expires_in_days:
+        type: integer
+      space_name:
+        type: string
     type: object
   internal_handler.createTenantRequest:
     properties:
@@ -14020,6 +14069,18 @@ definitions:
           revoke.
         type: string
     type: object
+  internal_handler.memberPurgeRequest:
+    properties:
+      confirm_email:
+        type: string
+      reason:
+        type: string
+    type: object
+  internal_handler.memberStatusChangeRequest:
+    properties:
+      reason:
+        type: string
+    type: object
   internal_handler.platformAPIKeyCreateRequest:
     properties:
       capabilities:
@@ -14029,6 +14090,11 @@ definitions:
       expires_at_unix:
         type: integer
       name:
+        type: string
+    type: object
+  internal_handler.provisionOwnerSpaceRequest:
+    properties:
+      space_name:
         type: string
     type: object
   internal_handler.registerByInviteRequest:
@@ -14265,6 +14331,13 @@ definitions:
         type: string
       scope_type:
         $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.APIKeyScopeType'
+    type: object
+  internal_handler.transferOwnerRequest:
+    properties:
+      from_user_id:
+        type: string
+      to_user_id:
+        type: string
     type: object
   internal_handler.updateLastFAQImportResultDisplayStatusRequest:
     properties:
@@ -15480,6 +15553,27 @@ paths:
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
       summary: 自动初始化（Lite 桌面版）
+      tags:
+      - 认证
+  /auth/capabilities:
+    get:
+      consumes:
+      - application/json
+      description: 返回当前工作区角色、是否系统管理员，以及由唯一能力矩阵投影出的能力列表。前端据此门控菜单与按钮；真正的权限由后端逐接口校验。
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 当前用户能力
+          schema:
+            $ref: '#/definitions/internal_handler.GetCapabilitiesResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      summary: 获取当前用户能力
       tags:
       - 认证
   /auth/change-password:
@@ -27892,6 +27986,26 @@ paths:
       summary: Preview a model catalog overlay
       tags:
       - 系统管理
+  /system/admin/owners/invite:
+    post:
+      description: 创建一个 pending 空间与 owner 角色的分享链接；接受邀请后才创建成员关系
+      parameters:
+      - description: 邀请信息（全部可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.createOwnerInviteRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 生成 owner 邀请链接
+      tags:
+      - 系统管理
   /system/admin/promote:
     post:
       consumes:
@@ -28313,6 +28427,31 @@ paths:
         state and system administrator flag. Follow has_more using offset + limit.
         tenant_id is the home workspace, not a list of memberships. No search or role
         filter is supported: paginate before drawing conclusions.'
+  /system/admin/users/{user_id}/owner-space:
+    post:
+      description: 系统管理员把已有账号设为 owner：已有独立空间则复用，否则新建空间并成为唯一 owner
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 空间名（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.provisionOwnerSpaceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 设置账号为 owner
+      tags:
+      - 系统管理
   /system/admin/users/create:
     post:
       consumes:
@@ -28622,9 +28761,11 @@ paths:
       consumes:
       - application/json
       description: |-
-        创建新的空间。任意已登录用户均可调用以建立自己的新工作区，
-        调用方会被自动设为该空间的 Owner。跨空间超管仍可像以前一样
-        通过本接口创建任意空间。
+        创建新的空间。仅平台级管理员可调用：系统管理员、跨空间超管，
+        或持有 system_tenants_manage 的平台 API Key。其余角色
+        （owner/admin/contributor/viewer）一律返回 403，与上游
+        tenant.self_service_creation_enabled 开关无关。
+        调用方会被自动设为该空间的 Owner。
         当 tenant.auto_create_api_key（或 WEKNORA_TENANT_AUTO_CREATE_API_KEY）
         开启时，会自动创建一个 full_access API Key，并在响应体的 data.api_key 字段返回其明文 token。
       parameters:
@@ -28644,6 +28785,10 @@ paths:
             type: object
         "400":
           description: 请求参数错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 仅平台级管理员可创建空间
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
       security:
@@ -29176,7 +29321,11 @@ paths:
     put:
       consumes:
       - application/json
-      description: Owner 修改某位成员在当前空间内的角色；不能将最后一位 Owner 降级
+      description: |-
+        Owner 或系统管理员修改某位成员在当前空间内的角色。
+        owner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；
+        owner 可把非 owner 成员提升为 owner（co-owner）。
+        最后一位 Owner 的服务层原子保护保留。
       parameters:
       - description: 空间 ID
         in: path
@@ -29204,6 +29353,67 @@ paths:
       security:
       - Bearer: []
       summary: 修改空间成员角色
+      tags:
+      - 空间成员
+  /tenants/{id}/members/{user_id}/ban:
+    post:
+      description: 将目标账号置为不可登录并吊销其全部 token，保留成员关系；owner 不能操作 owner/超管
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 封禁原因（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.memberStatusChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 封禁空间成员
+      tags:
+      - 空间成员
+  /tenants/{id}/members/{user_id}/purge:
+    post:
+      description: 墓碑化目标账号：清空 PII、清理成员/邀请/token/个人数据并写审计；资产保留。不可恢复
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 确认邮箱与原因（原因可选）
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.memberPurgeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 彻底删除空间成员
       tags:
       - 空间成员
   /tenants/{id}/members/{user_id}/reset-password:
@@ -29266,6 +29476,36 @@ paths:
       summary: 重置成员密码
       tags:
       - 空间成员
+  /tenants/{id}/members/{user_id}/unban:
+    post:
+      description: 恢复目标账号的登录能力，不恢复历史 token；普通 owner 只能解封在本空间被封禁的账号
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 解封原因（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.memberStatusChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 解封空间成员
+      tags:
+      - 空间成员
   /tenants/{id}/members/create:
     post:
       consumes:
@@ -29316,6 +29556,98 @@ paths:
       security:
       - Bearer: []
       summary: 创建成员账号并加入空间
+      tags:
+      - 空间成员
+  /tenants/{id}/owners/create:
+    post:
+      description: 创建一个 tenantless 账号并加入当前空间，角色为 owner；入组失败会回滚账号
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 账号信息
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.createCoOwnerRequest'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 新建 co-owner 账号
+      tags:
+      - 空间成员
+  /tenants/{id}/transfer-owner:
+    post:
+      description: 把 owner 身份交给本空间 active 成员；owner 只能传自己，系统管理员可传任意 owner
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 交接目标（from 可选）
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.transferOwnerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 交接空间 owner
+      tags:
+      - 空间成员
+  /tenants/{id}/user-management:
+    get:
+      description: 返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 角色筛选：viewer/contributor/admin/owner，缺省为全部
+        in: query
+        name: role
+        type: string
+      - description: 按邮箱/用户名模糊筛选
+        in: query
+        name: q
+        type: string
+      - default: 1
+        description: 页码（从 1 起）
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量（最大 100）
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 列出用户管理成员
       tags:
       - 空间成员
   /tenants/all:

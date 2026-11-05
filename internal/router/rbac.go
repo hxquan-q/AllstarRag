@@ -213,6 +213,14 @@ func (g *rbacGuards) Owner() gin.HandlerFunc {
 	return middleware.RequireRole(types.TenantRoleOwner, g.cfg)
 }
 
+// OwnerOrSystemAdmin 放行"本空间 Owner 或系统管理员"。普通 Owner()
+// 不认 IsSystemAdmin，而用户管理接口需要允许超管在任意空间管理 owner，
+// 因此单独封装。注意：这只是路由层守卫；目标级保护（不能操作自己、
+// owner 不能操作 owner/超管/别处 owner）仍由 UserManagementService 判定。
+func (g *rbacGuards) OwnerOrSystemAdmin() gin.HandlerFunc {
+	return middleware.RequireRoleOrSystemAdmin(types.TenantRoleOwner, g.cfg)
+}
+
 // API-key authorization — a SEPARATE authority from the JWT role/ownership
 // guards above. Instead of stacking a per-route guard that also had to know
 // the caller's ownership, every API-key-accessible route declares one

@@ -27,6 +27,9 @@ export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
   browserconnection: 'viewer',
   tenant: 'viewer',
   members: 'viewer',
+  // 用户管理页含封禁/注销等账号级写操作，空间内只对 owner 开放；
+  // 系统管理员不一定是当前空间的 owner，在 Settings.vue 的 canSeeSection 里另行放行。
+  'user-management': 'owner',
   mymemory: 'viewer',
   // 客户版产线绑定：每个成员编辑自己在当前工作区的绑定，Admin 设置不出现该分区（C6）。
   agentlines: 'viewer',
@@ -46,6 +49,7 @@ export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
  */
 export const SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE = {
   members: 'owner',
+  'user-management': 'owner',
   models: 'admin',
 } as const satisfies Record<string, SettingsRoleKey>
 

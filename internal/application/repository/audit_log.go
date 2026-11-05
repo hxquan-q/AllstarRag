@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -84,6 +85,32 @@ func (r *auditLogRepository) List(
 		return nil, err
 	}
 	return entries, nil
+}
+
+// LatestBanAuditForTarget 返回目标用户全平台最近一条成功封禁审计。
+//
+// 这里刻意不按 tenant_id 过滤：解封规则要判断的是"最近一次 ban 发生在
+// 哪个租户"，而不是"某个租户是否 ban 过该账号"。排序用自增 id 而非
+// created_at，同一毫秒内的多条审计也能得到确定的先后。
+func (r *auditLogRepository) LatestBanAuditForTarget(
+	ctx context.Context,
+	targetUserID string,
+) (*types.AuditLog, error) {
+	var entry types.AuditLog
+	err := r.db.WithContext(ctx).
+		Where("action = ?", types.AuditActionMemberBanned).
+		Where("outcome = ?", types.AuditOutcomeSuccess).
+		Where("target_user_id = ?", targetUserID).
+		Order("id DESC").
+		Limit(1).
+		Take(&entry).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &entry, nil
 }
 
 // CountSinceForDedup powers AuditLogService.LogDenied's sliding-window

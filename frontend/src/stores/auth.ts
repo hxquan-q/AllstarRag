@@ -12,6 +12,7 @@ import { useChatResourcesStore } from '@/stores/chatResources'
 import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useOrganizationStore } from '@/stores/organization'
 import { createSequencedRefresh } from '@/stores/sequencedRefresh'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 
 /** 登出时丢弃 Pinia 内的空间级资源缓存，避免 SPA 重登复用上一账号数据。 */
 function clearSessionResourceCaches() {
@@ -414,6 +415,10 @@ export const useAuthStore = defineStore('auth', () => {
     setAutoAcceptInvitation(response.data?.capabilities?.auto_accept_invitation === true)
 
     authMeSynced = true
+    // 能力投影属于当前会话 + 当前空间：登录、切换空间、接受邀请后都会走
+    // refreshFromAuthMe，这里顺带刷新。失败由 store 内部吞掉并保留上次值，
+    // 不能影响登录主流程。
+    void useCapabilitiesStore().refresh()
     return true
   }
 
@@ -471,6 +476,8 @@ export const useAuthStore = defineStore('auth', () => {
     authMeSynced = false
     // 飞行中的 /auth/me 作废：登出之后才返回的响应不能再 setUser / setTenant。
     authMeRequest.invalidate()
+    // 能力缓存同样属于上一个会话，清空并作废飞行中的 /auth/capabilities。
+    useCapabilitiesStore().reset()
     clearSessionResourceCaches()
 
     // 清空localStorage

@@ -1258,6 +1258,40 @@
                 }
             }
         },
+        "/auth/capabilities": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "返回当前工作区角色、是否系统管理员，以及由唯一能力矩阵投影出的能力列表。前端据此门控菜单与按钮；真正的权限由后端逐接口校验。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证"
+                ],
+                "summary": "获取当前用户能力",
+                "responses": {
+                    "200": {
+                        "description": "当前用户能力",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.GetCapabilitiesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/change-password": {
             "post": {
                 "security": [
@@ -20501,6 +20535,37 @@
                 }
             }
         },
+        "/system/admin/owners/invite": {
+            "post": {
+                "description": "创建一个 pending 空间与 owner 角色的分享链接；接受邀请后才创建成员关系",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理"
+                ],
+                "summary": "生成 owner 邀请链接",
+                "parameters": [
+                    {
+                        "description": "邀请信息（全部可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.createOwnerInviteRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/system/admin/promote": {
             "post": {
                 "description": "Grant system administrator privileges to a user (SystemAdmin only).\nIdempotent: re-promoting an existing system admin returns 200 with no DB write.\nIdentify the user by email (preferred for human operators) or user_id (UUID, for API clients).",
@@ -21215,6 +21280,44 @@
                 }
             }
         },
+        "/system/admin/users/{user_id}/owner-space": {
+            "post": {
+                "description": "系统管理员把已有账号设为 owner：已有独立空间则复用，否则新建空间并成为唯一 owner",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理"
+                ],
+                "summary": "设置账号为 owner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "空间名（可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.provisionOwnerSpaceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/system/capabilities": {
             "get": {
                 "description": "返回当前部署版本及实际注册的后端路由所对应的功能能力；仅 supported=false 表示入口应隐藏",
@@ -21498,7 +21601,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "创建新的空间。任意已登录用户均可调用以建立自己的新工作区，\n调用方会被自动设为该空间的 Owner。跨空间超管仍可像以前一样\n通过本接口创建任意空间。\n当 tenant.auto_create_api_key（或 WEKNORA_TENANT_AUTO_CREATE_API_KEY）\n开启时，会自动创建一个 full_access API Key，并在响应体的 data.api_key 字段返回其明文 token。",
+                "description": "创建新的空间。仅平台级管理员可调用：系统管理员、跨空间超管，\n或持有 system_tenants_manage 的平台 API Key。其余角色\n（owner/admin/contributor/viewer）一律返回 403，与上游\ntenant.self_service_creation_enabled 开关无关。\n调用方会被自动设为该空间的 Owner。\n当 tenant.auto_create_api_key（或 WEKNORA_TENANT_AUTO_CREATE_API_KEY）\n开启时，会自动创建一个 full_access API Key，并在响应体的 data.api_key 字段返回其明文 token。",
                 "consumes": [
                     "application/json"
                 ],
@@ -21530,6 +21633,12 @@
                     },
                     "400": {
                         "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "仅平台级管理员可创建空间",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -22883,7 +22992,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 修改某位成员在当前空间内的角色；不能将最后一位 Owner 降级",
+                "description": "Owner 或系统管理员修改某位成员在当前空间内的角色。\nowner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；\nowner 可把非 owner 成员提升为 owner（co-owner）。\n最后一位 Owner 的服务层原子保护保留。",
                 "consumes": [
                     "application/json"
                 ],
@@ -22968,6 +23077,97 @@
                 }
             }
         },
+        "/tenants/{id}/members/{user_id}/ban": {
+            "post": {
+                "description": "将目标账号置为不可登录并吊销其全部 token，保留成员关系；owner 不能操作 owner/超管",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "封禁空间成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "封禁原因（可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberStatusChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/members/{user_id}/purge": {
+            "post": {
+                "description": "墓碑化目标账号：清空 PII、清理成员/邀请/token/个人数据并写审计；资产保留。不可恢复",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "彻底删除空间成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "确认邮箱与原因（原因可选）",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberPurgeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/tenants/{id}/members/{user_id}/reset-password": {
             "post": {
                 "security": [
@@ -23042,6 +23242,190 @@
                     },
                     "500": {
                         "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/members/{user_id}/unban": {
+            "post": {
+                "description": "恢复目标账号的登录能力，不恢复历史 token；普通 owner 只能解封在本空间被封禁的账号",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "解封空间成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "解封原因（可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberStatusChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/owners/create": {
+            "post": {
+                "description": "创建一个 tenantless 账号并加入当前空间，角色为 owner；入组失败会回滚账号",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "新建 co-owner 账号",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "账号信息",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.createCoOwnerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/transfer-owner": {
+            "post": {
+                "description": "把 owner 身份交给本空间 active 成员；owner 只能传自己，系统管理员可传任意 owner",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "交接空间 owner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "交接目标（from 可选）",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.transferOwnerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/user-management": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "列出用户管理成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "角色筛选：viewer/contributor/admin/owner，缺省为全部",
+                        "name": "role",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按邮箱/用户名模糊筛选",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码（从 1 起）",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "每页数量（最大 100）",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -26526,6 +26910,12 @@
                 "rbac.member_removed",
                 "rbac.member_role_changed",
                 "rbac.member_left",
+                "rbac.member_banned",
+                "rbac.member_unbanned",
+                "rbac.member_purged",
+                "system.owner_provisioned",
+                "rbac.owner_transferred",
+                "system.owner_invite_created",
                 "rbac.member_password_reset",
                 "rbac.access_denied",
                 "rbac.invitation_sent",
@@ -26591,6 +26981,12 @@
                 "AuditActionMemberRemoved",
                 "AuditActionMemberRoleChanged",
                 "AuditActionMemberLeft",
+                "AuditActionMemberBanned",
+                "AuditActionMemberUnbanned",
+                "AuditActionMemberPurged",
+                "AuditActionOwnerProvisioned",
+                "AuditActionOwnerTransferred",
+                "AuditActionOwnerInviteCreated",
                 "AuditActionMemberPasswordReset",
                 "AuditActionAccessDenied",
                 "AuditActionInvitationSent",
@@ -37964,6 +38360,23 @@
                 }
             }
         },
+        "internal_handler.CapabilitiesResponse": {
+            "type": "object",
+            "properties": {
+                "capabilities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "is_system_admin": {
+                    "type": "boolean"
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handler.ClearResponse": {
             "type": "object",
             "properties": {
@@ -38644,6 +39057,18 @@
                 },
                 "registration_mode": {
                     "type": "string"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "internal_handler.GetCapabilitiesResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/internal_handler.CapabilitiesResponse"
                 },
                 "success": {
                     "type": "boolean",
@@ -42214,6 +42639,20 @@
                 }
             }
         },
+        "internal_handler.createCoOwnerRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handler.createInvitationRequest": {
             "type": "object",
             "required": [
@@ -42276,6 +42715,20 @@
                     "type": "string",
                     "maxLength": 50,
                     "minLength": 2
+                }
+            }
+        },
+        "internal_handler.createOwnerInviteRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "expires_in_days": {
+                    "type": "integer"
+                },
+                "space_name": {
+                    "type": "string"
                 }
             }
         },
@@ -42418,6 +42871,25 @@
                 }
             }
         },
+        "internal_handler.memberPurgeRequest": {
+            "type": "object",
+            "properties": {
+                "confirm_email": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handler.memberStatusChangeRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handler.platformAPIKeyCreateRequest": {
             "type": "object",
             "properties": {
@@ -42431,6 +42903,14 @@
                     "type": "integer"
                 },
                 "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handler.provisionOwnerSpaceRequest": {
+            "type": "object",
+            "properties": {
+                "space_name": {
                     "type": "string"
                 }
             }
@@ -42760,6 +43240,17 @@
                 },
                 "scope_type": {
                     "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.APIKeyScopeType"
+                }
+            }
+        },
+        "internal_handler.transferOwnerRequest": {
+            "type": "object",
+            "properties": {
+                "from_user_id": {
+                    "type": "string"
+                },
+                "to_user_id": {
+                    "type": "string"
                 }
             }
         },

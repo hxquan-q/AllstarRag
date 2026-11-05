@@ -257,6 +257,40 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewTenantService))
 	must(container.Provide(service.NewTenantAPIKeyService))
 	must(container.Provide(service.NewTenantMemberService))
+	// 用户管理服务构造时已会自动探测 AuditLogService 是否实现
+	// interfaces.LatestBanAuditLookup；这里再通过可选 setter 显式接线一次，
+	// 让"最近一次 ban"查询的依赖在容器层可见。
+	must(container.Provide(func(
+		userRepo interfaces.UserRepository,
+		memberRepo interfaces.TenantMemberRepository,
+		audit interfaces.AuditLogService,
+		tenantService interfaces.TenantService,
+		memberService interfaces.TenantMemberService,
+		invitationService interfaces.TenantInvitationService,
+		userService interfaces.UserService,
+	) interfaces.UserManagementService {
+		svc := service.NewUserManagementService(userRepo, memberRepo, audit)
+		if lookup, ok := audit.(interfaces.LatestBanAuditLookup); ok {
+			if aware, ok := svc.(interface {
+				WithLatestBanLookup(interfaces.LatestBanAuditLookup)
+			}); ok {
+				aware.WithLatestBanLookup(lookup)
+			}
+		}
+		// T04 owner 空间 / co-owner / 交接依赖跨域服务；三参构造保持不变，
+		// 通过可选 setter 注入，避免改动 T02/T03 的接线与测试。
+		if aware, ok := svc.(interface {
+			SetOwnerManagementDeps(
+				interfaces.TenantService,
+				interfaces.TenantMemberService,
+				interfaces.TenantInvitationService,
+				interfaces.UserService,
+			)
+		}); ok {
+			aware.SetOwnerManagementDeps(tenantService, memberService, invitationService, userService)
+		}
+		return svc
+	}))
 	must(container.Provide(service.NewTenantInvitationService))
 	must(container.Provide(service.NewAuditLogService))
 	must(container.Provide(service.NewAuditLogRetentionRunner))
@@ -677,6 +711,15 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewTenantMemberHandler))
 	must(container.Provide(handler.NewTenantInvitationHandler))
 	must(container.Provide(handler.NewAuditLogHandler))
+	must(container.Provide(handler.NewUserManagementHandler))
+	// 超管 owner 管理 handler：constructor 保持单参，配置通过 WithConfig
+	// 补进来（邀请链接需要 FRONTEND_BASE_URL）。
+	must(container.Provide(func(
+		svc interfaces.UserManagementService,
+		cfg *config.Config,
+	) *handler.OwnerManagementHandler {
+		return handler.NewOwnerManagementHandler(svc).WithConfig(cfg)
+	}))
 	must(container.Provide(handler.NewKnowledgeBaseHandler))
 	must(container.Provide(handler.NewGraphSearchHandler))
 	must(container.Provide(handler.NewKnowledgeHandler))

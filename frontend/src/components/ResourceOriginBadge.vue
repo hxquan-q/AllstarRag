@@ -81,9 +81,9 @@ const displayText = computed(() => {
       return authStore.currentTenantName || t('resourceOrigin.tenant')
     case 'creator':
       // Section header already provides the「本空间」context, so we just
-      // show who created it. Fall back to a generic label when the user
-      // can't be resolved (creator_name 缺失，例如已删除账号 / 老数据)。
-      return props.creatorName || t('resourceOrigin.tenant')
+      // show who created it. creator_name 缺失意味着账号已被墓碑化（彻底删除），
+      // 此时显示「已注销用户」，不能回退成「本空间」误导用户。
+      return props.creatorName || t('resourceOrigin.deletedUser')
     case 'space':
       return props.spaceName || t('resourceOrigin.space')
     case 'shared':
@@ -107,7 +107,7 @@ const tooltipText = computed(() => {
       if (props.creatorName) {
         return t('resourceOrigin.tenantTooltipWithCreator', { creator: props.creatorName })
       }
-      return t('resourceOrigin.tenantTooltip')
+      return t('resourceOrigin.deletedUserTooltip')
     case 'space':
       if (props.sourceTenantName) {
         return t('resourceOrigin.spaceTooltipWithTenant', {

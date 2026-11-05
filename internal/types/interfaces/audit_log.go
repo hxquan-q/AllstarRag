@@ -50,6 +50,19 @@ type AuditLogRepository interface {
 	DeleteOlderThan(ctx context.Context, cutoff time.Time) (int64, error)
 }
 
+// LatestBanAuditLookup 是用户管理域专用的窄查询：给定目标用户，返回
+// 全平台最近一条成功的封禁审计（不按租户过滤）。
+//
+// 单独成接口而不是并入 AuditLogService，是为了不迫使既有测试替身实现
+// 一个与它们无关的方法。
+type LatestBanAuditLookup interface {
+	// LatestBanAuditForTarget 返回 targetUserID 最近一条
+	// action=rbac.member_banned 且 outcome=success 的审计行。
+	// 按自增 id 倒序取第一条（比 created_at 稳定，避免同时间戳乱序）。
+	// 没有任何记录时返回 (nil, nil)。
+	LatestBanAuditForTarget(ctx context.Context, targetUserID string) (*types.AuditLog, error)
+}
+
 // AuditLogService is the high-level audit API the rest of the codebase
 // uses. It owns timestamp defaulting (Log) and rate-limit dedup
 // (LogDenied) so callers don't have to think about either.

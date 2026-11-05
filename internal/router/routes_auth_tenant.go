@@ -23,7 +23,9 @@ import (
 //   - POST   /:id/members/create     Admin+/系统管理员（系统管理员当前工作区
 //     角色低于 admin 也放行，由 handler「系统管理员按 owner」矩阵把关）
 //   - POST   /:id/members/:user_id/reset-password  Admin+/系统管理员（同上）
-//   - PUT    /:id/members/:user_id   Owner+ (only Owner can change roles)
+//   - PUT    /:id/members/:user_id   Owner+ / 系统管理员 (system admins
+//     pass regardless of their workspace role; target-level owner
+//     protection is enforced in the handler)
 //   - DELETE /:id/members/:user_id   Owner+ (only Owner can remove members)
 //   - POST   /:id/leave              Viewer+ (any member can quit on their own)
 //
@@ -140,7 +142,10 @@ func RegisterTenantRoutes(
 				// API key 默认拒绝。
 				tenantByID.POST("/members/:user_id/reset-password",
 					g.AdminOrSystemAdmin(), memberHandler.ResetMemberPassword)
-				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.UpdateMemberRole)
+				// 改角色：Owner 或系统管理员。超管不需要在本空间持有 owner
+				// 角色；目标级 owner 保护（不能直接降级 owner，必须走
+				// transfer-owner）在 handler.UpdateMemberRole 内兜底。
+				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.OwnerOrSystemAdmin(), memberHandler.UpdateMemberRole)
 				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.RemoveMember)
 				tenantByID.POST("/leave", g.Viewer(), memberHandler.LeaveTenant)
 			}
@@ -175,6 +180,64 @@ func RegisterTenantRoutes(
 			}
 		}
 	}
+}
+
+// RegisterUserManagementRoutes wires owner/system-admin member management
+// (ban / unban / purge / owner transfer / co-owner creation). It is a
+// standalone Register* function so the
+// existing RegisterTenantRoutes signature and its call sites stay intact.
+//
+// Guards mirror the 02-plan §3.1 contract:
+//   - /tenants/:id group level: g.PathTenantMatch() (URL tenant must equal
+//     the active workspace; cross-tenant superusers bypass);
+//   - per route: g.OwnerOrSystemAdmin() — a system admin passes even when
+//     their workspace role is below owner.
+//
+// Handler-level target protections (self, owner, system admin, elsewhere
+// owner, cross-tenant unban) live in UserManagementService.
+func RegisterUserManagementRoutes(
+	r *gin.RouterGroup,
+	h *handler.UserManagementHandler,
+	g *rbacGuards,
+) {
+	if h == nil {
+		return
+	}
+	tenantByID := r.Group("/tenants/:id", g.PathTenantMatch())
+	tenantByID.POST("/members/:user_id/ban", g.OwnerOrSystemAdmin(), h.BanMember)
+	tenantByID.POST("/members/:user_id/unban", g.OwnerOrSystemAdmin(), h.UnbanMember)
+	// 彻底删除（墓碑化）不可恢复，仍由 OwnerOrSystemAdmin 守卫；目标保护
+	// 与 owner 交接前置在 UserManagementService.authorizePurge。
+	tenantByID.POST("/members/:user_id/purge", g.OwnerOrSystemAdmin(), h.PurgeMember)
+	// owner 空间交接：owner 只能传自己，系统管理员可传任意 owner。
+	tenantByID.POST("/transfer-owner", g.OwnerOrSystemAdmin(), h.TransferOwner)
+	// owner 新建 co-owner 账号：账号 tenant_id=0，只通过成员关系属于本空间。
+	tenantByID.POST("/owners/create", g.OwnerOrSystemAdmin(), h.CreateCoOwnerAccount)
+	// 用户管理列表（左目录计数 + 右列表）：owner 可见本空间全部成员，
+	// 系统管理员即使当前工作区角色低于 owner 也放行。业务判权在
+	// UserManagementService.ListUsers 再证一次（C4）。
+	tenantByID.GET("/user-management", g.OwnerOrSystemAdmin(), h.ListUsers)
+}
+
+// RegisterOwnerManagementRoutes wires the SystemAdmin-only owner provisioning
+// surfaces:
+//   - POST /system/admin/users/:user_id/owner-space
+//   - POST /system/admin/owners/invite
+//
+// It is a standalone Register* function so RegisterSystemAdminRoutes keeps its
+// existing signature and call sites. Every route inherits g.SystemAdmin() at
+// the group level, matching the rest of /system/admin.
+func RegisterOwnerManagementRoutes(
+	r *gin.RouterGroup,
+	h *handler.OwnerManagementHandler,
+	g *rbacGuards,
+) {
+	if h == nil {
+		return
+	}
+	adminRoutes := r.Group("/system/admin", g.SystemAdmin())
+	adminRoutes.POST("/users/:user_id/owner-space", h.ProvisionOwnerSpace)
+	adminRoutes.POST("/owners/invite", h.CreateOwnerInvite)
 }
 
 // RegisterMyInvitationRoutes wires the per-user invitation inbox under
@@ -264,6 +327,9 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	// for any valid API key. Chat clients / MCP call it to discover "who am I";
 	// leaving it default-deny was why scoped keys got a 403 here.
 	g.apiKeyRoute(r, http.MethodGet, "/auth/me", apiKeyAny(), handler.GetCurrentUser)
+	// /auth/capabilities：所有已认证用户可读，返回当前角色→能力的唯一投影。
+	// 未认证由全局 middleware.Auth 返回 401；不要加入无认证白名单。
+	r.GET("/auth/capabilities", handler.GetCapabilities)
 	r.PUT("/auth/me/preferences", handler.UpdateMyPreferences)
 	r.POST("/auth/change-password", handler.ChangePassword)
 }

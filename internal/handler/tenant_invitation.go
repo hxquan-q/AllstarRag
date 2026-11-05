@@ -643,6 +643,9 @@ func (h *TenantInvitationHandler) AcceptMyInvitationByToken(c *gin.Context) {
 		}
 	}
 
+	// owner 邀请创建的 pending 空间在第一个成员接受后激活（T04-2）。
+	activatePendingTenant(ctx, h.tenantService, member.TenantID)
+
 	// 供前端切换空间展示用。
 	tenantName := ""
 	if tenant, terr := h.tenantService.GetTenantByID(ctx, member.TenantID); terr == nil && tenant != nil {
@@ -702,4 +705,22 @@ func (h *TenantInvitationHandler) DeclineMyInvitation(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// activatePendingTenant 在邀请被接受后把 pending 租户置为 active（T04-2）。
+// 系统管理员通过 owner 邀请创建的租户初始是 pending；第一个成员接受
+// 邀请后空间才真正可用。失败只记日志：成员关系已经建立，租户状态属于
+// 管理/展示态，不应让一次成功加入因为状态回写失败而失败。
+func activatePendingTenant(ctx context.Context, svc interfaces.TenantService, tenantID uint64) {
+	if svc == nil || tenantID == 0 {
+		return
+	}
+	tenant, err := svc.GetTenantByID(ctx, tenantID)
+	if err != nil || tenant == nil || tenant.Status != "pending" {
+		return
+	}
+	tenant.Status = "active"
+	if _, err := svc.UpdateTenant(ctx, tenant); err != nil {
+		logger.Warnf(ctx, "activate pending tenant %d after invitation accept failed: %v", tenantID, err)
+	}
 }

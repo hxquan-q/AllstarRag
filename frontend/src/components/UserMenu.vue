@@ -109,7 +109,7 @@
         <!-- “管理”类快捷入口只对真正具备写权限的人展示。只读名册和模型列表
              仍可从「全部设置」进入，避免 viewer 看到名不副实的管理入口。
              客户视角额外隐藏这些后台入口，只保留个人设置与退出。 -->
-        <div v-if="canManageMembers && !isCustomer" class="menu-item" @click="handleQuickNav('members')">
+        <div v-if="canManageMembers && !isCustomer" class="menu-item" @click="handleQuickNav('user-management')">
           <t-icon name="usergroup" class="menu-icon" />
           <span>{{ $t('tenantMember.title') }}</span>
         </div>
@@ -284,8 +284,11 @@ const showTenantIdentityLine = computed(() => {
 
 // 快捷入口使用“管理能力”而不是页面最低可见角色：成员名册和模型列表允许
 // viewer 浏览，但头像菜单里的“管理”入口只服务实际能执行管理操作的角色。
+// 「成员管理」现在直达用户管理页（owner+ / 系统管理员），旧 members 分区仍保留。
 const canManageMembers = computed(() =>
-  authStore.canAccessAllTenants || authStore.hasRole(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.members),
+  authStore.canAccessAllTenants ||
+  authStore.isSystemAdmin ||
+  authStore.hasRole(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE['user-management']),
 )
 const canManageModels = computed(() =>
   authStore.canAccessAllTenants ||

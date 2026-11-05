@@ -571,7 +571,10 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 
 // UpdateMemberRole godoc
 // @Summary      修改空间成员角色
-// @Description  Owner 修改某位成员在当前空间内的角色；不能将最后一位 Owner 降级
+// @Description  Owner 或系统管理员修改某位成员在当前空间内的角色。
+// @Description  owner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；
+// @Description  owner 可把非 owner 成员提升为 owner（co-owner）。
+// @Description  最后一位 Owner 的服务层原子保护保留。
 // @Tags         空间成员
 // @Accept       json
 // @Produce      json
@@ -603,6 +606,40 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
+	// 路由守卫之外的第二道判权：只有本空间 owner 或系统管理员能改角色。
+	// 保留它是为了防止将来路由装配回退时静默 fail-open（红线 C4）。
+	if !canManageMemberRoles(ctx) {
+		logger.Warnf(ctx, "UpdateMemberRole denied: caller_role=%s tenant=%d",
+			types.TenantRoleFromContext(ctx), tenantID)
+		c.Error(apperrors.NewForbiddenError(
+			"only workspace owners or system administrators can change member roles"))
+		return
+	}
+
+	// 目标必须是本空间 active 成员；同时取当前角色做 owner 保护。
+	// 查询失败不能放行，否则下面的保护形同虚设。
+	current, err := h.memberService.GetMembership(ctx, userID, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed: user=%s tenant=%d err=%v",
+			userID, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to look up membership"))
+		return
+	}
+	if current == nil || current.Status != types.TenantMemberStatusActive {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+
+	// owner 目标一律不能通过本接口降级/改角色，必须先走 transfer-owner
+	// 交接；owner 与系统管理员同一口径（AC-13/AC-20）。
+	if current.Role == types.TenantRoleOwner && req.Role != types.TenantRoleOwner {
+		logger.Warnf(ctx, "UpdateMemberRole denied: direct owner change user=%s tenant=%d old=%s new=%s",
+			userID, tenantID, current.Role, req.Role)
+		c.Error(apperrors.NewForbiddenError(
+			"an owner cannot be demoted directly; complete the space handover via transfer-owner first"))
+		return
+	}
+
 	if err := h.memberService.UpdateRole(ctx, userID, tenantID, req.Role); err != nil {
 		switch {
 		case errors.Is(err, service.ErrMembershipNotFound):
@@ -622,6 +659,14 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// canManageMemberRoles 判断调用方能否改本空间成员角色：本空间 owner，
+// 或平台系统管理员（超管不受空间角色阶梯限制，与路由层
+// OwnerOrSystemAdmin 同一口径）。
+func canManageMemberRoles(ctx context.Context) bool {
+	return types.IsSystemAdminFromContext(ctx) ||
+		types.TenantRoleFromContext(ctx) == types.TenantRoleOwner
 }
 
 // RemoveMember godoc

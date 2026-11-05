@@ -65,7 +65,7 @@
     </template>
     <div class="content-wrapper" :class="{
       'content-wrapper--wide': currentSection === 'members',
-      'content-wrapper--resource-list': ['models', 'mymemory', 'platform-api-keys', 'model-catalog', 'members', 'sandbox'].includes(currentSection),
+      'content-wrapper--resource-list': ['models', 'mymemory', 'platform-api-keys', 'model-catalog', 'members', 'user-management', 'sandbox'].includes(currentSection),
       'content-wrapper--full': SYSTEM_ADMIN_SECTIONS.has(currentSection) || isIntegrationSection(currentSection),
     }">
       <!-- 角色不允许访问当前 section（deep-link 进来 / 跨空间切换后角色降级）—— 优先于具体 section 渲染。
@@ -203,6 +203,11 @@
           <TenantMembers />
         </div>
 
+        <!-- 用户管理：owner / 系统管理员的角色目录 + 账号操作主入口 -->
+        <div v-if="currentSection === 'user-management'" class="section">
+          <UserManagement />
+        </div>
+
         <!-- 发布集成 -->
         <div v-if="isIntegrationSection(currentSection)" class="section">
           <IntegrationSettingsSection :tab="integrationTabFromSection(currentSection)" />
@@ -248,6 +253,7 @@ import StorageBackendSettings from './StorageBackendSettings.vue'
 import SandboxSettings from './SandboxSettings.vue'
 import WeKnoraCloudSettings from './WeKnoraCloudSettings.vue'
 import TenantMembers from './TenantMembers.vue'
+import UserManagement from '@/views/user-management/UserManagement.vue'
 import SystemSettings from '@/views/system/SystemSettings.vue'
 import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
@@ -381,6 +387,9 @@ const canSeeSection = (key: string): boolean => {
   // canAccessAllTenants（superuser）和路由层一样必须 bypass，否则 cross-tenant
   // 管理员看不到自己有权操作的入口（参考 TenantMembers.vue 的 canManage）。
   if (authStore.canAccessAllTenants) return true
+  // 用户管理对平台系统管理员放行：他们不一定是当前空间的 owner，
+  // 但后端 OwnerOrSystemAdmin 守卫允许其管理。仅界面可见性（C4）。
+  if (key === 'user-management' && authStore.isSystemAdmin) return true
   return authStore.hasRole(min)
 }
 
@@ -419,13 +428,21 @@ const navItems = computed(() => {
     { key: 'assistant', icon: 'assistant', label: t('assistantSettings.title') },
     { key: 'envvars', icon: 'key', label: envNavLabel() },
     { key: 'tenant', icon: 'user-circle', label: t('settings.tenantInfo') },
+    { key: 'user-management', icon: 'usergroup', label: t('userManagement.title') },
     { key: 'members', icon: 'usergroup', label: t('tenantMember.title') },
     ...integrationItems,
   ]
   // currentTenantRole 为空表示「membership 还没加载」—— 比起渲染整套
   // viewer 入口然后角色一返回又消失，先卡住不渲染更稳，跟原先 members
   // 入口的策略一致。
-  if (!authStore.currentTenantRole && !authStore.canAccessAllTenants) {
+  // 系统管理员是平台级身份（isSystemAdmin 来自用户资料，不依赖空间角色），
+  // 没有租户角色时也要放行，否则看不到用户管理与系统管理分区；
+  // 界面可见性之外仍以后端 RBAC 为准（C4）。
+  if (
+    !authStore.currentTenantRole
+    && !authStore.canAccessAllTenants
+    && !authStore.isSystemAdmin
+  ) {
     return [] as NavItem[]
   }
   return all.filter((it) => canSeeSection(it.key) && isSectionSupported(it.key))
@@ -447,7 +464,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'workspace',
       label: t('settings.navGroups.workspace'),
-      items: pickItems(['tenant', 'members', 'defaults', 'chathistory', 'memory']),
+      items: pickItems(['tenant', 'user-management', 'members', 'defaults', 'chathistory', 'memory']),
     },
     {
       key: 'models_runtime',

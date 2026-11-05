@@ -253,6 +253,9 @@ func (h *AuthHandler) RegisterByInvite(c *gin.Context) {
 		})
 		return
 	}
+	// owner 邀请创建的 pending 空间在第一个成员接受后激活（T04-2）。
+	activatePendingTenant(ctx, h.tenantService, inv.TenantID)
+
 	// 账号与成员关系都已建立，视为一次成功注册：后续签发 token
 	// 失败不再释放名额。
 	committed = true

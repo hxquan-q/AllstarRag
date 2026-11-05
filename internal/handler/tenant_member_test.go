@@ -31,6 +31,10 @@ type stubMemberService struct {
 	listMembersPage func(ctx context.Context, tenantID uint64, query string, page, pageSize int) ([]*types.TenantMember, int64, error)
 	updateRole      func(ctx context.Context, userID string, tenantID uint64, newRole types.TenantRole) error
 	remove          func(ctx context.Context, userID string, tenantID uint64) error
+	// getMembership supports T12's target-role protection: UpdateMemberRole
+	// looks up the current role before mutating. When unset the stub
+	// reports "no such membership".
+	getMembership func(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error)
 }
 
 func (s *stubMemberService) ListMembersPage(
@@ -78,6 +82,17 @@ func (s *stubMemberService) ListByTenant(ctx context.Context, tenantID uint64) (
 
 func (s *stubMemberService) UpdateRole(ctx context.Context, userID string, tenantID uint64, newRole types.TenantRole) error {
 	return s.updateRole(ctx, userID, tenantID, newRole)
+}
+
+func (s *stubMemberService) GetMembership(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+) (*types.TenantMember, error) {
+	if s.getMembership == nil {
+		return nil, nil
+	}
+	return s.getMembership(ctx, userID, tenantID)
 }
 
 func (s *stubMemberService) RemoveMember(ctx context.Context, userID string, tenantID uint64) error {
@@ -170,6 +185,11 @@ type memberCtxOpts struct {
 	tenantID   uint64
 	user       *types.User
 	skipTenant bool // when true, do NOT set TenantIDContextKey at all
+	// role/systemAdmin mirror what the auth middleware would seed for
+	// T12's handler-level owner protection. Zero role means "not set"
+	// (TenantRoleFromContext then falls back to viewer).
+	role        types.TenantRole
+	systemAdmin bool
 }
 
 // withMemberCtx installs the auth-middleware-equivalent values on req's
@@ -190,6 +210,12 @@ func withMemberCtx(req *http.Request, opts memberCtxOpts) *http.Request {
 	}
 	if opts.user != nil {
 		ctx = context.WithValue(ctx, types.UserContextKey, opts.user)
+	}
+	if opts.role != "" {
+		ctx = context.WithValue(ctx, types.TenantRoleContextKey, opts.role)
+	}
+	if opts.systemAdmin {
+		ctx = context.WithValue(ctx, types.SystemAdminContextKey, true)
 	}
 	return req.WithContext(ctx)
 }
@@ -393,7 +419,18 @@ func TestTenantMember_AddMember_InvalidRoleRejectedUpfront(t *testing.T) {
 // ---------- UpdateMemberRole ----------
 
 func TestTenantMember_UpdateRole_HappyPath(t *testing.T) {
+	// T12 起 handler 会先查目标当前角色：非 owner 目标由 owner 改角色仍走
+	// 原路径（本用例保持「owner 操作者 + 非 owner 目标 -> 200」回归）。
 	ms := &stubMemberService{
+		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+			if userID != "u-bob" || tenantID != 1 {
+				t.Fatalf("unexpected membership lookup: user=%s tenant=%d", userID, tenantID)
+			}
+			return &types.TenantMember{
+				UserID: "u-bob", TenantID: 1, Role: types.TenantRoleContributor,
+				Status: types.TenantMemberStatusActive,
+			}, nil
+		},
 		updateRole: func(_ context.Context, userID string, tenantID uint64, newRole types.TenantRole) error {
 			if userID != "u-bob" || tenantID != 1 || newRole != types.TenantRoleAdmin {
 				t.Fatalf("unexpected args: user=%s tenant=%d role=%s", userID, tenantID, newRole)
@@ -404,17 +441,24 @@ func TestTenantMember_UpdateRole_HappyPath(t *testing.T) {
 	h := newTestMemberHandler(ms, &stubMemberUserService{})
 
 	body := map[string]any{"role": "admin"}
-	w := doJSON(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-bob", body, "u-owner")
+	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-bob", body,
+		memberCtxOpts{callerID: "u-owner", role: types.TenantRoleOwner})
 	if w.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 
-func TestTenantMember_UpdateRole_LastOwnerMaps409(t *testing.T) {
-	// Service-layer invariant: the last Owner cannot be demoted. Mapping
-	// ErrLastOwner to 409 lets the UI render the message inline rather
-	// than as a generic failure.
+func TestTenantMember_UpdateRole_ServiceLastOwnerStillMaps409(t *testing.T) {
+	// T12 之后「目标当前是 owner」的直接降级会在 handler 提前 403（必须走
+	// transfer-owner），所以正常请求不再走到 ErrLastOwner。这里保留 409
+	// 映射的防御覆盖：并发/内部复用路径下 service 仍可能返回 ErrLastOwner。
 	ms := &stubMemberService{
+		getMembership: func(_ context.Context, _ string, _ uint64) (*types.TenantMember, error) {
+			return &types.TenantMember{
+				UserID: "u-target", TenantID: 1, Role: types.TenantRoleContributor,
+				Status: types.TenantMemberStatusActive,
+			}, nil
+		},
 		updateRole: func(_ context.Context, _ string, _ uint64, _ types.TenantRole) error {
 			return service.ErrLastOwner
 		},
@@ -422,14 +466,21 @@ func TestTenantMember_UpdateRole_LastOwnerMaps409(t *testing.T) {
 	h := newTestMemberHandler(ms, &stubMemberUserService{})
 
 	body := map[string]any{"role": "viewer"}
-	w := doJSON(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-only-owner", body, "u-only-owner")
+	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-target", body,
+		memberCtxOpts{callerID: "u-owner", role: types.TenantRoleOwner})
 	if w.Code != http.StatusConflict {
-		t.Fatalf("last owner demote must 409, got %d", w.Code)
+		t.Fatalf("ErrLastOwner must still map to 409, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 
 func TestTenantMember_UpdateRole_UnknownMembershipMaps404(t *testing.T) {
 	ms := &stubMemberService{
+		getMembership: func(_ context.Context, _ string, _ uint64) (*types.TenantMember, error) {
+			return &types.TenantMember{
+				UserID: "u-ghost", TenantID: 1, Role: types.TenantRoleViewer,
+				Status: types.TenantMemberStatusActive,
+			}, nil
+		},
 		updateRole: func(_ context.Context, _ string, _ uint64, _ types.TenantRole) error {
 			return service.ErrMembershipNotFound
 		},
@@ -437,7 +488,8 @@ func TestTenantMember_UpdateRole_UnknownMembershipMaps404(t *testing.T) {
 	h := newTestMemberHandler(ms, &stubMemberUserService{})
 
 	body := map[string]any{"role": "admin"}
-	w := doJSON(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-ghost", body, "u-owner")
+	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPut, "/tenants/1/members/u-ghost", body,
+		memberCtxOpts{callerID: "u-owner", role: types.TenantRoleOwner})
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("missing membership must 404, got %d", w.Code)
 	}
