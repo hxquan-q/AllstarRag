@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 
+	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -56,6 +58,15 @@ func (s *userManagementService) TransferOwner(
 	target, err := s.loadActiveMembership(ctx, to, tenantID)
 	if err != nil {
 		return err
+	}
+	// 不能把空间交给被封禁的账号，否则交接后空间会立刻没有可登录的 owner（F30）。
+	if targetUser, err := s.userRepo.GetUserByID(ctx, to); err != nil {
+		if errors.Is(err, apprepo.ErrUserNotFound) {
+			return apperrors.NewNotFoundError("target user not found")
+		}
+		return apperrors.NewInternalServerError("failed to load target user")
+	} else if targetUser == nil || !targetUser.IsActive {
+		return apperrors.NewBadRequestError("cannot transfer ownership to a banned account")
 	}
 
 	previousTargetRole := target.Role

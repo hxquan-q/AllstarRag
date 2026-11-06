@@ -39,13 +39,13 @@ import { useAuthStore } from '@/stores/auth'
 const props = withDefaults(
   defineProps<{
     variant: 'mine' | 'tenant' | 'creator' | 'space' | 'shared'
-    /** Used in `space` variant — the organization (space) display name. */
+    /** `space` 变体使用：组织（空间）展示名。 */
     spaceName?: string
-    /** Optional creator display name, surfaces in tooltip for `tenant` variant. */
+    /** 可选创建者展示名，`tenant` 变体的 tooltip 会用到。 */
     creatorName?: string
-    /** True when the backend marked the creator account as tombstoned. */
+    /** 后端标记创建者账号已墓碑化时为 true。 */
     creatorDeleted?: boolean
-    /** Optional source tenant name, surfaces in tooltip for cross-tenant. */
+    /** 可选来源空间名，跨空间 tooltip 会用到。 */
     sourceTenantName?: string
   }>(),
   { spaceName: '', creatorName: '', creatorDeleted: false, sourceTenantName: '' }

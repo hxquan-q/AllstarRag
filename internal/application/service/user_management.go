@@ -104,13 +104,18 @@ func (s *userManagementService) BanUser(
 		return nil, err
 	}
 
+	wasActive := target.user.IsActive
 	user, err := s.userRepo.SetUserActive(ctx, target.user.ID, auditActor(ctx), false)
 	if err != nil {
 		return nil, mapUserStatusError(err)
 	}
 
-	s.emitStatusAudit(ctx, tenantID, target,
-		types.AuditActionMemberBanned, reason)
+	// 只有真正发生 active→inactive 时才写 ban 审计。重复 ban 不写新审计，
+	// 否则会改写“全平台最近一次 ban 租户”，让别处 owner 失去解封权。
+	if wasActive {
+		s.emitStatusAudit(ctx, tenantID, target,
+			types.AuditActionMemberBanned, reason)
+	}
 	return user, nil
 }
 
@@ -258,11 +263,13 @@ func (s *userManagementService) emitStatusAudit(
 		"reason":      reason,
 	})
 	_ = s.audit.Log(ctx, &types.AuditLog{
-		TenantID:     tenantID,
-		ActorUserID:  auditActor(ctx),
-		ActorRole:    auditActorRole(ctx),
-		Action:       action,
-		ScopeType:    "tenant_member",
+		TenantID:    tenantID,
+		ActorUserID: auditActor(ctx),
+		ActorRole:   auditActorRole(ctx),
+		Action:      action,
+		// 空间操作记录读接口按 scope_type='' 过滤（UnscopedOnly），
+		// 这里必须与 tenant_member 服务的既有成员审计保持一致，否则
+		// 封禁/解封不会出现在操作记录里（F18）。
 		ScopeID:      target.user.ID,
 		TargetType:   "tenant_member",
 		TargetUserID: target.user.ID,

@@ -92,6 +92,7 @@ export interface MemberStatusChangeResponse {
       email: string
       username: string
       is_active: boolean
+      status?: string
     }
     member: TenantMember
   }
@@ -125,7 +126,7 @@ export interface CreateCoOwnerRequest {
   username: string
   email: string
   /** 必填；后端对空密码返回 400（不会生成随机密码）。 */
-  password?: string
+  password: string
 }
 
 export interface CreateCoOwnerResponse {

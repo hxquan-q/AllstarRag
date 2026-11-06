@@ -26,14 +26,14 @@ func TestInviteLinkRoutesAreOwnerOnlyAndImmutable(t *testing.T) {
 	if !strings.Contains(text, "invitationHandler.CreateInviteLink)") {
 		t.Fatal("POST /invite-links 未接到 CreateInviteLink")
 	}
-	// 创建路由必须由 Owner 守卫（AC-18：权限以后端为准）。
+	// 创建路由必须由 Owner 或系统管理员守卫（AC-18 / F23：权限以后端为准）。
 	createStart := strings.Index(text, createLine)
 	createEnd := strings.Index(text[createStart:], "\n")
 	if createEnd < 0 {
 		t.Fatal("无法定位创建路由行尾")
 	}
-	if !strings.Contains(text[createStart:createStart+createEnd], "g.Owner()") {
-		t.Fatal("POST /invite-links 必须由 g.Owner() 守卫")
+	if !strings.Contains(text[createStart:createStart+createEnd], "g.OwnerOrSystemAdmin()") {
+		t.Fatal("POST /invite-links 必须由 g.OwnerOrSystemAdmin() 守卫")
 	}
 
 	if count := strings.Count(text, `"/invite-links"`); count != 1 {
@@ -50,7 +50,7 @@ func TestInviteLinkRoutesAreOwnerOnlyAndImmutable(t *testing.T) {
 		t.Fatal("既有撤销路由 DELETE /tenants/:id/invitations/:inv_id 必须保留")
 	}
 	revokeStart := strings.Index(text, revokeLine)
-	if !strings.Contains(text[revokeStart:revokeStart+220], "g.Owner()") {
-		t.Fatal("撤销路由必须由 g.Owner() 守卫")
+	if !strings.Contains(text[revokeStart:revokeStart+220], "g.OwnerOrSystemAdmin()") {
+		t.Fatal("撤销路由必须由 g.OwnerOrSystemAdmin() 守卫（F23）")
 	}
 }

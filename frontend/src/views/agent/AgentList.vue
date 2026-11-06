@@ -1329,11 +1329,16 @@ function agentOriginVariant(agent: { created_by?: string }): 'mine' | 'creator' 
   return isMyAgent(agent) ? 'mine' : 'creator'
 }
 
-function showAgentOriginBadge(agent: { created_by?: string; creator_name?: string }): boolean {
+function showAgentOriginBadge(agent: {
+  created_by?: string
+  creator_name?: string
+  creator_deleted?: boolean
+}): boolean {
   return shouldShowResourceOriginBadge({
     section: agentSectionOf(agent),
     variant: agentOriginVariant(agent),
     creatorName: (agent as any).creator_name,
+    creatorDeleted: (agent as any).creator_deleted,
     showSectionHeaders: true,
   })
 }

@@ -9445,6 +9445,7 @@ export default {
       viewer: '游客',
     },
     columns: {
+      account: '账号',
       email: '邮箱',
       username: '用户名',
       role: '角色',
@@ -9597,6 +9598,7 @@ export default {
       },
     },
     states: {
+      emptyHint: '还没有成员，点右上角「新增账号」。',
       loading: '加载中…',
       empty: '该角色下暂无成员',
       error: '成员列表加载失败，请重试。',

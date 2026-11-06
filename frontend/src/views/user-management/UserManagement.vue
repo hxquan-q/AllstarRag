@@ -77,18 +77,22 @@
       </section>
       </div>
 
-      <!-- 邀请管理 Tab：v-if 挂载时自取数据；组件内部负责加载/空/错误态。 -->
-      <InviteManagement
-        v-if="canSeeInvites && activeTab === 'invites'"
-        :tenant-id="tenantId"
-        :can-invite-owner="canManageOwners"
-      />
+      <!-- 邀请管理 Tab：KeepAlive 保留搜索/筛选/分页等状态，切走再切回不丢失。 -->
+      <KeepAlive>
+        <InviteManagement
+          v-if="canSeeInvites && activeTab === 'invites'"
+          :tenant-id="tenantId"
+          :can-invite-owner="canManageOwners"
+        />
+      </KeepAlive>
 
       <!-- 操作记录 Tab：只读本空间审计（后端按 tenant_id 过滤，C4）。 -->
-      <OperationLog
-        v-if="canSeeOperations && activeTab === 'operations'"
-        :tenant-id="tenantId"
-      />
+      <KeepAlive>
+        <OperationLog
+          v-if="canSeeOperations && activeTab === 'operations'"
+          :tenant-id="tenantId"
+        />
+      </KeepAlive>
     </template>
 
     <UserActionDialogs
@@ -114,7 +118,7 @@
     <ResetPasswordDialog
       :target="resetTarget"
       :tenant-id="tenantId"
-      :use-platform-api="isSystemAdmin && scope !== 'current'"
+      :use-platform-api="usePlatformResetApi"
       @close="resetTarget = null"
       @completed="reload"
     />
@@ -122,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, KeepAlive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { updateMemberRole, type TenantRole } from '@/api/tenant/members'
@@ -200,6 +204,13 @@ const addUserVisible = ref(false)
 // 重置密码：owner/系统管理员可见（后端 reset-password 为 Admin+/系统管理员，C4）。
 const canResetPassword = computed(() => can('user.view'))
 const resetTarget = ref<UserRow | null>(null)
+// 纯系统管理员在本空间视图重置 owner 密码时，空间成员接口会 403；
+// 目标为 owner 时改走系统级 resetUserPassword（按邮箱）。
+const usePlatformResetApi = computed(
+  () =>
+    isSystemAdmin.value &&
+    (scope.value !== 'current' || resetTarget.value?.role === 'owner'),
+)
 
 function openSimpleAction(mode: UserActionMode, row: UserRow) {
   actionTarget.value = row

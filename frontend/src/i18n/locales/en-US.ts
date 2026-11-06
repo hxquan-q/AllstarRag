@@ -9452,6 +9452,7 @@ export default {
       viewer: 'Viewer',
     },
     columns: {
+      account: 'Account',
       email: 'Email',
       username: 'Username',
       role: 'Role',
@@ -9604,6 +9605,7 @@ export default {
       },
     },
     states: {
+      emptyHint: 'No members yet. Use “Add account” at the top right.',
       loading: 'Loading…',
       empty: 'No members in this role',
       error: 'Failed to load members. Please try again.',

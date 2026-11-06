@@ -30,6 +30,15 @@ func (s *userManagementService) CreateCoOwnerAccount(
 	if err != nil {
 		return nil, err
 	}
+	// 与注册/重置密码走同一套密码策略；真实 userService 实现了这个窄接口，
+	// 测试替身未实现时跳过（生产接线一定注入真实实现）。
+	if validator, ok := s.userService.(interface {
+		ValidatePasswordAgainstPolicy(context.Context, string) error
+	}); ok {
+		if err := validator.ValidatePasswordAgainstPolicy(ctx, password); err != nil {
+			return nil, apperrors.NewValidationError(err.Error())
+		}
+	}
 
 	user, err := s.userService.Register(ctx, &types.RegisterRequest{
 		Username:           username,

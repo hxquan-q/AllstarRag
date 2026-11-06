@@ -774,11 +774,9 @@ func enrichKBCreatorNames(ctx context.Context, userSvc interfaces.UserService, k
 	}
 }
 
-// lookupDeletedCreatorIDs resolves which of the given creator ids belong to
-// tombstoned accounts. It probes the optional GetDeletedUserIDs narrow
-// interface so the wide UserService stays untouched; a missing capability or
-// a query error simply yields an empty set (badge falls back to the generic
-// label rather than failing the list).
+// lookupDeletedCreatorIDs 找出给定 creator id 中属于墓碑账号的那些。
+// 它探测可选的 GetDeletedUserIDs 窄接口，避免改动宽 UserService；能力缺失或
+// 查询失败时返回空集合（徽章回退到通用文案，而不是让列表整体失败）。
 func lookupDeletedCreatorIDs(
 	ctx context.Context, userSvc interfaces.UserService, ids []string,
 ) map[string]struct{} {

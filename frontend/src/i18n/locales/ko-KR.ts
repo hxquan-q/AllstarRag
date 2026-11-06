@@ -9446,6 +9446,7 @@ export default {
       viewer: '방문자',
     },
     columns: {
+      account: '계정',
       email: '이메일',
       username: '사용자 이름',
       role: '역할',
@@ -9598,6 +9599,7 @@ export default {
       },
     },
     states: {
+      emptyHint: '아직 구성원이 없습니다. 오른쪽 위 “계정 추가”를 사용하세요.',
       loading: '불러오는 중…',
       empty: '이 역할의 구성원이 없습니다',
       error: '구성원 목록을 불러오지 못했습니다. 다시 시도하세요.',

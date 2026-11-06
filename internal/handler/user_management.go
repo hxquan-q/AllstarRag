@@ -42,6 +42,34 @@ type memberPurgeRequest struct {
 	Reason       string `json:"reason"`
 }
 
+// memberUserSummary 是封禁/解封响应对外暴露的最小账号信息。
+// 不能直接返回 *types.User：Preferences 里含 last_active_tenant_id、
+// 跨空间 bound_agent_ids_by_tenant 等不属于本空间的数据（F19）。
+type memberUserSummary struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	IsActive bool   `json:"is_active"`
+	Status   string `json:"status"`
+}
+
+func newMemberUserSummary(user *types.User) *memberUserSummary {
+	if user == nil {
+		return nil
+	}
+	status := "active"
+	if !user.IsActive {
+		status = "banned"
+	}
+	return &memberUserSummary{
+		ID:       user.ID,
+		Username: user.Username,
+		Email:    user.Email,
+		IsActive: user.IsActive,
+		Status:   status,
+	}
+}
+
 // BanMember 封禁空间成员。
 //
 //	@Summary      封禁空间成员
@@ -133,7 +161,7 @@ func (h *UserManagementHandler) changeMemberStatus(c *gin.Context, ban bool) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data": gin.H{
-			"user":   user,
+			"user":   newMemberUserSummary(user),
 			"member": member,
 		},
 	})
@@ -311,7 +339,7 @@ type UserManagementListResponse struct {
 //	@Produce      json
 //	@Param        id         path   string  false  "空间 ID"
 //	@Param        scope      query  string  false  "空间筛选：current（默认，仅本空间）/other（其它空间有成员关系的用户）/all（全平台用户），other/all 仅系统管理员"  default(current)
-//	@Param        role       query  string  false  "角色筛选：viewer/contributor/admin/owner，缺省为全部；多空间视图匹配任意空间的成员关系角色"
+//	@Param        role       query  string  false  "角色筛选：viewer/contributor/admin/owner，缺省为全部；支持逗号分隔多值（如 contributor,admin），每个值必须合法；多空间视图匹配任意空间的成员关系角色"
 //	@Param        q          query  string  false  "按邮箱/用户名模糊筛选"
 //	@Param        page       query  int     false  "页码（从 1 起）"  default(1)
 //	@Param        page_size  query  int     false  "每页数量（最大 100）"  default(20)

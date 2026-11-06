@@ -231,6 +231,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 import { MessagePlugin } from 'tdesign-vue-next'
 import { logout as logoutApi } from '@/api/auth'
 import { useI18n } from 'vue-i18n'
@@ -253,6 +254,7 @@ const { t } = useI18n()
 const router = useRouter()
 const uiStore = useUIStore()
 const authStore = useAuthStore()
+const capabilitiesStore = useCapabilitiesStore()
 const { formatRole, roleIcon } = useRoleLabel()
 const { homeTenantId, isHomeTenantActive, isHomeTenant } = useHomeTenant()
 
@@ -285,11 +287,7 @@ const showTenantIdentityLine = computed(() => {
 // 快捷入口使用“管理能力”而不是页面最低可见角色：成员名册和模型列表允许
 // viewer 浏览，但头像菜单里的“管理”入口只服务实际能执行管理操作的角色。
 // 「成员管理」现在直达用户管理页（owner+ / 系统管理员），旧 members 分区仍保留。
-const canManageMembers = computed(() =>
-  authStore.canAccessAllTenants ||
-  authStore.isSystemAdmin ||
-  authStore.hasRole(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE['user-management']),
-)
+const canManageMembers = computed(() => capabilitiesStore.can('user.view'))
 const canManageModels = computed(() =>
   authStore.canAccessAllTenants ||
   authStore.isSystemAdmin ||

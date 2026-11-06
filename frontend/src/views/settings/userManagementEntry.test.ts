@@ -43,12 +43,19 @@ function loadCanManageMembers(): (auth: Record<string, unknown>) => boolean {
   const compiled = ts.transpileModule(statement.getText(ast), {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText
-  return (auth) =>
-    runInNewContext(`${compiled}\ncanManageMembers.value`, {
+  return (auth) => {
+    // F33：入口只认能力投影，不再读角色/跨空间标志。
+    const capabilitiesStore = {
+      can: (capability: string) =>
+        capability === 'user.view' && (auth.role === 'owner' || auth.isSystemAdmin === true),
+    }
+    return runInNewContext(`${compiled}\ncanManageMembers.value`, {
       computed,
       authStore: auth,
+      capabilitiesStore,
       SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE,
     }) as boolean
+  }
 }
 
 function auth(role: string, options: { systemAdmin?: boolean; crossTenant?: boolean } = {}) {
@@ -61,14 +68,15 @@ function auth(role: string, options: { systemAdmin?: boolean; crossTenant?: bool
   }
 }
 
-test('UserMenu 成员管理入口只对 owner / 超管 / 跨空间超管可见（AC-1）', () => {
+test('UserMenu 成员管理入口只认 capabilities.can(user.view)（AC-1/F33）', () => {
   const canManageMembers = loadCanManageMembers()
   assert.equal(canManageMembers(auth('owner')), true)
   assert.equal(canManageMembers(auth('admin')), false)
   assert.equal(canManageMembers(auth('contributor')), false)
   assert.equal(canManageMembers(auth('viewer')), false)
   assert.equal(canManageMembers(auth('viewer', { systemAdmin: true })), true)
-  assert.equal(canManageMembers(auth('viewer', { crossTenant: true })), true)
+  // 跨空间标志本身不再是第二套权限来源；能力投影没有 user.view 就不显示。
+  assert.equal(canManageMembers(auth('viewer', { crossTenant: true })), false)
 })
 
 test('UserMenu 成员管理入口绑定在 canManageMembers 且客户视角隐藏（T09/C6）', () => {

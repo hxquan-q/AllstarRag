@@ -155,15 +155,16 @@ test('行内动作门控：owner 目标 / 自操作 / 超管目标（AC-4/5/7/29
   assert.equal(vm.gate('purge', ownerTarget).reasonKey, 'userManagement.tooltips.ownerProtected')
 
   const self: UserRow = { ...ownerTarget, user_id: 'u-owner' }
-  assert.equal(vm.statusGate(self).allowed, false)
-  assert.equal(vm.statusGate(self).reasonKey, 'userManagement.tooltips.self')
+  const selfGate = gateUserAction('ban', self, 'u-owner', PERMISSIONS, false, 2)
+  assert.equal(selfGate.allowed, false)
+  assert.equal(selfGate.reasonKey, 'userManagement.tooltips.self')
 
   const sysAdmin: UserRow = {
     user_id: 'u-sa', email: 'sa@example.com', username: 'sa',
     role: 'system_admin', status: 'active', created_at: '',
   }
   assert.equal(vm.roleGate(sysAdmin).allowed, false)
-  assert.equal(vm.statusGate(sysAdmin).allowed, false)
+  assert.equal(gateUserAction('ban', sysAdmin, 'u-owner', PERMISSIONS, false, 2).allowed, false)
 })
 
 test('超管视图中 owner 行允许封禁；注销/降级一律先交接（AC-8/13，F2）', (t) => {
@@ -172,7 +173,7 @@ test('超管视图中 owner 行允许封禁；注销/降级一律先交接（AC-
     user_id: 'u-other-owner', email: 'o@example.com', username: 'o',
     role: 'owner', status: 'active', created_at: '',
   }
-  assert.equal(vm.statusGate(ownerTarget).allowed, true)
+  assert.equal(gateUserAction('ban', ownerTarget, 'u-admin', PERMISSIONS, true, 0).allowed, true)
   assert.equal(vm.gate('purge', ownerTarget).reasonKey, 'userManagement.tooltips.transferRequired')
   // F2：owner 行角色下拉一律禁用并提示先交接；ownerCount=2 不再放行超管降级
   // （后端对 owner → 非 owner 一律 403）。
@@ -186,6 +187,7 @@ test('封禁行状态决定按钮语义为解封（AC-17）', (t) => {
     user_id: 'u-banned', email: 'b@example.com', username: 'b',
     role: 'viewer', status: 'banned', created_at: '',
   }
-  assert.equal(vm.statusActionLabel(banned), 'userManagement.actions.unban')
-  assert.equal(vm.statusGate(banned).allowed, true)
+  const actionCell = readFileSync(new URL('./UserActionsCell.vue', import.meta.url), 'utf8')
+  assert.match(actionCell, /row\.status === 'banned'[\s\S]*?userManagement\.actions\.unban/)
+  assert.equal(gateUserAction('unban', banned, 'u-owner', PERMISSIONS, false, 2).allowed, true)
 })

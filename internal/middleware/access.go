@@ -117,6 +117,12 @@ func RequireCrossTenantAccess(cfg *config.Config) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		// 系统管理员是平台级身份，跨租户空间列表/搜索对它必须可用
+		// （F22）；它不依赖 CanAccessAllTenants 或集群开关。
+		if u, ok := ctx.Value(types.UserContextKey).(*types.User); ok && u != nil && u.IsSystemAdmin {
+			c.Next()
+			return
+		}
 		// First the cluster-wide flag — if it's off, nobody gets through,
 		// not even users with CanAccessAllTenants=true. This mirrors the
 		// "must require BOTH" rule that previously lived in tenant.go.

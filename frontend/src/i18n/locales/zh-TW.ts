@@ -9442,6 +9442,7 @@ export default {
       viewer: '訪客',
     },
     columns: {
+      account: '帳號',
       email: '電子郵件',
       username: '使用者名稱',
       role: '角色',
@@ -9594,6 +9595,7 @@ export default {
       },
     },
     states: {
+      emptyHint: '尚無成員，點右上角「新增帳號」。',
       loading: '載入中…',
       empty: '此角色下尚無成員',
       error: '成員清單載入失敗，請重試。',

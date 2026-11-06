@@ -9446,6 +9446,7 @@ export default {
       viewer: '閲覧者',
     },
     columns: {
+      account: 'アカウント',
       email: 'メールアドレス',
       username: 'ユーザー名',
       role: 'ロール',
@@ -9598,6 +9599,7 @@ export default {
       },
     },
     states: {
+      emptyHint: 'まだメンバーがいません。右上の「アカウント追加」から追加してください。',
       loading: '読み込み中…',
       empty: 'このロールのメンバーはいません',
       error: 'メンバー一覧の読み込みに失敗しました。再試行してください。',

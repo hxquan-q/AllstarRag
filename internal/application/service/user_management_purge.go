@@ -76,11 +76,11 @@ func purgeAuditEntry(
 		"reason":      reason,
 	})
 	return &types.AuditLog{
-		TenantID:     tenantID,
-		ActorUserID:  auditActor(ctx),
-		ActorRole:    auditActorRole(ctx),
-		Action:       types.AuditActionMemberPurged,
-		ScopeType:    "tenant_member",
+		TenantID:    tenantID,
+		ActorUserID: auditActor(ctx),
+		ActorRole:   auditActorRole(ctx),
+		Action:      types.AuditActionMemberPurged,
+		// 与空间操作记录读侧的 scope_type='' 口径一致（F18）。
 		ScopeID:      target.user.ID,
 		TargetType:   "tenant_member",
 		TargetUserID: target.user.ID,

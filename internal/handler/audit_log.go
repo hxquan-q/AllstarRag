@@ -46,8 +46,10 @@ type auditLogListResponse struct {
 // @Param        action    query  string  false  "按 action 精确过滤（如 rbac.member_added / rbac.access_denied）"
 // @Param        outcome   query  string  false  "按 outcome 精确过滤（success / denied）"
 // @Param        actor     query  string  false  "按 actor_user_id 精确过滤"
+// @Param        q         query  string  false  "关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）"
 // @Success      200  {object}  auditLogListResponse
 // @Failure      400  {object}  errors.AppError
+// @Failure      403  {object}  errors.AppError  "本空间 owner 或系统管理员以外，或路径空间与当前空间不一致"
 // @Security     Bearer
 // @Security     ApiKeyAuth
 // @Router       /tenants/{id}/audit-log [get]

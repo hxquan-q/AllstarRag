@@ -1887,7 +1887,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "为当前用户在目标空间重新签发访问令牌；要求该用户在目标空间存在 active 成员关系（跨租户超级用户除外）。\n成功换签会把目标空间写入「最近活跃租户」偏好，下次登录与 refresh 都落在该空间（refresh JWT 不含 tenant_id）。\n该偏好是账号级的：一次换签会改变该用户所有设备的下次登录/refresh 落点。偏好写入失败则整次换签失败，不会发出新 token。",
+                "description": "为当前用户在目标空间重新签发访问令牌；要求该用户在目标空间存在 active 成员关系（跨租户超级用户和系统管理员除外）。\n成功换签会把目标空间写入「最近活跃租户」偏好，下次登录与 refresh 都落在该空间（refresh JWT 不含 tenant_id）。\n该偏好是账号级的：一次换签会改变该用户所有设备的下次登录/refresh 落点。偏好写入失败则整次换签失败，不会发出新 token。",
                 "consumes": [
                     "application/json"
                 ],
@@ -1931,7 +1931,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "无该空间成员关系或偏好写入失败",
+                        "description": "普通用户无该空间成员关系，或偏好写入失败；系统管理员可跨空间切换",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -22593,6 +22593,12 @@ const docTemplate = `{
                         "description": "按 actor_user_id 精确过滤",
                         "name": "actor",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）",
+                        "name": "q",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -22604,6 +22610,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "本空间 owner 或系统管理员以外，或路径空间与当前空间不一致",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -23600,7 +23612,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "角色筛选：viewer/contributor/admin/owner，缺省为全部；多空间视图匹配任意空间的成员关系角色",
+                        "description": "角色筛选：viewer/contributor/admin/owner，缺省为全部；支持逗号分隔多值（如 contributor,admin），每个值必须合法；多空间视图匹配任意空间的成员关系角色",
                         "name": "role",
                         "in": "query"
                     },
@@ -28504,6 +28516,11 @@ const docTemplate = `{
                     "description": "Created by user ID",
                     "type": "string"
                 },
+                "creator_deleted": {
+                    "description": "CreatorDeleted 由列表 handler 批量回填：CreatedBy 指向的用户已被墓碑化时为 true。\n内建 agent 与老数据保持 false，避免被误标成「已注销用户」。",
+                    "type": "boolean",
+                    "x-agent": true
+                },
                 "creator_name": {
                     "description": "CreatorName 由 list handler 在返回前批量回填，作用同 KnowledgeBase.CreatorName：\n让前端列表卡片区分「我创建」与「同空间其他成员创建」。不落库，内建 agent / 老数据\n仍可能为空。",
                     "type": "string",
@@ -30918,6 +30935,10 @@ const docTemplate = `{
                 "created_at": {
                     "description": "Creation time of the knowledge base",
                     "type": "string"
+                },
+                "creator_deleted": {
+                    "description": "CreatorDeleted 由列表 handler 批量回填：CreatorID 指向的用户已被墓碑化时为 true。\n与 CreatorName 配合，前端才能区分「已注销」与「老数据没有名字」。",
+                    "type": "boolean"
                 },
                 "creator_id": {
                     "description": "CreatorID records the user ID of whoever originally created the KB.\nUsed by the workspace-level RBAC middleware to let Contributors edit\ntheir own KBs without granting them access to everyone else's.\nNullable for backward compatibility with rows created before the\nRBAC migration backfilled the column to the workspace Owner.",
@@ -39884,6 +39905,10 @@ const docTemplate = `{
                 "created_at": {
                     "description": "Creation time of the knowledge base",
                     "type": "string"
+                },
+                "creator_deleted": {
+                    "description": "CreatorDeleted 由列表 handler 批量回填：CreatorID 指向的用户已被墓碑化时为 true。\n与 CreatorName 配合，前端才能区分「已注销」与「老数据没有名字」。",
+                    "type": "boolean"
                 },
                 "creator_id": {
                     "description": "CreatorID records the user ID of whoever originally created the KB.\nUsed by the workspace-level RBAC middleware to let Contributors edit\ntheir own KBs without granting them access to everyone else's.\nNullable for backward compatibility with rows created before the\nRBAC migration backfilled the column to the workspace Owner.",

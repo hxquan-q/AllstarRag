@@ -137,6 +137,12 @@ func (s *userService) complexPasswordEnabled(ctx context.Context) bool {
 	return ResolveComplexPasswordEnabled(ctx, s.config, s.systemSettingSvc)
 }
 
+// ValidatePasswordAgainstPolicy 暴露当前部署的密码策略，供用户管理等
+// 上层服务在注册之外（例如新建 co-owner）先做同样的校验（F20）。
+func (s *userService) ValidatePasswordAgainstPolicy(ctx context.Context, password string) error {
+	return ValidatePasswordPolicy(password, s.complexPasswordEnabled(ctx))
+}
+
 // Register creates a new user account
 func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) (*types.User, error) {
 	logger.Info(ctx, "Start user registration")
@@ -575,16 +581,14 @@ func (s *userService) GetUserByID(ctx context.Context, id string) (*types.User, 
 	return s.userRepo.GetUserByID(ctx, id)
 }
 
-// GetUsersByIDs proxies to the repository batch fetch. Returns an empty
-// map for an empty input; missing ids are absent from the result.
+// GetUsersByIDs 代理仓储的批量查询：空输入返回空 map，缺失的 id 不出现在结果里。
 func (s *userService) GetUsersByIDs(ctx context.Context, ids []string) (map[string]*types.User, error) {
 	return s.userRepo.GetUsersByIDs(ctx, ids)
 }
 
-// GetDeletedUserIDs returns the subset of ids whose accounts have been
-// tombstoned. It is deliberately a narrow, optional capability (not part of
-// the wide UserRepository interface) so existing fakes stay untouched; the
-// handler probes for it via an anonymous interface assertion.
+// GetDeletedUserIDs 返回账号已被墓碑化的 id 子集。它刻意做成窄的可选能力
+// （不进宽 UserRepository 接口），避免改动既有测试替身；handler 通过匿名
+// 接口断言探测该能力。
 func (s *userService) GetDeletedUserIDs(
 	ctx context.Context, ids []string,
 ) (map[string]struct{}, error) {
@@ -1079,9 +1083,9 @@ func (s *userService) resolveLoginTenantID(ctx context.Context, user *types.User
 		}
 	}
 
-	// Membership (or cross-tenant superuser) must still be valid. Mirrors
-	// the gate in SwitchTenant so the two entry points stay consistent.
-	if !user.CanAccessAllTenants {
+	// 平台级账号（跨空间超管或系统管理员）不需要成员关系；普通用户必须
+	// 仍有 active 成员关系。与 SwitchTenant 的门槛保持一致。
+	if !(user.CanAccessAllTenants || user.IsSystemAdmin) {
 		if s.memberService == nil {
 			logger.Warnf(ctx,
 				"resolveLoginTenantID: member service unavailable; falling back to home for user %s",
@@ -1124,7 +1128,7 @@ func (s *userService) homeOrFirstMembershipTenant(ctx context.Context, user *typ
 	if user.TenantID == 0 {
 		return s.resolveFirstMembershipTenant(ctx, user)
 	}
-	if user.CanAccessAllTenants || s.memberService == nil {
+	if user.CanAccessAllTenants || user.IsSystemAdmin || s.memberService == nil {
 		return user.TenantID
 	}
 	member, err := s.memberService.GetMembership(ctx, user.ID, user.TenantID)

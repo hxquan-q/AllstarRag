@@ -229,7 +229,10 @@ func (h *TenantInvitationHandler) ListTenantInvitations(c *gin.Context) {
 	}
 
 	usersByID := h.hydrateUsers(c, rows)
-	showShareLinks := types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleOwner)
+	// 共享链接内嵌注册 token：本空间 owner 与平台级系统管理员可见可复制，
+	// 其他角色只看到脱敏后的元数据。
+	showShareLinks := types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleOwner) ||
+		types.IsSystemAdminFromContext(ctx)
 	resp := make([]types.TenantInvitationResponse, 0, len(rows))
 	for _, inv := range rows {
 		// Within the tenant view we don't bother hydrating tenant name

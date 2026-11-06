@@ -462,17 +462,22 @@ func TestUserManagementUnbanRejectsCrossTenantBan(t *testing.T) {
 		require.NoError(t, err)
 		require.False(t, umLoadUser(t, env, "target").IsActive)
 
-		// 2) B 空间后封：账号已 inactive，状态不变，但“最近一次 ban”变成 B。
+		// 2) B 空间对已封禁账号重复 ban：状态不变，且不写新审计（F28：
+		//    空操作不能把“最近一次 ban”改到 B）。
 		_, err = env.svc.BanUser(ownerB, umTenantB, "target", "b-later")
 		require.NoError(t, err)
 		require.Len(t, umAuditRows(t, env, umTenantA, types.AuditAction("rbac.member_banned")), 1)
-		require.Len(t, umAuditRows(t, env, umTenantB, types.AuditAction("rbac.member_banned")), 1)
+		require.Len(t, umAuditRows(t, env, umTenantB, types.AuditAction("rbac.member_banned")), 0)
 
-		// 3) A 空间 owner 解封：本租户有 ban 历史，但不是最近一次 → 403。
-		_, err = env.svc.UnbanUser(ownerA, umTenantA, "target", "not mine")
+		// 3) 只有首次有效 ban 的租户可解封：A → 200；B → 403。
+		_, err = env.svc.UnbanUser(ownerB, umTenantB, "target", "not mine")
 		umRequireHTTPStatus(t, err, 403)
 		require.False(t, umLoadUser(t, env, "target").IsActive,
 			"a rejected cross-tenant unban must leave the account banned")
+
+		_, err = env.svc.UnbanUser(ownerA, umTenantA, "target", "mine")
+		require.NoError(t, err)
+		require.True(t, umLoadUser(t, env, "target").IsActive)
 	})
 }
 

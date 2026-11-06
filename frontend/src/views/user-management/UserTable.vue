@@ -31,10 +31,7 @@
           hover
         >
           <template #account="{ row }">
-            <div class="user-table__account">
-              <span class="user-table__account-email">{{ row.email || '—' }}</span>
-              <span v-if="row.username" class="user-table__account-name">{{ row.username }}</span>
-            </div>
+            <UserAccountCell :row="row" />
           </template>
           <template #role="{ row }">
             <t-tooltip
@@ -42,7 +39,7 @@
               :content="t(roleGate(row).reasonKey ?? '')"
               placement="top"
             >
-              <span class="user-table__role-text">{{ roleLabel(row.role) }}</span>
+              <span class="user-table__role-text">{{ roleLabelOf(row.role) }}</span>
             </t-tooltip>
             <t-select
               v-else-if="canChangeRole(row) && row.role"
@@ -52,118 +49,32 @@
               :popup-props="{ zIndex: 6200 }"
               @change="(value: unknown) => onRoleChange(row, value)"
             />
-            <span v-else class="user-table__role-text">{{ roleLabel(row.role) }}</span>
+            <span v-else class="user-table__role-text">{{ roleLabelOf(row.role) }}</span>
           </template>
           <template #memberships="{ row }">
-            <div v-if="row.memberships?.length" class="user-table__memberships">
-              <t-tag
-                v-for="membership in visibleMemberships(row)"
-                :key="`${membership.tenant_id}-${membership.role}`"
-                size="small"
-                variant="light"
-              >
-                {{ membership.tenant_name }} · {{ roleLabel(membership.role) }}
-              </t-tag>
-              <t-tooltip
-                v-if="hiddenMembershipCount(row) > 0"
-                :content="hiddenMembershipsText(row)"
-                placement="top"
-              >
-                <t-tag size="small" variant="light">+{{ hiddenMembershipCount(row) }}</t-tag>
-              </t-tooltip>
-            </div>
-            <span v-else class="user-table__role-text">—</span>
+            <UserMembershipsCell :row="row" :role-label="(role) => roleLabelOf(role)" />
           </template>
           <template #status="{ row }">
-            <t-tag :theme="statusTheme(row.status)" variant="light">
-              {{ statusLabel(row.status) }}
-            </t-tag>
+            <UserStatusCell :label="statusLabelOf(row.status)" :theme="statusTheme(row.status)" />
           </template>
-          <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
+          <template #created_at="{ row }">{{ formatCreatedAt(row.created_at) }}</template>
           <template #actions="{ row }">
-            <div class="user-table__actions">
-              <template v-if="row.role === 'system_admin'">
-                <t-dropdown trigger="click" placement="bottom-right" :popup-props="{ zIndex: 6200 }">
-                  <t-button
-                    shape="square"
-                    variant="text"
-                    size="small"
-                    :aria-label="t('userManagement.actions.more')"
-                    @click.stop
-                  >
-                    <template #icon><t-icon name="ellipsis" /></template>
-                  </t-button>
-                  <template #dropdown>
-                    <t-dropdown-menu>
-                      <t-dropdown-item
-                        theme="error"
-                        :disabled="row.user_id === currentUserId"
-                        @click="emit('revoke-system-admin', row)"
-                      >
-                        {{ t('userManagement.actions.revokeSystemAdmin') }}
-                      </t-dropdown-item>
-                    </t-dropdown-menu>
-                  </template>
-                </t-dropdown>
-              </template>
-
-              <template v-else>
-                <t-tooltip :content="statusTooltip(row)" placement="top">
-                  <t-button
-                    variant="text"
-                    size="small"
-                    :disabled="!statusGate(row).allowed"
-                    @click.stop="emitStatusAction(row)"
-                  >
-                    {{ statusActionLabel(row) }}
-                  </t-button>
-                </t-tooltip>
-
-                <t-dropdown trigger="click" placement="bottom-right" :popup-props="{ zIndex: 6200 }">
-                  <t-button
-                    shape="square"
-                    variant="text"
-                    size="small"
-                    :aria-label="t('userManagement.actions.more')"
-                    @click.stop
-                  >
-                    <template #icon><t-icon name="ellipsis" /></template>
-                  </t-button>
-                  <template #dropdown>
-                    <t-dropdown-menu>
-                      <t-dropdown-item
-                        v-if="row.role === 'owner'"
-                        :disabled="!gate('transfer', row).allowed"
-                        @click="emit('transfer', row)"
-                      >
-                        {{ t('userManagement.actions.transfer') }}
-                      </t-dropdown-item>
-                      <t-dropdown-item
-                        v-if="row.role === 'owner' && isSystemAdmin"
-                        :disabled="row.user_id === currentUserId"
-                        @click="emit('promote-system-admin', row)"
-                      >
-                        {{ t('userManagement.actions.promoteSystemAdmin') }}
-                      </t-dropdown-item>
-                      <t-dropdown-item
-                        v-if="canResetPassword"
-                        :disabled="!resetPasswordAllowed(row)"
-                        @click="emit('reset-password', row)"
-                      >
-                        {{ t('userManagement.resetPassword.action') }}
-                      </t-dropdown-item>
-                      <t-dropdown-item
-                        theme="error"
-                        :disabled="!gate('purge', row).allowed"
-                        @click="emit('purge', row)"
-                      >
-                        {{ t('userManagement.actions.purge') }}
-                      </t-dropdown-item>
-                    </t-dropdown-menu>
-                  </template>
-                </t-dropdown>
-              </template>
-            </div>
+            <UserActionsCell
+              :row="row"
+              :current-user-id="currentUserId"
+              :is-system-admin="isSystemAdmin"
+              :permissions="permissions"
+              :owner-count="ownerCount"
+              :can-reset-password="canResetPassword"
+              :t="t"
+              @ban="emit('ban', $event)"
+              @unban="emit('unban', $event)"
+              @purge="emit('purge', $event)"
+              @transfer="emit('transfer', $event)"
+              @promote-system-admin="emit('promote-system-admin', $event)"
+              @revoke-system-admin="emit('revoke-system-admin', $event)"
+              @reset-password="emit('reset-password', $event)"
+            />
           </template>
         </t-table>
       </div>
@@ -189,18 +100,19 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TenantRole } from '@/api/tenant/members'
-import type {
-  UserManagementListScope,
-  UserManagementStatus,
-} from '@/api/user-management'
+import type { UserManagementListScope } from '@/api/user-management'
 import {
   gateUserAction,
   roleChangeOptions,
   type ActionGate,
-  type UserActionKind,
   type UserActionPermissions,
   type UserRow,
 } from './types'
+import UserAccountCell from './UserAccountCell.vue'
+import UserMembershipsCell from './UserMembershipsCell.vue'
+import UserStatusCell from './UserStatusCell.vue'
+import UserActionsCell from './UserActionsCell.vue'
+import { formatDateTime, roleLabel, statusLabel, statusTheme } from './userTableLabels'
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
@@ -252,6 +164,9 @@ const emit = defineEmits<{
 }>()
 
 const { t, locale } = useI18n()
+const roleLabelOf = (role: string) => roleLabel(role, t)
+const statusLabelOf = (status: UserRow['status']) => statusLabel(status, t)
+const formatCreatedAt = (value: string) => formatDateTime(value, locale.value)
 
 const currentPage = computed({
   get: () => props.page,
@@ -302,61 +217,14 @@ const columns = computed<TableColumn[]>(() => {
   return list
 })
 
-// 显式列出每个键，方便 i18n 缺键审计静态识别。
-// Q37：contributor 与 admin 在界面上统一显示为「编辑」。
-const roleLabels = computed<Record<string, string>>(() => ({
-  system_admin: t('userManagement.roles.systemAdmin'),
-  owner: t('userManagement.roles.owner'),
-  admin: t('userManagement.roles.editor'),
-  contributor: t('userManagement.roles.editor'),
-  viewer: t('userManagement.roles.viewer'),
-}))
-
-const statusLabels = computed<Record<UserManagementStatus, string>>(() => ({
-  active: t('userManagement.status.active'),
-  banned: t('userManagement.status.banned'),
-  deleted: t('userManagement.status.deleted'),
-}))
-
 const roleOptions = computed(() =>
   roleChangeOptions(props.isSystemAdmin).map((role) => ({
-    label: roleLabels.value[role],
+    label: roleLabelOf(role),
     value: role,
   })),
 )
 
-function roleLabel(role: string): string {
-  return role ? (roleLabels.value[role] ?? role) : '—'
-}
-
-function statusLabel(status: UserManagementStatus): string {
-  return statusLabels.value[status]
-}
-
-function statusTheme(status: UserManagementStatus): 'success' | 'danger' | 'warning' {
-  if (status === 'active') return 'success'
-  if (status === 'banned') return 'danger'
-  return 'warning'
-}
-
-const MAX_MEMBERSHIP_TAGS = 2
-
-function visibleMemberships(row: UserRow) {
-  return (row.memberships ?? []).slice(0, MAX_MEMBERSHIP_TAGS)
-}
-
-function hiddenMembershipCount(row: UserRow): number {
-  return Math.max(0, (row.memberships?.length ?? 0) - MAX_MEMBERSHIP_TAGS)
-}
-
-function hiddenMembershipsText(row: UserRow): string {
-  return (row.memberships ?? [])
-    .slice(MAX_MEMBERSHIP_TAGS)
-    .map((membership) => `${membership.tenant_name} · ${roleLabel(membership.role)}`)
-    .join('、')
-}
-
-function gate(kind: UserActionKind, row: UserRow): ActionGate {
+function gate(kind: 'changeRole', row: UserRow): ActionGate {
   return gateUserAction(
     kind,
     row,
@@ -377,75 +245,8 @@ function canChangeRole(row: UserRow): boolean {
   return props.scope === 'current' && roleGate(row).allowed
 }
 
-function statusGate(row: UserRow): ActionGate {
-  return gate(row.status === 'banned' ? 'unban' : 'ban', row)
-}
-
-function statusActionLabel(row: UserRow): string {
-  return row.status === 'banned'
-    ? t('userManagement.actions.unban')
-    : t('userManagement.actions.ban')
-}
-
-function tooltipFor(gateResult: ActionGate, label: string): string {
-  return gateResult.reasonKey ? t(gateResult.reasonKey) : label
-}
-
-function actionTooltip(kind: UserActionKind, row: UserRow): string {
-  if (kind === 'purge') return tooltipFor(gate('purge', row), t('userManagement.actions.purge'))
-  if (kind === 'transfer') return tooltipFor(gate('transfer', row), t('userManagement.actions.transfer'))
-  return ''
-}
-
-function statusTooltip(row: UserRow): string {
-  return tooltipFor(statusGate(row), statusActionLabel(row))
-}
-
-function promoteTooltip(row: UserRow): string {
-  const label = t('userManagement.actions.promoteSystemAdmin')
-  if (row.user_id === props.currentUserId) return t('userManagement.tooltips.self')
-  return label
-}
-
-function revokeTooltip(row: UserRow): string {
-  const label = t('userManagement.actions.revokeSystemAdmin')
-  if (row.user_id === props.currentUserId) return t('userManagement.tooltips.self')
-  return label
-}
-
-/** 不能重置自己；owner 操作者不能重置其他普通管理员（与后端特权目标保护一致）。 */
-function resetPasswordAllowed(row: UserRow): boolean {
-  if (row.user_id === props.currentUserId) return false
-  if (row.status === 'deleted') return false
-  if (row.role === 'owner' && !props.isSystemAdmin) return false
-  return true
-}
-
-function resetPasswordTooltip(row: UserRow): string {
-  if (row.user_id === props.currentUserId) return t('userManagement.tooltips.self')
-  if (row.role === 'owner' && !props.isSystemAdmin) return t('userManagement.tooltips.ownerProtected')
-  return t('userManagement.resetPassword.action')
-}
-
-function emitStatusAction(row: UserRow) {
-  if (!statusGate(row).allowed) return
-  if (row.status === 'banned') emit('unban', row)
-  else emit('ban', row)
-}
-
 function onRoleChange(row: UserRow, value: unknown) {
   emit('change-role', row, value as TenantRole)
-}
-
-function formatDateTime(value: string): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return new Intl.DateTimeFormat(locale.value || 'zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(date)
 }
 </script>
 
@@ -487,45 +288,8 @@ function formatDateTime(value: string): string {
   color: var(--td-text-color-secondary);
 }
 
-.user-table__account {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.user-table__account-email {
-  overflow: hidden;
-  color: var(--td-text-color-primary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.user-table__account-name {
-  overflow: hidden;
-  color: var(--td-text-color-secondary);
-  font-size: var(--app-text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.user-table__actions {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 2px;
-}
-
 .user-table__role-text {
   color: var(--td-text-color-primary);
-}
-
-.user-table__memberships {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
 }
 
 .user-table__pager {
