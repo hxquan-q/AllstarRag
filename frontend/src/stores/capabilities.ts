@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { get } from '@/utils/request'
+import { useAuthStore } from '@/stores/auth'
 
 /**
  * 用户管理能力缓存。
@@ -42,10 +43,34 @@ export const useCapabilitiesStore = defineStore('capabilities', () => {
   const loaded = ref(false)
   const loading = ref(false)
 
-  // 同一时刻只保留一次请求；登出后迟到的响应靠 revision 丢弃，
-  // 不能把上一个会话的能力写回新会话。
+  // 同一时刻只保留一次请求；登出或切换空间后迟到的响应靠 revision 丢弃，
+  // 不能把上一个会话/空间的能力写回当前上下文。
   let inflight: Promise<void> | null = null
   let revision = 0
+  // 当前能力所属的租户键；为空表示还没有租户上下文。
+  let tenantKey = ''
+
+  /** 解析本次请求所属的租户键；能力投影必须按空间隔离。 */
+  const resolveTenantKey = (): string => {
+    const tenantId = useAuthStore().effectiveTenantId
+    return tenantId == null ? '' : String(tenantId)
+  }
+
+  /**
+   * 切换空间时作废旧请求并清空旧能力：
+   * 否则切空间后的短窗口会沿用上一空间的 role/capabilities 投影。
+   */
+  const switchTenant = (nextKey: string) => {
+    if (nextKey === tenantKey) return
+    tenantKey = nextKey
+    revision++
+    inflight = null
+    capabilities.value = new Set()
+    role.value = ''
+    isSystemAdmin.value = false
+    loaded.value = false
+    loading.value = false
+  }
 
   const apply = (payload: CapabilitiesPayload) => {
     role.value = payload.role || ''
@@ -72,6 +97,7 @@ export const useCapabilitiesStore = defineStore('capabilities', () => {
 
   /** 拉取并缓存当前空间的能力；失败时保留上一次的值。 */
   const refresh = (): Promise<void> => {
+    switchTenant(resolveTenantKey())
     if (inflight) return inflight
     const requestRevision = revision
     const task = fetchAndApply(requestRevision)
@@ -91,6 +117,7 @@ export const useCapabilitiesStore = defineStore('capabilities', () => {
   const reset = () => {
     revision++
     inflight = null
+    tenantKey = ''
     capabilities.value = new Set()
     role.value = ''
     isSystemAdmin.value = false

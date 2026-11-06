@@ -25,30 +25,26 @@ const (
 	// AuditActionMemberLeft fires on POST /tenants/:id/leave — the
 	// actor and target are the same user.
 	AuditActionMemberLeft AuditAction = "rbac.member_left"
-	// AuditActionMemberBanned fires when an Owner / SystemAdmin bans a
-	// tenant member (users.is_active=false + all tokens revoked). The
-	// Details payload carries the target role and the caller-supplied
-	// reason; passwords, password hashes and token values MUST NOT appear.
+	// AuditActionMemberBanned 在 owner / 系统管理员封禁成员时写入
+	// （users.is_active=false 并吊销全部 token）。Details 只放目标角色与
+	// 调用方填写的原因；密码、密码哈希、token 值一律不得出现。
 	AuditActionMemberBanned AuditAction = "rbac.member_banned"
-	// AuditActionMemberUnbanned fires when an Owner / SystemAdmin lifts a
-	// ban (users.is_active=true; historical tokens stay revoked). The
-	// Details payload and redaction rules match AuditActionMemberBanned.
+	// AuditActionMemberUnbanned 在 owner / 系统管理员解封时写入
+	// （users.is_active=true，历史 token 仍保持吊销）。Details 与脱敏规则
+	// 同 AuditActionMemberBanned。
 	AuditActionMemberUnbanned AuditAction = "rbac.member_unbanned"
-	// AuditActionMemberPurged fires when an Owner / SystemAdmin tombstones
-	// an account (PII wiped, personal data cleaned, assets kept). The
-	// Details payload carries the target role and the caller-supplied
-	// reason only; emails, passwords, hashes and token values MUST NOT
-	// appear.
+	// AuditActionMemberPurged 在 owner / 系统管理员墓碑化账号时写入
+	// （清空 PII、清理个人数据、保留资产）。Details 只放目标角色与调用方
+	// 填写的原因；邮箱、密码、哈希、token 值一律不得出现。
 	AuditActionMemberPurged AuditAction = "rbac.member_purged"
-	// AuditActionOwnerProvisioned fires when a SystemAdmin turns an existing
-	// account into a workspace owner (creating the workspace when needed).
-	// The tenant_id is the provisioned workspace, not the platform scope.
+	// AuditActionOwnerProvisioned 在系统管理员把已有账号设为空间 owner
+	// （必要时新建空间）时写入。tenant_id 是目标空间，不是平台级作用域。
 	AuditActionOwnerProvisioned AuditAction = "system.owner_provisioned"
-	// AuditActionOwnerTransferred fires on POST /tenants/:id/transfer-owner.
-	// Actor is the current owner (or system admin), target is the successor.
+	// AuditActionOwnerTransferred 在 POST /tenants/:id/transfer-owner
+	// 写入。操作者是当前 owner（或系统管理员），目标是接任者。
 	AuditActionOwnerTransferred AuditAction = "rbac.owner_transferred"
-	// AuditActionOwnerInviteCreated fires when a SystemAdmin creates a pending
-	// workspace plus an owner share link. Details never contain the token.
+	// AuditActionOwnerInviteCreated 在系统管理员创建 pending 空间 +
+	// owner 分享链接时写入。Details 不含 token。
 	AuditActionOwnerInviteCreated AuditAction = "system.owner_invite_created"
 	// AuditActionMemberPasswordReset fires when an Owner / Admin resets
 	// another member's password through

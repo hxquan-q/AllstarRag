@@ -662,7 +662,11 @@ export default {
         'rbac.invitation_accepted': '接受邀請',
         'rbac.invitation_declined': '拒絕邀請',
         'rbac.invitation_revoked': '撤銷邀請',
-        'rbac.invitation_expired': '邀請過期'
+        'rbac.invitation_expired': '邀請過期',
+        'rbac.member_banned': '封禁成員',
+        'rbac.member_unbanned': '解封成員',
+        'rbac.member_purged': '徹底刪除成員',
+        'rbac.owner_transferred': '交接工作區所有權'
       },
       columns: {
         time: '時間',
@@ -4513,7 +4517,9 @@ export default {
           'system.queue_task_deleted': '清除失敗任務記錄',
           'system.queue_task_run_now': '立即執行佇列任務',
           'system.queue_task_cancelled': '終止佇列任務',
-          'system.queue_archived_purged': '清除全部失敗任務'
+          'system.queue_archived_purged': '清除全部失敗任務',
+          'system.owner_provisioned': '設為一般管理員',
+          'system.owner_invite_created': '產生一般管理員邀請'
         },
         columns: {
           time: '時間',

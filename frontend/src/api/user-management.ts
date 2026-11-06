@@ -109,7 +109,7 @@ export interface SimpleResponse {
 export interface CreateCoOwnerRequest {
   username: string
   email: string
-  /** 省略时由后端生成随机密码。 */
+  /** 必填；后端对空密码返回 400（不会生成随机密码）。 */
   password?: string
 }
 

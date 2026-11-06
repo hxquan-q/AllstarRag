@@ -52,6 +52,10 @@ type memberPurgeRequest struct {
 //	@Param        user_id  path  string  true  "用户 ID"
 //	@Param        request  body  memberStatusChangeRequest  false  "封禁原因（可选）"
 //	@Success      200      {object}  map[string]interface{}
+//	@Failure      400      {object}  map[string]interface{}  "请求体非法"
+//	@Failure      403      {object}  map[string]interface{}  "无权限或目标保护（不能操作自己 / owner / 系统管理员 / 跨空间超管）"
+//	@Failure      404      {object}  map[string]interface{}  "目标不是本空间 active 成员"
+//	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/members/{user_id}/ban [post]
 func (h *UserManagementHandler) BanMember(c *gin.Context) {
 	h.changeMemberStatus(c, true)
@@ -67,6 +71,10 @@ func (h *UserManagementHandler) BanMember(c *gin.Context) {
 //	@Param        user_id  path  string  true  "用户 ID"
 //	@Param        request  body  memberStatusChangeRequest  false  "解封原因（可选）"
 //	@Success      200      {object}  map[string]interface{}
+//	@Failure      400      {object}  map[string]interface{}  "请求体非法"
+//	@Failure      403      {object}  map[string]interface{}  "无权限、目标保护或跨租户解封需超管"
+//	@Failure      404      {object}  map[string]interface{}  "目标不是本空间 active 成员"
+//	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/members/{user_id}/unban [post]
 func (h *UserManagementHandler) UnbanMember(c *gin.Context) {
 	h.changeMemberStatus(c, false)
@@ -141,6 +149,10 @@ func (h *UserManagementHandler) changeMemberStatus(c *gin.Context, ban bool) {
 //	@Param        user_id  path  string  true  "用户 ID"
 //	@Param        request  body  memberPurgeRequest  true  "确认邮箱与原因（原因可选）"
 //	@Success      200      {object}  map[string]interface{}
+//	@Failure      400      {object}  map[string]interface{}  "请求体非法或 confirm_email 与目标邮箱不一致"
+//	@Failure      403      {object}  map[string]interface{}  "无权限、目标保护、owner 未交接或跨空间账号需超管"
+//	@Failure      404      {object}  map[string]interface{}  "目标不是本空间 active 成员（含重复删除）"
+//	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/members/{user_id}/purge [post]
 func (h *UserManagementHandler) PurgeMember(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -199,6 +211,10 @@ type createCoOwnerRequest struct {
 //	@Param        id       path  string               true  "空间 ID"
 //	@Param        request  body  transferOwnerRequest  true  "交接目标（from 可选）"
 //	@Success      200      {object}  map[string]interface{}
+//	@Failure      400      {object}  map[string]interface{}  "请求体非法、缺少 to_user_id 或 from/to 相同"
+//	@Failure      403      {object}  map[string]interface{}  "非本空间 owner、系统管理员以外不能代他人交接"
+//	@Failure      404      {object}  map[string]interface{}  "源 owner 或目标成员关系不存在"
+//	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/transfer-owner [post]
 func (h *UserManagementHandler) TransferOwner(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -236,6 +252,10 @@ func (h *UserManagementHandler) TransferOwner(c *gin.Context) {
 //	@Param        id       path  string                true  "空间 ID"
 //	@Param        request  body  createCoOwnerRequest  true  "账号信息"
 //	@Success      201      {object}  map[string]interface{}
+//	@Failure      400      {object}  map[string]interface{}  "用户名/邮箱/密码缺失或非法"
+//	@Failure      403      {object}  map[string]interface{}  "非本空间 owner 或系统管理员"
+//	@Failure      409      {object}  map[string]interface{}  "邮箱/用户名已注册或已是本空间成员"
+//	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/owners/create [post]
 func (h *UserManagementHandler) CreateCoOwnerAccount(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -280,6 +300,9 @@ func (h *UserManagementHandler) CreateCoOwnerAccount(c *gin.Context) {
 //	@Param        page       query  int     false  "页码（从 1 起）"  default(1)
 //	@Param        page_size  query  int     false  "每页数量（最大 100）"  default(20)
 //	@Success      200  {object}  map[string]interface{}
+//	@Failure      400  {object}  map[string]interface{}  "role 非法或分页参数非法"
+//	@Failure      403  {object}  map[string]interface{}  "非本空间 owner 或系统管理员"
+//	@Failure      500  {object}  map[string]interface{}  "内部错误"
 //	@Security     Bearer
 //	@Router       /tenants/{id}/user-management [get]
 func (h *UserManagementHandler) ListUsers(c *gin.Context) {

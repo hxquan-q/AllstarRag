@@ -96,9 +96,9 @@ const TOOLTIP_TRANSFER_OWNER_ONLY = 'userManagement.tooltips.transferOwnerOnly'
 /**
  * 单行动作的前端门控：先看能力，再看目标形态与操作者身份。
  *
- * 注意这只是体验层：后端仍会逐接口校验（C4）。owner 对 owner 行的
- * 降级/注销必须由超管先交接；超管对 owner 行改角色时，若当前空间
- * 只剩一名 owner，也不允许直接降级（否则后端返回最后 owner 冲突）。
+ * 注意这只是体验层：后端仍会逐接口校验（C4）。owner 行一律不提供
+ * 角色下拉或注销：后端对 owner → 非 owner 一律 403，必须先走
+ * transfer-owner 交接，前端不再按 ownerCount 提前放行。
  */
 export function gateUserAction(
   kind: UserActionKind,
@@ -106,7 +106,7 @@ export function gateUserAction(
   currentUserId: string,
   permissions: UserActionPermissions,
   isSystemAdmin: boolean,
-  ownerCount: number,
+  _ownerCount: number,
 ): ActionGate {
   if (kind === 'transfer') {
     if (!permissions.transfer) return { allowed: false, reasonKey: TOOLTIP_NO_PERMISSION }
@@ -121,12 +121,14 @@ export function gateUserAction(
   if (row.role === 'system_admin') return { allowed: false, reasonKey: TOOLTIP_SYSTEM_ADMIN }
   if (row.user_id === currentUserId) return { allowed: false, reasonKey: TOOLTIP_SELF }
   if (row.role !== 'owner') return { allowed: true }
-  if (!isSystemAdmin) return { allowed: false, reasonKey: TOOLTIP_OWNER_PROTECTED }
-  // 超管处理 owner：注销前必须交接；当前只剩一名 owner 时也不允许直接降级。
-  if (kind === 'purge') return { allowed: false, reasonKey: TOOLTIP_TRANSFER_REQUIRED }
-  if (kind === 'changeRole' && ownerCount <= 1) {
+  // owner 行不提供角色下拉：后端对 owner → 非 owner 一律 403，
+  // 只能先通过「交接」把所有权交给其他成员。
+  if (kind === 'changeRole') {
     return { allowed: false, reasonKey: TOOLTIP_TRANSFER_REQUIRED }
   }
+  if (!isSystemAdmin) return { allowed: false, reasonKey: TOOLTIP_OWNER_PROTECTED }
+  // 超管处理 owner：注销前必须交接。
+  if (kind === 'purge') return { allowed: false, reasonKey: TOOLTIP_TRANSFER_REQUIRED }
   return { allowed: true }
 }
 

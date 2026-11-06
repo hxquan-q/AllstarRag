@@ -206,10 +206,8 @@ function onActionCompleted() {
 
 async function onChangeRole(row: UserRow, role: TenantRole) {
   if (tenantId.value == null) return
-  if (isSystemAdmin.value && row.role === 'owner' && role !== 'owner') {
-    // 后端仍会校验“必须已完成交接”；前端先提示，避免用户误以为一定能降级。
-    MessagePlugin.warning(t('userManagement.toasts.transferFirst'))
-  }
+  // owner 行的角色下拉在 UserTable 已禁用（后端要求先交接）；
+  // 这里不再“先提示再发请求”，避免必然 403 的无效调用。
   try {
     const response = await updateMemberRole(tenantId.value, row.user_id, role)
     if (!response.success) {

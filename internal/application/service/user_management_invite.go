@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -58,6 +59,9 @@ func (s *userManagementService) CreateOwnerInvite(
 
 	expiresAt := time.Now().Add(time.Duration(normalizeInviteDays(expiresDays)) * 24 * time.Hour)
 	if err := s.invitationService.ApplyShareLinkOptions(ctx, inv.ID, nil, &expiresAt); err != nil {
+		// 补偿：撤销刚建的邀请并删除 pending 空间，避免留下
+		// "空空间 + 仍可接受的邀请链接"。
+		s.rollbackOwnerInvite(ctx, tenant.ID, inv.ID)
 		return nil, err
 	}
 
@@ -69,6 +73,22 @@ func (s *userManagementService) CreateOwnerInvite(
 		Token:        token,
 		ExpiresAt:    expiresAt,
 	}, nil
+}
+
+// rollbackOwnerInvite 补偿 ApplyShareLinkOptions 失败：先撤销刚建的邀请，
+// 再删除 pending 空间。best-effort，失败只记日志；用脱离请求取消的 ctx，
+// 客户端断连时也能完成清理。
+func (s *userManagementService) rollbackOwnerInvite(
+	ctx context.Context, tenantID, invitationID uint64,
+) {
+	rbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.invitationService.Revoke(rbCtx, invitationID); err != nil {
+		logger.Warnf(rbCtx, "owner invite compensation: revoke invitation %d failed: %v", invitationID, err)
+	}
+	if err := s.tenantService.DeleteTenant(rbCtx, tenantID); err != nil {
+		logger.Warnf(rbCtx, "owner invite compensation: delete tenant %d failed: %v", tenantID, err)
+	}
 }
 
 // normalizeInviteDays 把非正数有效期回落到默认 7 天。

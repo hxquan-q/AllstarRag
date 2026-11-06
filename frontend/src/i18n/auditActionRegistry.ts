@@ -28,6 +28,10 @@ export const TENANT_MEMBER_AUDIT_ACTIONS = [
   'rbac.invitation_declined',
   'rbac.invitation_revoked',
   'rbac.invitation_expired',
+  'rbac.member_banned',
+  'rbac.member_unbanned',
+  'rbac.member_purged',
+  'rbac.owner_transferred',
 ] as const
 
 /** Platform control-plane audit events (system settings → audit tab). */
@@ -44,6 +48,8 @@ export const SYSTEM_GLOBAL_AUDIT_ACTIONS = [
   'system.queue_task_run_now',
   'system.queue_task_cancelled',
   'system.queue_archived_purged',
+  'system.owner_provisioned',
+  'system.owner_invite_created',
 ] as const
 
 /** Knowledge-base activity feed (KB settings → activity). */

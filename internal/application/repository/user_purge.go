@@ -7,6 +7,7 @@ import (
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var (
@@ -16,16 +17,28 @@ var (
 	// ErrPurgeTargetPrivileged 表示目标仍是系统管理员或跨空间超管。
 	// 必须先撤销特权，才能彻底删除。
 	ErrPurgeTargetPrivileged = errors.New("user still holds elevated privileges")
+	// ErrPurgeTargetCrossTenant 表示目标还属于其他空间，而调用方不是
+	// 系统管理员。跨空间删除必须由超管处理（AC-19b）。
+	ErrPurgeTargetCrossTenant = errors.New("user belongs to other workspaces")
 )
 
 // PurgeUserTx 在单事务内完成账号墓碑化与个人数据清理。
 //
-// 步骤：锁 users 行 → 复核目标未删除/未持有特权或 owner → 退役并删除
-// 会话 → 清理成员关系、邀请、token、收藏、pins、MCP token、环境变量、
-// 个人通知 → 匿名化并软删 users 行 → 写审计。资产表（knowledge_bases /
-// knowledge / custom_agents 等）完全不动，creator_id 继续指向墓碑。
+// 步骤：锁 users 行 → 复核目标未删除/未持有特权 → 锁住目标的 active
+// 成员行并复核 owner / 跨空间归属 → 退役并删除会话 → 清理成员关系、
+// 邀请、token、收藏、pins、MCP token、环境变量、个人通知 → 匿名化并
+// 软删 users 行 → 写审计。资产表（knowledge_bases / knowledge /
+// custom_agents 等）完全不动，creator_id 继续指向墓碑。
+//
+// 成员行加锁把"服务层校验后、事务提交前"的并发提权挡住：并发的
+// UpdateRole / TransferOwner 要么先提交（这里能看到 owner 行并拒绝），
+// 要么被行锁挡住，待墓碑提交后因成员行已软删而失败回滚。
 func (r *userRepository) PurgeUserTx(
-	ctx context.Context, targetUserID string, audit *types.AuditLog,
+	ctx context.Context,
+	tenantID uint64,
+	targetUserID string,
+	callerIsSystemAdmin bool,
+	audit *types.AuditLog,
 ) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		user, err := lockPurgeTarget(tx, targetUserID)
@@ -39,15 +52,21 @@ func (r *userRepository) PurgeUserTx(
 		if user.IsSystemAdmin || user.CanAccessAllTenants {
 			return ErrPurgeTargetPrivileged
 		}
-		var owned int64
-		if err := tx.Model(&types.TenantMember{}).
-			Where("user_id = ? AND role = ? AND status = ?",
-				targetUserID, types.TenantRoleOwner, types.TenantMemberStatusActive).
-			Count(&owned).Error; err != nil {
+		var members []types.TenantMember
+		if err := lockPurgeMemberRows(tx).
+			Where("user_id = ? AND status = ?",
+				targetUserID, types.TenantMemberStatusActive).
+			Find(&members).Error; err != nil {
 			return err
 		}
-		if owned > 0 {
-			return ErrPurgeTargetStillOwner
+		for _, member := range members {
+			if member.Role == types.TenantRoleOwner {
+				return ErrPurgeTargetStillOwner
+			}
+			// AC-19b：非系统管理员不能删除仍属于其他空间的账号。
+			if !callerIsSystemAdmin && member.TenantID != tenantID {
+				return ErrPurgeTargetCrossTenant
+			}
 		}
 
 		now := time.Now().UTC()
@@ -90,6 +109,18 @@ func lockPurgeTarget(tx *gorm.DB, targetUserID string) (*types.User, error) {
 	return &user, nil
 }
 
+// lockPurgeMemberRows 对目标的 active 成员行加 UPDATE 锁。
+// PostgreSQL/MySQL 用 SELECT ... FOR UPDATE；SQLite 没有行锁，事务内对
+// users 行的空更新已取得库级写锁，这里直接读即可。
+func lockPurgeMemberRows(tx *gorm.DB) *gorm.DB {
+	switch tx.Name() {
+	case "postgres", "mysql":
+		return tx.Clauses(clause.Locking{Strength: "UPDATE"})
+	default:
+		return tx
+	}
+}
+
 // purgeUserSessionsTx 退役并删除账号会话。只有当沙箱分配表存在时才走
 // RetireSessionsTx（Lite/测试库可能没有沙箱表），否则直接删会话行。
 func purgeUserSessionsTx(tx *gorm.DB, userID string, at time.Time) error {
@@ -117,7 +148,10 @@ func purgeUserPersonalDataTx(tx *gorm.DB, userID string) error {
 			return tx.Where("user_id = ?", userID).Delete(&types.TenantMember{}).Error
 		},
 		func(tx *gorm.DB) error {
-			return tx.Where("invitee_user_id = ?", userID).
+			// 目标收到的邀请（invitee_user_id）与目标发出的邀请 /
+			// 分享链接（invited_by）都要清理，避免墓碑后仍留下可用的
+			// pending 邀请（AC-19 / AC-25）。
+			return tx.Where("invitee_user_id = ? OR invited_by = ?", userID, userID).
 				Delete(&types.TenantInvitation{}).Error
 		},
 		func(tx *gorm.DB) error {

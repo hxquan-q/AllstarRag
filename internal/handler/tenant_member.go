@@ -573,7 +573,8 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 // @Summary      修改空间成员角色
 // @Description  Owner 或系统管理员修改某位成员在当前空间内的角色。
 // @Description  owner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；
-// @Description  owner 可把非 owner 成员提升为 owner（co-owner）。
+// @Description  owner 可把非 owner 成员提升为 owner（co-owner）；
+// @Description  非系统管理员不能修改系统管理员 / 跨空间超管 / 在任意空间持有 owner 的账号。
 // @Description  最后一位 Owner 的服务层原子保护保留。
 // @Tags         空间成员
 // @Accept       json
@@ -640,6 +641,37 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
+	// AC-5/AC-6：与封禁/注销保持同一套目标保护。非系统管理员不能改
+	// 系统管理员、跨空间超管，或在别处持有 owner 角色的账号。
+	// 判定需要读 users 行与跨空间成员关系，由真实 TenantMemberService
+	// 通过可选窄接口提供；测试替身未实现时跳过。
+	if !types.IsSystemAdminFromContext(ctx) {
+		if guard, ok := h.memberService.(interfaces.RoleChangeTargetValidator); ok {
+			if err := guard.ValidateRoleChangeTarget(ctx, tenantID, userID); err != nil {
+				switch {
+				case errors.Is(err, service.ErrTargetPrivileged):
+					logger.Warnf(ctx,
+						"UpdateMemberRole denied: target is privileged user=%s tenant=%d", userID, tenantID)
+					c.Error(apperrors.NewForbiddenError(
+						"system administrators and cross-workspace superusers are managed by a system administrator"))
+				case errors.Is(err, service.ErrTargetOwnsWorkspace):
+					logger.Warnf(ctx,
+						"UpdateMemberRole denied: target owns another workspace user=%s tenant=%d",
+						userID, tenantID)
+					c.Error(apperrors.NewForbiddenError(
+						"owner accounts can only be managed by a system administrator"))
+				case errors.Is(err, service.ErrMembershipNotFound):
+					c.Error(apperrors.NewNotFoundError("membership not found"))
+				default:
+					logger.Errorf(ctx, "ValidateRoleChangeTarget failed: user=%s tenant=%d err=%v",
+						userID, tenantID, err)
+					c.Error(apperrors.NewInternalServerError("failed to validate target role change"))
+				}
+				return
+			}
+		}
+	}
+
 	if err := h.memberService.UpdateRole(ctx, userID, tenantID, req.Role); err != nil {
 		switch {
 		case errors.Is(err, service.ErrMembershipNotFound):
@@ -650,6 +682,12 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 			c.Error(apperrors.NewValidationError(err.Error()))
 		case errors.Is(err, service.ErrAPIKeyCannotAssignOwner):
 			c.Error(apperrors.NewForbiddenError(err.Error()))
+		case errors.Is(err, service.ErrTargetPrivileged):
+			c.Error(apperrors.NewForbiddenError(
+				"system administrators and cross-workspace superusers are managed by a system administrator"))
+		case errors.Is(err, service.ErrTargetOwnsWorkspace):
+			c.Error(apperrors.NewForbiddenError(
+				"owner accounts can only be managed by a system administrator"))
 		default:
 			logger.Errorf(ctx, "UpdateRole failed: user=%s tenant=%d err=%v",
 				userID, tenantID, err)
@@ -662,11 +700,21 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 }
 
 // canManageMemberRoles 判断调用方能否改本空间成员角色：本空间 owner，
-// 或平台系统管理员（超管不受空间角色阶梯限制，与路由层
-// OwnerOrSystemAdmin 同一口径）。
+// 平台系统管理员（超管不受空间角色阶梯限制，与路由层
+// OwnerOrSystemAdmin 同一口径），或带 manage_members 能力的 API Key。
+//
+// API Key 是机器主体，不参与 JWT 角色阶梯：它的权限由路由层
+// APIKeyGate 按 manage_members 能力判定。这里放行只是避免 handler 的第二
+// 道判权误伤已有集成；目标级保护仍照常执行。
 func canManageMemberRoles(ctx context.Context) bool {
-	return types.IsSystemAdminFromContext(ctx) ||
-		types.TenantRoleFromContext(ctx) == types.TenantRoleOwner
+	if types.IsSystemAdminFromContext(ctx) ||
+		types.TenantRoleFromContext(ctx) == types.TenantRoleOwner {
+		return true
+	}
+	if scope, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
+		return scope.FullAccess || scope.HasCapability(types.APIKeyCapabilityManageMembers)
+	}
+	return false
 }
 
 // RemoveMember godoc

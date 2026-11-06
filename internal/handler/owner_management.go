@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -55,6 +56,10 @@ type createOwnerInviteRequest struct {
 //	@Param        user_id  path  string                     true  "用户 ID"
 //	@Param        request  body  provisionOwnerSpaceRequest  false  "空间名（可选）"
 //	@Success      200      {object}  map[string]interface{}
+//	@Failure      400      {object}  map[string]interface{}  "请求体非法或缺少 user_id"
+//	@Failure      403      {object}  map[string]interface{}  "仅系统管理员可调用"
+//	@Failure      404      {object}  map[string]interface{}  "目标账号不存在"
+//	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /system/admin/users/{user_id}/owner-space [post]
 func (h *OwnerManagementHandler) ProvisionOwnerSpace(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -91,6 +96,9 @@ func (h *OwnerManagementHandler) ProvisionOwnerSpace(c *gin.Context) {
 //	@Produce      json
 //	@Param        request  body  createOwnerInviteRequest  false  "邀请信息（全部可选）"
 //	@Success      201      {object}  map[string]interface{}
+//	@Failure      400      {object}  map[string]interface{}  "请求体非法或邀请有效期非法"
+//	@Failure      403      {object}  map[string]interface{}  "仅系统管理员可调用"
+//	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /system/admin/owners/invite [post]
 func (h *OwnerManagementHandler) CreateOwnerInvite(c *gin.Context) {
 	ctx := c.Request.Context()
@@ -124,6 +132,17 @@ func (h *OwnerManagementHandler) CreateOwnerInvite(c *gin.Context) {
 // renderManagementError 把服务层的 *AppError 原样交给全局错误处理器，
 // 保持 400/403/404/409 状态码矩阵；其他错误统一 500，不泄露内部细节。
 func renderManagementError(c *gin.Context, err error) {
+	// 改角色 / 交接共用的目标保护错误（AC-5/AC-6），统一映射为 403。
+	switch {
+	case errors.Is(err, service.ErrTargetPrivileged):
+		_ = c.Error(apperrors.NewForbiddenError(
+			"system administrators and cross-workspace superusers are managed by a system administrator"))
+		return
+	case errors.Is(err, service.ErrTargetOwnsWorkspace):
+		_ = c.Error(apperrors.NewForbiddenError(
+			"owner accounts can only be managed by a system administrator"))
+		return
+	}
 	var appErr *apperrors.AppError
 	if errors.As(err, &appErr) {
 		_ = c.Error(appErr)

@@ -188,7 +188,7 @@ const props = defineProps<{
   /** 当前登录用户 ID；用于禁用“操作自己”。 */
   currentUserId: string
   isSystemAdmin: boolean
-  /** 当前空间 owner 总数；只剩一名 owner 时不允许直接降级。 */
+  /** 当前空间 owner 总数；仅作门控上下文，owner 行的角色下拉已一律禁用。 */
   ownerCount: number
 }>()
 

@@ -662,7 +662,11 @@ export default {
         'rbac.invitation_accepted': '초대 수락',
         'rbac.invitation_declined': '초대 거절',
         'rbac.invitation_revoked': '초대 취소',
-        'rbac.invitation_expired': '초대 만료'
+        'rbac.invitation_expired': '초대 만료',
+        'rbac.member_banned': '회원 차단',
+        'rbac.member_unbanned': '회원 차단 해제',
+        'rbac.member_purged': '회원 영구 삭제',
+        'rbac.owner_transferred': '소유권 이전'
       },
       columns: {
         time: '시간',
@@ -4511,7 +4515,9 @@ export default {
           'system.queue_task_deleted': '실패 작업 기록 삭제',
           'system.queue_task_run_now': '큐 작업 즉시 실행',
           'system.queue_task_cancelled': '큐 작업 취소',
-          'system.queue_archived_purged': '실패 작업 모두 지우기'
+          'system.queue_archived_purged': '실패 작업 모두 지우기',
+          'system.owner_provisioned': '소유자 공간 생성',
+          'system.owner_invite_created': '소유자 초대 생성'
         },
         columns: {
           time: '시간',

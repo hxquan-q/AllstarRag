@@ -1298,8 +1298,8 @@ function isMyKb(kb: { creator_id?: string }): boolean {
 //   - 同空间他人创建的：creator 变体——只显示创建者名字。用户始终在
 //     某个工作空间内浏览（顶部 TenantSelector 已经标了空间身份），右下
 //     角再贴一遍空间名属于重复信息；contributor / admin / owner / viewer
-//     看到的徽章一致。创建者无法解析时，creator 变体自动回退到
-//     resourceOrigin.tenant 文案（"本空间"），不会出现空标签。
+//     看到的徽章一致。创建者无法解析时，creator 变体回退到
+//     resourceOrigin.deletedUser 文案（"已注销用户"），不会出现空标签。
 function kbOriginVariant(kb: { creator_id?: string }): 'mine' | 'creator' {
   return isMyKb(kb) ? 'mine' : 'creator'
 }

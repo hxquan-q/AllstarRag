@@ -5278,7 +5278,9 @@ export default {
           'system.queue_task_deleted': '失敗タスクのレコード削除',
           'system.queue_task_run_now': 'キュータスクの即時実行',
           'system.queue_task_cancelled': 'キュータスクの中止',
-          'system.queue_archived_purged': '失敗タスクの一括削除'
+          'system.queue_archived_purged': '失敗タスクの一括削除',
+          'system.owner_provisioned': '所有者スペースを作成',
+          'system.owner_invite_created': '所有者招待を作成'
         },
         outcome: {
           success: '成功',
@@ -9085,7 +9087,11 @@ export default {
         'rbac.invitation_accepted': '招待承諾',
         'rbac.invitation_declined': '招待辞退',
         'rbac.invitation_revoked': '招待取り消し',
-        'rbac.invitation_expired': '招待期限切れ'
+        'rbac.invitation_expired': '招待期限切れ',
+        'rbac.member_banned': 'メンバーを禁止',
+        'rbac.member_unbanned': 'メンバーの禁止を解除',
+        'rbac.member_purged': 'メンバーを完全削除',
+        'rbac.owner_transferred': '所有者の移譲'
       },
       outcome: {
         success: '成功',

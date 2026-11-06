@@ -66,6 +66,14 @@ var (
 	// without an active Owner. Demoting the last Owner or removing them
 	// is forbidden; an explicit ownership transfer must happen first.
 	ErrLastOwner = errors.New("cannot demote or remove the last active owner of the tenant")
+
+	// ErrTargetPrivileged 表示目标账号是系统管理员或跨空间超管。
+	// 非系统管理员不能修改其角色（AC-5）。
+	ErrTargetPrivileged = errors.New("target is a platform administrator")
+
+	// ErrTargetOwnsWorkspace 表示目标在别的空间持有 active owner。
+	// 非系统管理员不能修改其角色（AC-6）。
+	ErrTargetOwnsWorkspace = errors.New("target owns another workspace")
 )
 
 const (
@@ -392,6 +400,9 @@ func (s *tenantMemberService) UpdateRole(
 	if current.Role == newRole {
 		return nil
 	}
+	if err := s.guardOwnerPromotionTarget(ctx, userID, tenantID, newRole); err != nil {
+		return err
+	}
 	oldRole := current.Role
 	// Owner demotion is the dangerous path: two concurrent demotions of
 	// two different Owners with the old "Get → Count → Update" sequence
@@ -416,6 +427,65 @@ func (s *tenantMemberService) UpdateRole(
 	s.emitRoleChangeAudit(ctx, tenantID, userID, oldRole, newRole)
 	return nil
 }
+
+// ValidateRoleChangeTarget 校验改角色的目标保护（AC-5/AC-6）：非系统
+// 管理员不能修改系统管理员、跨空间超管、或在别处持有 owner 的账号。
+//
+// handler 在调用 UpdateRole 前通过 interfaces.RoleChangeTargetValidator
+// 窄接口调用；UpdateRole 在"提升为 owner"时也会复用同一套判定，覆盖
+// transfer-owner 内部的提升。查询失败一律失败关闭。
+func (s *tenantMemberService) ValidateRoleChangeTarget(
+	ctx context.Context,
+	tenantID uint64,
+	targetUserID string,
+) error {
+	if types.IsSystemAdminFromContext(ctx) {
+		return nil
+	}
+	if s.userRepo != nil {
+		target, err := s.userRepo.GetUserByID(ctx, targetUserID)
+		if err != nil {
+			if errors.Is(err, apprepo.ErrUserNotFound) {
+				return ErrMembershipNotFound
+			}
+			return err
+		}
+		if target == nil {
+			return ErrMembershipNotFound
+		}
+		if target.IsSystemAdmin || target.CanAccessAllTenants {
+			return ErrTargetPrivileged
+		}
+	}
+	members, err := s.repo.ListByUser(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+	for _, member := range members {
+		if member.Role == types.TenantRoleOwner &&
+			member.Status == types.TenantMemberStatusActive &&
+			member.TenantID != tenantID {
+			return ErrTargetOwnsWorkspace
+		}
+	}
+	return nil
+}
+
+// guardOwnerPromotionTarget 在提升为 owner 时应用同一套目标保护。
+func (s *tenantMemberService) guardOwnerPromotionTarget(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	newRole types.TenantRole,
+) error {
+	if newRole != types.TenantRoleOwner {
+		return nil
+	}
+	return s.ValidateRoleChangeTarget(ctx, tenantID, userID)
+}
+
+// compile-time 断言：真实服务实现 handler 依赖的可选窄接口。
+var _ interfaces.RoleChangeTargetValidator = (*tenantMemberService)(nil)
 
 // emitRoleChangeAudit packs the old/new role into Details so the
 // audit-log UI can render "promoted Alice from contributor to admin"

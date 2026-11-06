@@ -662,7 +662,11 @@ export default {
         'rbac.invitation_accepted': '接受邀请',
         'rbac.invitation_declined': '拒绝邀请',
         'rbac.invitation_revoked': '撤销邀请',
-        'rbac.invitation_expired': '邀请过期'
+        'rbac.invitation_expired': '邀请过期',
+        'rbac.member_banned': '封禁成员',
+        'rbac.member_unbanned': '解封成员',
+        'rbac.member_purged': '彻底删除成员',
+        'rbac.owner_transferred': '交接空间所有权'
       },
       columns: {
         time: '时间',
@@ -4513,7 +4517,9 @@ export default {
           'system.queue_task_deleted': '清除失败任务记录',
           'system.queue_task_run_now': '立即执行队列任务',
           'system.queue_task_cancelled': '终止队列任务',
-          'system.queue_archived_purged': '清除全部失败任务'
+          'system.queue_archived_purged': '清除全部失败任务',
+          'system.owner_provisioned': '设为普通管理员',
+          'system.owner_invite_created': '生成普通管理员邀请'
         },
         columns: {
           time: '时间',

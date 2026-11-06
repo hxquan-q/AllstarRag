@@ -17,7 +17,15 @@ import (
 type userPurgeTx interface {
 	// audit 与墓碑化在同一条事务里落库：任一步失败都整体回滚，
 	// 不会出现"账号已删但没有审计"的状态。
-	PurgeUserTx(ctx context.Context, targetUserID string, audit *types.AuditLog) error
+	// tenantID / callerIsSystemAdmin 用于事务内复核跨空间归属（AC-19b）：
+	// 非系统管理员不能墓碑化仍属于其他空间的账号。
+	PurgeUserTx(
+		ctx context.Context,
+		tenantID uint64,
+		targetUserID string,
+		callerIsSystemAdmin bool,
+		audit *types.AuditLog,
+	) error
 }
 
 // PurgeUser 彻底删除（墓碑化）目标账号。
@@ -47,7 +55,9 @@ func (s *userManagementService) PurgeUser(
 		return apperrors.NewInternalServerError("user purge is not available")
 	}
 	audit := purgeAuditEntry(ctx, tenantID, target, reason)
-	if err := s.purgeRepo.PurgeUserTx(ctx, target.user.ID, audit); err != nil {
+	if err := s.purgeRepo.PurgeUserTx(
+		ctx, tenantID, target.user.ID, types.IsSystemAdminFromContext(ctx), audit,
+	); err != nil {
 		return mapPurgeError(err)
 	}
 	return nil
@@ -156,6 +166,9 @@ func mapPurgeError(err error) error {
 	case errors.Is(err, apprepo.ErrPurgeTargetPrivileged):
 		return apperrors.NewForbiddenError(
 			"revoke system administrator / cross-workspace privileges before purging this account")
+	case errors.Is(err, apprepo.ErrPurgeTargetCrossTenant):
+		return apperrors.NewForbiddenError(
+			"this account also belongs to other workspaces; ask a system administrator to purge it")
 	default:
 		return err
 	}

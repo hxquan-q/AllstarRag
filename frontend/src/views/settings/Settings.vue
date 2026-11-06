@@ -223,6 +223,7 @@ import { useRoute, useRouter } from 'vue-router'
 import type { LocationQueryRaw } from 'vue-router'
 import { useUIStore } from '@/stores/ui'
 import { useAuthStore } from '@/stores/auth'
+import { useCapabilitiesStore } from '@/stores/capabilities'
 import { useDeploymentCapabilitiesStore } from '@/stores/deploymentCapabilities'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
@@ -285,6 +286,7 @@ const route = useRoute()
 const router = useRouter()
 const uiStore = useUIStore()
 const authStore = useAuthStore()
+const capabilitiesStore = useCapabilitiesStore()
 const deploymentCapabilities = useDeploymentCapabilitiesStore()
 const { t, te } = useI18n()
 // 客户视角（viewer 且不可跨空间）在「常规」里渲染精简版；管理员分支保持原组件。
@@ -374,6 +376,10 @@ const canSeeSection = (key: string): boolean => {
   }
   // 产线只属于客户视角：管理员设置保持 WeKnora 默认（C6）。
   if (key === 'agentlines') return isCustomerViewer(authStore)
+  // 用户管理入口只认后端能力投影（AC-12b）：系统管理员的 user.view
+  // 由 F1/F11 的能力投影给出；能力未加载时 fail-closed，不再用
+  // canAccessAllTenants / isSystemAdmin 另起第二套判断。
+  if (key === 'user-management') return capabilitiesStore.can('user.view')
   if (isIntegrationSection(key)) {
     const min = INTEGRATION_TAB_MIN_ROLE[integrationTabFromSection(key)]
     if (!min) return true
@@ -387,9 +393,6 @@ const canSeeSection = (key: string): boolean => {
   // canAccessAllTenants（superuser）和路由层一样必须 bypass，否则 cross-tenant
   // 管理员看不到自己有权操作的入口（参考 TenantMembers.vue 的 canManage）。
   if (authStore.canAccessAllTenants) return true
-  // 用户管理对平台系统管理员放行：他们不一定是当前空间的 owner，
-  // 但后端 OwnerOrSystemAdmin 守卫允许其管理。仅界面可见性（C4）。
-  if (key === 'user-management' && authStore.isSystemAdmin) return true
   return authStore.hasRole(min)
 }
 

@@ -5278,7 +5278,9 @@ export default {
           'system.queue_task_deleted': 'Failed task record cleared',
           'system.queue_task_run_now': 'Queue task run now',
           'system.queue_task_cancelled': 'Queue task cancelled',
-          'system.queue_archived_purged': 'All failed tasks cleared'
+          'system.queue_archived_purged': 'All failed tasks cleared',
+          'system.owner_provisioned': 'Owner space provisioned',
+          'system.owner_invite_created': 'Owner invite created'
         },
         outcome: {
           success: 'Success',
@@ -9085,7 +9087,11 @@ export default {
         'rbac.invitation_accepted': 'Invitation accepted',
         'rbac.invitation_declined': 'Invitation declined',
         'rbac.invitation_revoked': 'Invitation revoked',
-        'rbac.invitation_expired': 'Invitation expired'
+        'rbac.invitation_expired': 'Invitation expired',
+        'rbac.member_banned': 'Member banned',
+        'rbac.member_unbanned': 'Member unbanned',
+        'rbac.member_purged': 'Member permanently deleted',
+        'rbac.owner_transferred': 'Ownership transferred'
       },
       outcome: {
         success: 'Success',

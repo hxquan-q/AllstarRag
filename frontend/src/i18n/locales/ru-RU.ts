@@ -662,7 +662,11 @@ export default {
         'rbac.invitation_accepted': 'Приглашение принято',
         'rbac.invitation_declined': 'Приглашение отклонено',
         'rbac.invitation_revoked': 'Приглашение отозвано',
-        'rbac.invitation_expired': 'Приглашение истекло'
+        'rbac.invitation_expired': 'Приглашение истекло',
+        'rbac.member_banned': 'Участник заблокирован',
+        'rbac.member_unbanned': 'Участник разблокирован',
+        'rbac.member_purged': 'Участник удалён безвозвратно',
+        'rbac.owner_transferred': 'Передача владения'
       },
       columns: {
         time: 'Время',
@@ -4511,7 +4515,9 @@ export default {
           'system.queue_task_deleted': 'Удалена запись о сбойной задаче',
           'system.queue_task_run_now': 'Задача очереди запущена сейчас',
           'system.queue_task_cancelled': 'Задача очереди отменена',
-          'system.queue_archived_purged': 'Очищены все сбойные задачи'
+          'system.queue_archived_purged': 'Очищены все сбойные задачи',
+          'system.owner_provisioned': 'Пространство владельца создано',
+          'system.owner_invite_created': 'Приглашение владельца создано'
         },
         columns: {
           time: 'Время',

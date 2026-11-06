@@ -93,6 +93,10 @@ func isTenantOptionalAPI(path, method string) bool {
 		return true
 	case path == "/api/v1/auth/validate" && method == http.MethodGet:
 		return true
+	// 能力投影对已认证用户一律可读：无空间上下文时返回空能力集，
+	// 而不是 409 TENANT_REQUIRED（AC-1）。
+	case path == "/api/v1/auth/capabilities" && method == http.MethodGet:
+		return true
 	case path == "/api/v1/auth/switch-tenant" && method == http.MethodPost:
 		return true
 	case path == "/api/v1/tenants" && method == http.MethodPost:
@@ -769,12 +773,15 @@ func principalTenantIDFromClaims(claims jwt.MapClaims) uint64 {
 //
 // Order of resolution:
 //  1. Active TenantMember row → return that role.
-//  2. Cross-tenant superuser switch (X-Tenant-ID with CanAccessAllTenants=true)
-//     → grant Admin in the target tenant. Org admins are intentionally not
-//     promoted to Owner; tenant deletion / API-key rotation should always
-//     stay with a real Owner inside the target tenant. Cross-tenant access
-//     is also never allowed to trigger the orphan-tenant auto-promotion
-//     below — a superuser only visits, never claims ownership.
+//  2. 平台级管理员直通：
+//     - 系统管理员（IsSystemAdmin=true）在任何空间都没有成员关系时授予
+//     临时 Admin。这是平台级身份，与 CanAccessAllTenants 无关，也不受
+//     EnableCrossTenantAccess 开关约束；
+//     - 跨空间超管（CanAccessAllTenants=true）只在实际切换目标空间
+//     （crossTenantSwitch）时授予临时 Admin。
+//     临时角色不写入 tenant_members：org admin / 系统管理员只做管理，
+//     不成为该空间的持久 Owner（租户删除、API key 轮换仍应由空间内
+//     真实 Owner 执行）。直通也不会触发下面的孤儿空间自动晋升。
 //  3. No membership but the tenant currently has zero active members AND
 //     the caller is authenticating into their own home tenant (i.e.
 //     targetTenantID == user.TenantID and this is not a cross-tenant
@@ -825,9 +832,16 @@ func resolveTenantRole(
 			user.ID, targetTenantID, statusInfo)
 	}
 
-	// 2. 跨空间超管直通：CanAccessAllTenants 用户切到别的空间时不强制要求 membership。
-	//    注意：这里只授予临时 Admin 角色，不写入 tenant_members，避免"看一眼别人空间"
-	//    意外升级为持久化所有权。
+	// 2. 平台级管理员直通：没有成员关系时授予临时 Admin 角色，不写入
+	//    tenant_members，避免"看一眼别人空间"意外升级为持久化所有权。
+	//    系统管理员是平台级身份，不受 EnableCrossTenantAccess 开关约束；
+	//    跨空间超管仍只在实际切换空间时直通。
+	if user.IsSystemAdmin {
+		logger.Infof(ctx,
+			"[auth] resolveTenantRole step2 (system admin) -> Admin: user=%s tenant=%d",
+			user.ID, targetTenantID)
+		return types.TenantRoleAdmin, true
+	}
 	if crossTenantSwitch && user.CanAccessAllTenants {
 		logger.Infof(ctx,
 			"[auth] resolveTenantRole step2 (cross-tenant superuser) -> Admin: user=%s tenant=%d",

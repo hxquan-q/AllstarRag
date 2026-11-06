@@ -43,9 +43,10 @@ import (
 // EnableCrossTenantAccess flag, replacing the 12-line if-block that
 // previously opened ListAllTenants and SearchTenants.
 //
-// JWT behavior for POST /tenants and GET /tenants remains unchanged. Platform
-// API keys may create tenants through system_tenants_manage; workspace keys
-// remain default-denied on tenant-catalog operations.
+// POST /tenants 是平台级建空间入口（T11 / AC-44），不再是上游的
+// self-service 行为：只有系统管理员 / 跨空间超管 / 平台 API Key 能创建。
+// GET /tenants 仍按当前空间列出。平台 API Key 通过 system_tenants_manage
+// 创建空间；workspace key 对租户目录操作保持默认拒绝。
 func RegisterTenantRoutes(
 	r *gin.RouterGroup,
 	handler *handler.TenantHandler,
@@ -73,14 +74,15 @@ func RegisterTenantRoutes(
 		if memberHandler != nil {
 			tenantRoutes.GET("/current/members", g.Viewer(), memberHandler.ListCurrentWorkspaceMembers)
 		}
-		// 创建空间对所有已登录用户开放：用户可以为自己再开一个工作区，
-		// handler 内部会调 EnsureOwner 把调用者写成新空间的 Owner。
-		// 跨空间超管走同一个端点，但能携带 storage_quota / status 等
-		// 全字段（见 handler.CreateTenant 内部分支）。
-		// 安全说明：这里不挂 g.CrossTenant()，因为 self-service 创建
-		// 不需要跨空间特权；handler 也不读写 X-Tenant-ID 指向的现有
-		// 空间，所以越过 PathTenantMatch 守卫不会扩大攻击面。
-		// 创建空间不对 API key 开放（注册在原始 group，默认拒绝）。
+		// 创建空间是平台级操作（T11 / AC-44）：只有系统管理员、跨空间
+		// 超管或平台 API Key 能创建；普通用户（owner/admin/contributor/
+		// viewer）即使上游 self_service 开关开启，也会被 handler 返回 403。
+		// 跨空间超管走同一个端点，可携带 storage_quota / status 等全字段
+		// （见 handler.CreateTenant 内部分支）。
+		// 安全说明：这里不挂 g.CrossTenant()；平台级判定在 handler 内完成
+		// （见 tenant_policy.go 的产品覆盖说明）。
+		// workspace API key 对建空间保持默认拒绝；平台 key 通过
+		// system_tenants_manage 能力放行。
 		g.apiKeyRoute(tenantRoutes, http.MethodPost, "",
 			apiKeyPlatform(types.APIKeyCapabilitySystemTenantsManage), handler.CreateTenant)
 		g.apiKeyRoute(tenantRoutes, http.MethodGet, "", apiKeyManageTenantSettings(apiKeyFullAccess()), handler.ListTenants)
@@ -182,19 +184,18 @@ func RegisterTenantRoutes(
 	}
 }
 
-// RegisterUserManagementRoutes wires owner/system-admin member management
-// (ban / unban / purge / owner transfer / co-owner creation). It is a
-// standalone Register* function so the
-// existing RegisterTenantRoutes signature and its call sites stay intact.
+// RegisterUserManagementRoutes 注册 owner / 系统管理员的成员管理接口
+// （封禁 / 解封 / 彻底删除 / 空间交接 / 新建 co-owner）。拆成独立的
+// Register* 函数，避免改动 RegisterTenantRoutes 的签名和既有调用点。
 //
-// Guards mirror the 02-plan §3.1 contract:
-//   - /tenants/:id group level: g.PathTenantMatch() (URL tenant must equal
-//     the active workspace; cross-tenant superusers bypass);
-//   - per route: g.OwnerOrSystemAdmin() — a system admin passes even when
-//     their workspace role is below owner.
+// 守卫与 02-plan §3.1 的契约一致：
+//   - /tenants/:id 组级：g.PathTenantMatch()（URL 空间必须等于当前激活
+//     空间；跨空间超管按既有规则放行）；
+//   - 每条路由：g.OwnerOrSystemAdmin() —— 系统管理员即使当前工作区角色
+//     低于 owner 也放行。
 //
-// Handler-level target protections (self, owner, system admin, elsewhere
-// owner, cross-tenant unban) live in UserManagementService.
+// 目标级保护（不能操作自己、owner 目标、系统管理员、别处 owner、跨租户
+// 解封）在 UserManagementService 内判定。
 func RegisterUserManagementRoutes(
 	r *gin.RouterGroup,
 	h *handler.UserManagementHandler,
@@ -219,14 +220,13 @@ func RegisterUserManagementRoutes(
 	tenantByID.GET("/user-management", g.OwnerOrSystemAdmin(), h.ListUsers)
 }
 
-// RegisterOwnerManagementRoutes wires the SystemAdmin-only owner provisioning
-// surfaces:
+// RegisterOwnerManagementRoutes 注册仅系统管理员可用的 owner 分配接口：
 //   - POST /system/admin/users/:user_id/owner-space
 //   - POST /system/admin/owners/invite
 //
-// It is a standalone Register* function so RegisterSystemAdminRoutes keeps its
-// existing signature and call sites. Every route inherits g.SystemAdmin() at
-// the group level, matching the rest of /system/admin.
+// 拆成独立的 Register* 函数，避免改动 RegisterSystemAdminRoutes 的签名和
+// 既有调用点。组级统一挂 g.SystemAdmin()，与 /system/admin 下其他路由
+// 同一口径。
 func RegisterOwnerManagementRoutes(
 	r *gin.RouterGroup,
 	h *handler.OwnerManagementHandler,
