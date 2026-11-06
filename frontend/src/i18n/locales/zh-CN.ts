@@ -9464,6 +9464,7 @@ export default {
       deleted: '已注销',
     },
     actions: {
+      more: '更多',
       changeRole: '修改角色',
       ban: '封禁',
       unban: '解封',

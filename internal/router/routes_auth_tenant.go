@@ -172,13 +172,12 @@ func RegisterTenantRoutes(
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), invitationHandler.CreateInviteLink)
 			}
 
-			// Audit log feed (PR 6 of #1303). Admin+ so denied-action
-			// histories don't surface to ordinary members; the
-			// PathTenantMatch group already prevents cross-tenant
-			// reads. nil-skip mirrors the memberHandler pattern above
-			// for environments wired without the audit dependency.
+			// 空间操作记录（上游 PR 6 of #1303）。只给本空间 owner 和系统管理员看
+			// （T27 由 Admin+ 收紧），admin/contributor/viewer 一律 403；跨空间读取
+			// 已由组级 PathTenantMatch 拦截。不声明 apiKeyRoute，API Key 走网关默认拒绝。
+			// auditLogHandler 为 nil 时跳过注册，与上面 memberHandler 的做法一致。
 			if auditLogHandler != nil {
-				tenantByID.GET("/audit-log", g.Admin(), auditLogHandler.ListTenantAuditLog)
+				tenantByID.GET("/audit-log", g.OwnerOrSystemAdmin(), auditLogHandler.ListTenantAuditLog)
 			}
 		}
 	}

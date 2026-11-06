@@ -1,5 +1,5 @@
 <template>
-  <SettingsModalShell :visible="visible" :title="$t('general.settings')" overlay-class="all-settings-overlay"
+  <SettingsModalShell :visible="visible" :title="$t('general.settings')" :overlay-class="settingsOverlayClass"
     :mobile-layout="mobileLayout" :mobile-show-nav="mobileShowNav" @mobile-back="mobileShowNav = true"
     @close="modalShell.requestClose">
     <template #nav>
@@ -399,6 +399,28 @@ const canSeeSection = (key: string): boolean => {
   return authStore.hasRole(min)
 }
 
+/**
+ * 默认分区落点：选择当前用户第一个可见的分区。
+ *
+ * 没有租户角色的纯系统管理员看不到 general（viewer 门槛），直接保留
+ * currentSection='general' 会先闪一下 role-denied；这类用户优先落到
+ * user-management。其它角色维持原有「第一个可见项」顺序。
+ */
+const firstVisibleSection = (): string => {
+  if (authStore.isSystemAdmin && !authStore.currentTenantRole) {
+    const preferred = navItems.value.find((item) => item.key === 'user-management')
+    if (preferred) return preferred.key
+  }
+  return navItems.value[0]?.key || 'general'
+}
+
+/** 当前分区仍可见就保持，否则回退到第一个可见分区。 */
+const visibleOrDefaultSection = (): string => {
+  const current = currentSection.value
+  if (navItems.value.some((item) => item.key === current)) return current
+  return firstVisibleSection()
+}
+
 const navItems = computed(() => {
   // 一律走 SETTINGS_SECTION_MIN_ROLE 表，避免 ad-hoc isAdmin/isOwner 散落在多处。
   // 服务端在每条路由上仍以 g.Viewer/Admin/Owner 为准，这里只决定 UI 是
@@ -653,7 +675,15 @@ watch(
       // 客户移动态没有 ?section= 时停在分区列表；不要自动补 section，
       // 否则列表会被立刻拉进默认分区内容（CP3 F2）。
       if (mobileLayout.value) return
-      syncSettingsRoute(currentSection.value || 'general')
+      // 角色/能力尚未就绪时 navItems 为空，先不写 URL；等 navItems 就绪后
+      // 由下面的 watch(navItems) 补默认分区。
+      if (navItems.value.length === 0) return
+      const target = visibleOrDefaultSection()
+      if (target !== currentSection.value) {
+        currentSection.value = target
+        currentSubSection.value = ''
+      }
+      syncSettingsRoute(target)
       return
     }
     const normalizedSection = normalizeSettingsSectionFromQuery(
@@ -679,7 +709,11 @@ watch(
 // 如果 currentSection 落到了不再显示的 key 上，就回退到第一个可见项。
 watch(navItems, (items) => {
   if (!items.some((item) => item.key === currentSection.value)) {
-    const fallback = items[0]?.key || 'general'
+    // 纯系统管理员优先 user-management；其它角色保持第一个可见项。
+    const preferred = authStore.isSystemAdmin && !authStore.currentTenantRole
+      ? items.find((item) => item.key === 'user-management')
+      : undefined
+    const fallback = preferred?.key || items[0]?.key || 'general'
     currentSection.value = fallback
     currentSubSection.value = ''
     syncSettingsRoute(fallback)
@@ -722,7 +756,15 @@ onMounted(() => {
   window.addEventListener('settings-nav', handleSettingsNav as EventListener)
 })
 
+const settingsOverlayClass = computed(() =>
+  currentSection.value === 'user-management'
+    ? 'all-settings-overlay settings-overlay--wide'
+    : 'all-settings-overlay',
+)
+
 watch(currentSection, () => {
+  // 其他组件（如悬浮助手）需要知道设置弹窗当前分区，只在用户管理分区避让/加宽。
+  uiStore.settingsActiveSection = currentSection.value
   if (document.activeElement instanceof HTMLElement) {
     document.activeElement.blur()
   }
@@ -737,6 +779,11 @@ onUnmounted(() => {
 .settings-modal-shell.all-settings-overlay > .settings-modal {
   max-width: 1280px;
   height: 900px;
+}
+
+/* 用户管理分区需要更宽的表格，其他设置分区保持原宽度。 */
+.settings-modal-shell.all-settings-overlay.settings-overlay--wide > .settings-modal {
+  max-width: 1440px;
 }
 </style>
 

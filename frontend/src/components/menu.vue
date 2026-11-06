@@ -78,7 +78,7 @@
         </t-tooltip>
 
         <!-- 空间选择器：仅在用户可切换空间时显示 -->
-        <TenantSelector v-if="canAccessAllTenants && !uiStore.sidebarCollapsed" />
+        <TenantSelector v-if="(canAccessAllTenants || isSystemAdmin) && !uiStore.sidebarCollapsed" />
 
         <!-- 侧栏边缘拖拽调宽，拖窄时自动收缩。
              移动抽屉是覆盖层，不做调宽；模板条件隐藏，避免不可见仍可聚焦。 -->
@@ -611,8 +611,9 @@ const batchDisplayCount = computed(() =>
     isAllBatchSelected.value ? total.value : batchSelectedIds.value.length
 )
 
-// 是否可以访问所有空间
+// 是否可以访问所有空间（跨空间超管或平台级系统管理员）
 const canAccessAllTenants = computed(() => authStore.canAccessAllTenants);
+const isSystemAdmin = computed(() => authStore.isSystemAdmin);
 
 // 是否处于知识库详情页（不包括全局聊天）
 const isInKnowledgeBase = computed<boolean>(() => {

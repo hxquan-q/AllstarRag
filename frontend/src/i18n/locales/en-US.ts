@@ -9471,6 +9471,7 @@ export default {
       deleted: 'Deleted account',
     },
     actions: {
+      more: 'More',
       changeRole: 'Change role',
       ban: 'Ban',
       unban: 'Unban',

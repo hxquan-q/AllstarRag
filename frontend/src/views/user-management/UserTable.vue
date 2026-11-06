@@ -15,20 +15,27 @@
       </t-alert>
     </div>
 
-    <div v-else-if="total === 0" class="user-table__state">
-      <t-empty :description="t('userManagement.states.empty')" />
+    <div v-else-if="total === 0" class="user-table__state user-table__state--empty">
+      <t-empty :description="t('userManagement.states.emptyHint')" />
     </div>
 
     <template v-else>
       <div class="user-table__scroll">
         <t-table
           row-key="user_id"
+          table-layout="fixed"
           :data="items"
           :columns="columns"
           :loading="loading"
           size="medium"
           hover
         >
+          <template #account="{ row }">
+            <div class="user-table__account">
+              <span class="user-table__account-email">{{ row.email || '—' }}</span>
+              <span v-if="row.username" class="user-table__account-name">{{ row.username }}</span>
+            </div>
+          </template>
           <template #role="{ row }">
             <t-tooltip
               v-if="roleGate(row).reasonKey"
@@ -50,21 +57,25 @@
           <template #memberships="{ row }">
             <div v-if="row.memberships?.length" class="user-table__memberships">
               <t-tag
-                v-for="membership in row.memberships"
+                v-for="membership in visibleMemberships(row)"
                 :key="`${membership.tenant_id}-${membership.role}`"
                 size="small"
                 variant="light"
               >
                 {{ membership.tenant_name }} · {{ roleLabel(membership.role) }}
               </t-tag>
+              <t-tooltip
+                v-if="hiddenMembershipCount(row) > 0"
+                :content="hiddenMembershipsText(row)"
+                placement="top"
+              >
+                <t-tag size="small" variant="light">+{{ hiddenMembershipCount(row) }}</t-tag>
+              </t-tooltip>
             </div>
             <span v-else class="user-table__role-text">—</span>
           </template>
           <template #status="{ row }">
-            <t-tag
-              :theme="row.status === 'active' ? 'success' : 'danger'"
-              variant="light"
-            >
+            <t-tag :theme="statusTheme(row.status)" variant="light">
               {{ statusLabel(row.status) }}
             </t-tag>
           </template>
@@ -72,101 +83,85 @@
           <template #actions="{ row }">
             <div class="user-table__actions">
               <template v-if="row.role === 'system_admin'">
-                <t-tooltip :content="revokeTooltip(row)" placement="top">
+                <t-dropdown trigger="click" placement="bottom-right" :popup-props="{ zIndex: 6200 }">
                   <t-button
                     shape="square"
                     variant="text"
                     size="small"
-                    theme="danger"
-                    :disabled="row.user_id === currentUserId"
-                    :aria-label="t('userManagement.actions.revokeSystemAdmin')"
-                    @click.stop="emit('revoke-system-admin', row)"
+                    :aria-label="t('userManagement.actions.more')"
+                    @click.stop
                   >
-                    <template #icon><t-icon name="user-clear" /></template>
+                    <template #icon><t-icon name="ellipsis" /></template>
                   </t-button>
-                </t-tooltip>
+                  <template #dropdown>
+                    <t-dropdown-menu>
+                      <t-dropdown-item
+                        theme="error"
+                        :disabled="row.user_id === currentUserId"
+                        @click="emit('revoke-system-admin', row)"
+                      >
+                        {{ t('userManagement.actions.revokeSystemAdmin') }}
+                      </t-dropdown-item>
+                    </t-dropdown-menu>
+                  </template>
+                </t-dropdown>
               </template>
 
               <template v-else>
                 <t-tooltip :content="statusTooltip(row)" placement="top">
                   <t-button
-                    shape="square"
                     variant="text"
                     size="small"
                     :disabled="!statusGate(row).allowed"
-                    :aria-label="statusActionLabel(row)"
                     @click.stop="emitStatusAction(row)"
                   >
-                    <template #icon>
-                      <t-icon :name="row.status === 'banned' ? 'rollback' : 'lock-on'" />
-                    </template>
+                    {{ statusActionLabel(row) }}
                   </t-button>
                 </t-tooltip>
 
-                <t-tooltip :content="actionTooltip('purge', row)" placement="top">
+                <t-dropdown trigger="click" placement="bottom-right" :popup-props="{ zIndex: 6200 }">
                   <t-button
                     shape="square"
                     variant="text"
                     size="small"
-                    theme="danger"
-                    :disabled="!gate('purge', row).allowed"
-                    :aria-label="t('userManagement.actions.purge')"
-                    @click.stop="emit('purge', row)"
+                    :aria-label="t('userManagement.actions.more')"
+                    @click.stop
                   >
-                    <template #icon><t-icon name="delete" /></template>
+                    <template #icon><t-icon name="ellipsis" /></template>
                   </t-button>
-                </t-tooltip>
-
-                <t-tooltip
-                  v-if="row.role === 'owner'"
-                  :content="actionTooltip('transfer', row)"
-                  placement="top"
-                >
-                  <t-button
-                    shape="square"
-                    variant="text"
-                    size="small"
-                    :disabled="!gate('transfer', row).allowed"
-                    :aria-label="t('userManagement.actions.transfer')"
-                    @click.stop="emit('transfer', row)"
-                  >
-                    <template #icon><t-icon name="swap" /></template>
-                  </t-button>
-                </t-tooltip>
-
-                <t-tooltip
-                  v-if="row.role === 'owner' && isSystemAdmin"
-                  :content="promoteTooltip(row)"
-                  placement="top"
-                >
-                  <t-button
-                    shape="square"
-                    variant="text"
-                    size="small"
-                    :disabled="row.user_id === currentUserId"
-                    :aria-label="t('userManagement.actions.promoteSystemAdmin')"
-                    @click.stop="emit('promote-system-admin', row)"
-                  >
-                    <template #icon><t-icon name="secured" /></template>
-                  </t-button>
-                </t-tooltip>
-
-                <t-tooltip
-                  v-if="canResetPassword"
-                  :content="resetPasswordTooltip(row)"
-                  placement="top"
-                >
-                  <t-button
-                    shape="square"
-                    variant="text"
-                    size="small"
-                    :disabled="!resetPasswordAllowed(row)"
-                    :aria-label="t('userManagement.resetPassword.action')"
-                    @click.stop="emit('reset-password', row)"
-                  >
-                    <template #icon><t-icon name="lock-off" /></template>
-                  </t-button>
-                </t-tooltip>
+                  <template #dropdown>
+                    <t-dropdown-menu>
+                      <t-dropdown-item
+                        v-if="row.role === 'owner'"
+                        :disabled="!gate('transfer', row).allowed"
+                        @click="emit('transfer', row)"
+                      >
+                        {{ t('userManagement.actions.transfer') }}
+                      </t-dropdown-item>
+                      <t-dropdown-item
+                        v-if="row.role === 'owner' && isSystemAdmin"
+                        :disabled="row.user_id === currentUserId"
+                        @click="emit('promote-system-admin', row)"
+                      >
+                        {{ t('userManagement.actions.promoteSystemAdmin') }}
+                      </t-dropdown-item>
+                      <t-dropdown-item
+                        v-if="canResetPassword"
+                        :disabled="!resetPasswordAllowed(row)"
+                        @click="emit('reset-password', row)"
+                      >
+                        {{ t('userManagement.resetPassword.action') }}
+                      </t-dropdown-item>
+                      <t-dropdown-item
+                        theme="error"
+                        :disabled="!gate('purge', row).allowed"
+                        @click="emit('purge', row)"
+                      >
+                        {{ t('userManagement.actions.purge') }}
+                      </t-dropdown-item>
+                    </t-dropdown-menu>
+                  </template>
+                </t-dropdown>
               </template>
             </div>
           </template>
@@ -216,6 +211,7 @@ type TableColumn = {
   ellipsis?: boolean
   minWidth?: number
   width?: number
+  fixed?: 'left'
 }
 
 const props = withDefaults(
@@ -277,12 +273,12 @@ function selectValue(row: UserRow): TenantRole {
 
 const columns = computed<TableColumn[]>(() => {
   const list: TableColumn[] = [
-    { colKey: 'email', title: t('userManagement.columns.email'), ellipsis: true, minWidth: 220 },
     {
-      colKey: 'username',
-      title: t('userManagement.columns.username'),
+      colKey: 'account',
+      title: t('userManagement.columns.account'),
       ellipsis: true,
-      minWidth: 160,
+      width: 200,
+      fixed: 'left',
     },
   ]
   // 多空间视图才展示「所属空间」；current 视图就是本空间，不重复（AC-26）。
@@ -290,18 +286,18 @@ const columns = computed<TableColumn[]>(() => {
     list.push({
       colKey: 'memberships',
       title: t('userManagement.spaceFilter.spaces'),
-      minWidth: 220,
+      width: 180,
     })
   }
   list.push(
-    { colKey: 'role', title: t('userManagement.columns.role'), width: 160 },
-    { colKey: 'status', title: t('userManagement.columns.status'), width: 110 },
+    { colKey: 'role', title: t('userManagement.columns.role'), width: 110 },
+    { colKey: 'status', title: t('userManagement.columns.status'), width: 90 },
     {
       colKey: 'created_at',
       title: t('userManagement.columns.createdAt'),
-      width: 170,
+      width: 120,
     },
-    { colKey: 'actions', title: t('userManagement.columns.actions'), width: 200 },
+    { colKey: 'actions', title: t('userManagement.columns.actions'), width: 120 },
   )
   return list
 })
@@ -337,6 +333,29 @@ function statusLabel(status: UserManagementStatus): string {
   return statusLabels.value[status]
 }
 
+function statusTheme(status: UserManagementStatus): 'success' | 'danger' | 'warning' {
+  if (status === 'active') return 'success'
+  if (status === 'banned') return 'danger'
+  return 'warning'
+}
+
+const MAX_MEMBERSHIP_TAGS = 2
+
+function visibleMemberships(row: UserRow) {
+  return (row.memberships ?? []).slice(0, MAX_MEMBERSHIP_TAGS)
+}
+
+function hiddenMembershipCount(row: UserRow): number {
+  return Math.max(0, (row.memberships?.length ?? 0) - MAX_MEMBERSHIP_TAGS)
+}
+
+function hiddenMembershipsText(row: UserRow): string {
+  return (row.memberships ?? [])
+    .slice(MAX_MEMBERSHIP_TAGS)
+    .map((membership) => `${membership.tenant_name} · ${roleLabel(membership.role)}`)
+    .join('、')
+}
+
 function gate(kind: UserActionKind, row: UserRow): ActionGate {
   return gateUserAction(
     kind,
@@ -354,7 +373,8 @@ function roleGate(row: UserRow): ActionGate {
 }
 
 function canChangeRole(row: UserRow): boolean {
-  return roleGate(row).allowed
+  // 多空间视图里所属空间列已经展示角色；改角色只在本空间视图做，避免看错空间。
+  return props.scope === 'current' && roleGate(row).allowed
 }
 
 function statusGate(row: UserRow): ActionGate {
@@ -425,8 +445,6 @@ function formatDateTime(value: string): string {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
   }).format(date)
 }
 </script>
@@ -454,13 +472,48 @@ function formatDateTime(value: string): string {
 .user-table__scroll {
   flex: 1;
   min-height: 0;
-  overflow: auto;
+  overflow: visible;
+
+  // 表头吸顶：整页只有设置弹窗一层滚动，表头在滚动时保持可见。
+  :deep(.t-table thead th) {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--td-bg-color-container);
+  }
+}
+
+.user-table__state--empty {
+  color: var(--td-text-color-secondary);
+}
+
+.user-table__account {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.user-table__account-email {
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-table__account-name {
+  overflow: hidden;
+  color: var(--td-text-color-secondary);
+  font-size: var(--app-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-table__actions {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .user-table__role-text {
@@ -469,10 +522,10 @@ function formatDateTime(value: string): string {
 
 .user-table__memberships {
   display: flex;
-  flex: 1;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 4px;
+  overflow: hidden;
 }
 
 .user-table__pager {

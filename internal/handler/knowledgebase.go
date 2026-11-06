@@ -754,16 +754,49 @@ func enrichKBCreatorNames(ctx context.Context, userSvc interfaces.UserService, k
 		logger.Warnf(ctx, "Failed to resolve KB creator names: %v", err)
 		return
 	}
+	missing := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if u, ok := users[id]; !ok || u == nil {
+			missing = append(missing, id)
+		}
+	}
+	deleted := lookupDeletedCreatorIDs(ctx, userSvc, missing)
 	for _, kb := range kbs {
 		if kb.CreatorID == "" {
 			continue
 		}
 		u, ok := users[kb.CreatorID]
 		if !ok || u == nil {
+			_, kb.CreatorDeleted = deleted[kb.CreatorID]
 			continue
 		}
 		kb.CreatorName = pickUserDisplayName(u)
 	}
+}
+
+// lookupDeletedCreatorIDs resolves which of the given creator ids belong to
+// tombstoned accounts. It probes the optional GetDeletedUserIDs narrow
+// interface so the wide UserService stays untouched; a missing capability or
+// a query error simply yields an empty set (badge falls back to the generic
+// label rather than failing the list).
+func lookupDeletedCreatorIDs(
+	ctx context.Context, userSvc interfaces.UserService, ids []string,
+) map[string]struct{} {
+	if userSvc == nil || len(ids) == 0 {
+		return nil
+	}
+	lookup, ok := userSvc.(interface {
+		GetDeletedUserIDs(context.Context, []string) (map[string]struct{}, error)
+	})
+	if !ok {
+		return nil
+	}
+	deleted, err := lookup.GetDeletedUserIDs(ctx, ids)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to resolve deleted creator ids: %v", err)
+		return nil
+	}
+	return deleted
 }
 
 // pickUserDisplayName picks the field most users will recognise: Username

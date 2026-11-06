@@ -1,10 +1,11 @@
 /**
- * 资产来源徽章的墓碑回退（T03 / AC-22）。
+ * 资产来源徽章的创建者三态（T25 / AC-22）。
  *
- * 彻底删除采用墓碑化，资产 creator_id 仍指向墓碑行。后端回填 creator_name 时
- * 查不到账号（或老数据缺失），前端显示「已注销用户」而不是「本空间」，
- * 保证资产列表不会出现空白来源，也不误导用户以为资源由本空间创建。
- * T15 起回退文案由 resourceOrigin.tenant 改为 resourceOrigin.deletedUser。
+ * T15 曾把 creator_name 缺失一律回退为「已注销用户」，但老数据 / 抓取数据也会
+ * 缺 creator_name，导致误标。T25 起由后端明确返回 creator_deleted：
+ *   - creator_name 有值            → 显示创建者名字
+ *   - creator_deleted=true         → 显示「已注销用户」
+ *   - 两者都没有（未注销 / 未知）   → 回退原来的「本空间」文案
  */
 import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
@@ -25,14 +26,19 @@ function mountBadge(t: TestContext, props: Record<string, unknown>) {
 }
 
 test('creator 徽章有 creator_name 时展示创建者（AC-22）', (t) => {
-  const vm = mountBadge(t, { creatorName: 'Alice' })
+  const vm = mountBadge(t, { creatorName: 'Alice', creatorDeleted: false })
   assert.equal(vm.displayText, 'Alice')
   assert.equal(vm.tooltipText, 'resourceOrigin.tenantTooltipWithCreator')
 })
 
-test('墓碑/已删除账号（creator_name 缺失）显示「已注销用户」（AC-22 / T15）', (t) => {
-  const vm = mountBadge(t, { creatorName: '' })
-  // 账号已被墓碑化时不能回退成「本空间」，否则会误导用户以为资源由本空间创建。
+test('creator_deleted=true 时显示「已注销用户」（AC-22 / T25）', (t) => {
+  const vm = mountBadge(t, { creatorName: '', creatorDeleted: true })
   assert.equal(vm.displayText, 'resourceOrigin.deletedUser')
   assert.equal(vm.tooltipText, 'resourceOrigin.deletedUserTooltip')
+})
+
+test('creator_name 缺失但未注销时回退「本空间」（T25）', (t) => {
+  const vm = mountBadge(t, { creatorName: '', creatorDeleted: false })
+  assert.equal(vm.displayText, 'resourceOrigin.tenant')
+  assert.equal(vm.tooltipText, 'resourceOrigin.tenantTooltip')
 })

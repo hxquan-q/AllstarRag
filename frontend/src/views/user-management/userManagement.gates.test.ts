@@ -117,7 +117,7 @@ test('owner 行不渲染角色下拉：表格只渲染只读角色文本与交�
   // T17：空角色行（全平台视图无成员关系账号）也不渲染下拉，条件追加 `&& row.role`。
   assert.match(tableSource, /<t-select[\s\S]*?v-else-if="canChangeRole\(row\)( && row\.role)?"/)
   // 2) canChangeRole 完全由门控 allowed 决定，且走的就是 changeRole 门控；
-  assert.match(tableSource, /function canChangeRole\(row: UserRow\): boolean \{\s*return roleGate\(row\)\.allowed/)
+  assert.match(tableSource, /function canChangeRole\(row: UserRow\): boolean \{[\s\S]*?return props\.scope === 'current' && roleGate\(row\)\.allowed/)
   assert.match(tableSource, /function roleGate\(row: UserRow\): ActionGate \{[\s\S]*?return gate\('changeRole', row\)/)
 })
 

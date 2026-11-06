@@ -344,8 +344,11 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 		return
 	}
 
-	role := types.TenantRole(strings.TrimSpace(c.Query("role")))
-	if role != "" && !role.IsValid() {
+	// role 支持逗号分隔多值（T22「编辑」目录一次查 contributor+admin）。
+	// 逐段 TrimSpace；任一段为空或非法 → 400 且不触达 service。单值
+	// 继续走旧方法，保持既有调用方零破坏。
+	roles, ok := parseUserManagementRoles(c.Query("role"))
+	if !ok {
 		_ = c.Error(apperrors.NewValidationError(
 			"role must be one of viewer, contributor, admin, owner"))
 		return
@@ -358,11 +361,25 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 
 	var result *interfaces.UserManagementListResult
 	var err error
-	if scoped {
-		result, err = h.userManagementService.ListUsersScoped(
-			ctx, tenantID, scope, role, q, page, pageSize)
+	if len(roles) > 1 {
+		if scoped {
+			result, err = h.userManagementService.ListUsersScopedWithRoles(
+				ctx, tenantID, scope, roles, q, page, pageSize)
+		} else {
+			result, err = h.userManagementService.ListUsersWithRoles(
+				ctx, tenantID, roles, q, page, pageSize)
+		}
 	} else {
-		result, err = h.userManagementService.ListUsers(ctx, tenantID, role, q, page, pageSize)
+		role := types.TenantRole("")
+		if len(roles) == 1 {
+			role = roles[0]
+		}
+		if scoped {
+			result, err = h.userManagementService.ListUsersScoped(
+				ctx, tenantID, scope, role, q, page, pageSize)
+		} else {
+			result, err = h.userManagementService.ListUsers(ctx, tenantID, role, q, page, pageSize)
+		}
 	}
 	if err != nil {
 		h.renderServiceError(c, err)
@@ -376,6 +393,30 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 			"role_counts": result.RoleCounts,
 		},
 	})
+}
+
+// parseUserManagementRoles 解析 role 查询参数：空串 = 全部；否则按逗号
+// 拆分、逐段 TrimSpace，任一段为空或不是合法角色返回 ok=false（调用方
+// 负责 400），并且不会触达 service。大小写不符也算非法（与既有口径一致）。
+func parseUserManagementRoles(raw string) ([]types.TenantRole, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, true
+	}
+	parts := strings.Split(raw, ",")
+	roles := make([]types.TenantRole, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(part)
+		if trimmed == "" {
+			return nil, false
+		}
+		role := types.TenantRole(trimmed)
+		if !role.IsValid() {
+			return nil, false
+		}
+		roles = append(roles, role)
+	}
+	return roles, true
 }
 
 // renderServiceError 把服务层的 *AppError 原样交给全局错误处理器，

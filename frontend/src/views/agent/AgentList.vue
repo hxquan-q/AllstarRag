@@ -279,7 +279,8 @@
                   <span>{{ $t('agent.builtin') }}</span>
                 </div>
                 <ResourceOriginBadge v-else-if="showAgentOriginBadge(agent)" :variant="agentOriginVariant(agent)"
-                  :creator-name="(agent as any).creator_name" />
+                  :creator-name="(agent as any).creator_name"
+                  :creator-deleted="(agent as any).creator_deleted" />
               </div>
             </div>
           </template>
@@ -440,7 +441,8 @@
                   <span>{{ $t('agent.builtin') }}</span>
                 </div>
                 <ResourceOriginBadge v-else-if="showAgentOriginBadge(agent)" :variant="agentOriginVariant(agent)"
-                  :creator-name="(agent as any).creator_name" />
+                  :creator-name="(agent as any).creator_name"
+                  :creator-deleted="(agent as any).creator_deleted" />
               </div>
             </div>
           </template>

@@ -13,6 +13,8 @@ export const useUIStore = defineStore('ui', {
     kbEditorInitialSection: null as string | null,
     settingsInitialSection: null as string | null,
     settingsInitialSubSection: null as string | null,
+    // 设置弹窗当前实际分区。用于只在 user-management 分区加宽/避让悬浮助手。
+    settingsActiveSection: null as string | null,
     manualEditorVisible: false,
     manualEditorMode: 'create' as 'create' | 'edit',
     manualEditorKBId: null as string | null,
@@ -50,6 +52,7 @@ export const useUIStore = defineStore('ui', {
       this.showSettingsModal = false
       this.settingsInitialSection = null
       this.settingsInitialSubSection = null
+      this.settingsActiveSection = null
     },
 
     toggleSettings() {

@@ -199,6 +199,8 @@ export interface KnowledgeBaseInfo {
   // creator_name 由后端 list 接口批量回填（username 优先，退化到 email），
   // 仅用于列表卡片来源徽章；缺失代表无法解析（已删除 / 老数据）。
   creator_name?: string
+  /** 后端标记创建者已墓碑化（T25）。 */
+  creator_deleted?: boolean
   created_at: string
   updated_at: string
   document_count?: number

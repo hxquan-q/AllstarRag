@@ -22,6 +22,9 @@ type AuditLogQuery struct {
 	ScopeType    string
 	ScopeID      string
 	UnscopedOnly bool
+	// Search 是可选关键词：同时匹配 action、操作人/目标用户的用户名或邮箱。
+	// 匹配大小写不敏感，% 和 _ 按字面处理；不搜索 details / request_path。
+	Search string
 }
 
 // AuditLogRepository is the storage primitive for the audit table.

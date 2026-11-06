@@ -28,6 +28,15 @@ type userManagementScopedListRepo interface {
 		ctx context.Context, tenantID uint64, scope interfaces.UserManagementListScope,
 		userIDs []string,
 	) ([]apprepo.UserManagementMembershipRow, error)
+	// 多角色变体（T22）：多空间视图下按角色集合过滤。
+	ListUserManagementScopedPagedWithRoles(
+		ctx context.Context, tenantID uint64, scope interfaces.UserManagementListScope,
+		roles []types.TenantRole, search string, offset, limit int,
+	) ([]apprepo.UserManagementScopedRow, error)
+	CountUserManagementScopedWithRoles(
+		ctx context.Context, tenantID uint64, scope interfaces.UserManagementListScope,
+		roles []types.TenantRole, search string,
+	) (int64, error)
 }
 
 // ListUsersScoped 返回带空间筛选的用户管理列表。

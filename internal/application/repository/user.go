@@ -85,6 +85,28 @@ func (r *userRepository) GetUsersByIDs(ctx context.Context, ids []string) (map[s
 	return out, nil
 }
 
+// GetDeletedUserIDs returns the subset of ids whose user row is soft-deleted
+// (tombstoned). It uses Unscoped explicitly because the default scope hides
+// deleted rows, which is exactly what we need to detect here.
+func (r *userRepository) GetDeletedUserIDs(
+	ctx context.Context, ids []string,
+) (map[string]struct{}, error) {
+	out := make(map[string]struct{}, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var deleted []string
+	if err := r.db.WithContext(ctx).Unscoped().Model(&types.User{}).
+		Where("id IN ? AND deleted_at IS NOT NULL", ids).
+		Pluck("id", &deleted).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range deleted {
+		out[id] = struct{}{}
+	}
+	return out, nil
+}
+
 // GetUserByEmail gets a user by email
 func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*types.User, error) {
 	var user types.User

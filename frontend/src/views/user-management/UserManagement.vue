@@ -1,10 +1,5 @@
 <template>
   <div class="user-management">
-    <header class="user-management__header">
-      <h1 class="user-management__title">{{ t('userManagement.title') }}</h1>
-      <p class="user-management__subtitle">{{ t('userManagement.subtitle') }}</p>
-    </header>
-
     <div v-if="capabilitiesPending" class="user-management__state">
       <t-loading size="small" />
       <span>{{ t('userManagement.states.loading') }}</span>
@@ -18,27 +13,15 @@
     />
 
     <template v-else>
-      <div class="user-management__tabs">
-        <t-tabs v-model="activeTab">
+      <!-- 顶部一行：Tab 在左，搜索与「新增账号」在右，尽量把首行数据往上提。 -->
+      <div class="user-management__topbar">
+        <t-tabs v-model="activeTab" class="user-management__tabs">
           <t-tab-panel value="members" :label="t('userManagement.invites.tabMembers')" />
           <t-tab-panel v-if="canSeeInvites" value="invites" :label="t('userManagement.invites.tabInvites')" />
           <t-tab-panel v-if="canSeeOperations" value="operations" :label="t('userManagement.operations.tab')" />
         </t-tabs>
-      </div>
 
-      <div v-show="activeTab === 'members'" class="user-management__body">
-      <RoleDirectory
-        :title="t('userManagement.directory.title')"
-        :entries="directoryEntries"
-        :selected="selectedRole"
-        :show-scope-filter="isSystemAdmin"
-        :scope="scope"
-        @select="selectRole"
-        @scope-change="selectScope"
-      />
-
-      <section class="user-management__content">
-        <div class="user-management__toolbar">
+        <div v-show="activeTab === 'members'" class="user-management__toolbar">
           <t-input
             v-model="searchQuery"
             class="user-management__search"
@@ -53,7 +36,20 @@
             {{ t('userManagement.actions.addUser') }}
           </t-button>
         </div>
+      </div>
 
+      <div v-show="activeTab === 'members'" class="user-management__body">
+      <RoleDirectory
+        :title="t('userManagement.directory.title')"
+        :entries="directoryEntries"
+        :selected="selectedRole"
+        :show-scope-filter="isSystemAdmin"
+        :scope="scope"
+        @select="selectRole"
+        @scope-change="selectScope"
+      />
+
+      <section class="user-management__content">
         <UserTable
           v-model:page="page"
           v-model:page-size="pageSize"
@@ -269,31 +265,32 @@ async function onRevokeSystemAdmin(row: UserRow) {
 .user-management {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   height: 100%;
   min-height: 0;
-  padding: 24px;
-  overflow: hidden;
+  padding: 16px 20px;
+  overflow-y: auto;
   background: var(--td-bg-color-container);
 }
 
-.user-management__header {
+.user-management__topbar {
+  display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
 }
 
-.user-management__title {
-  margin: 0;
-  font-size: var(--app-text-3xl);
-  font-weight: 600;
-  line-height: 28px;
-  color: var(--td-text-color-primary);
+.user-management__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
 }
 
-.user-management__subtitle {
-  margin: 4px 0 0;
-  font-size: var(--app-text-base);
-  line-height: 22px;
-  color: var(--td-text-color-secondary);
+.user-management__search {
+  width: 260px;
+  max-width: 100%;
 }
 
 .user-management__state {
@@ -308,7 +305,7 @@ async function onRevokeSystemAdmin(row: UserRow) {
 .user-management__body {
   display: flex;
   flex: 1;
-  gap: 20px;
+  gap: 16px;
   min-height: 0;
 }
 
@@ -321,21 +318,9 @@ async function onRevokeSystemAdmin(row: UserRow) {
   min-height: 0;
 }
 
-.user-management__toolbar {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.user-management__search {
-  width: 320px;
-  max-width: 100%;
-}
-
 .user-management__tabs {
-  flex: 0 0 auto;
+  flex: 1;
+  min-width: 0;
 
   // 面板内容都挂在 tabs 之外自管显隐，隐藏 TDesign 的空内容区。
   :deep(.t-tabs__content) {

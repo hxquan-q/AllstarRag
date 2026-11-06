@@ -184,3 +184,16 @@ test('ResetPasswordDialog 校验失败不发请求，密码规则 8–32 位必�
   assert.equal(rule[1].min, 8)
   assert.equal(rule[1].max, 32)
 })
+
+// ---------- T26 OperationLog 后端关键词搜索 ----------
+// 用源码断言锁定契约（组件挂载用例在本机 tsx 下偶发挂起，行为回归留给票级复跑）。
+test('OperationLog 关键词带 q 请求后端、去掉本地关键词过滤（T26）', () => {
+  const source = readFileSync(OPERATIONS, 'utf8')
+  assert.match(source, /watch\(\s*keyword/, '关键词变化必须触发 watch -> load(true)')
+  assert.match(source, /q:\s*keyword\.value\.trim\(\)/, 'listAuditLog 必须携带 q')
+  assert.equal(
+    /visibleRows[\s\S]{0,400}toLowerCase\(\)\.includes\(q\)/.test(source),
+    false,
+    '关键词过滤必须交给后端，不能继续本地 includes',
+  )
+})

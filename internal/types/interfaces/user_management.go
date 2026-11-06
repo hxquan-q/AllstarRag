@@ -127,4 +127,19 @@ type UserManagementService interface {
 		ctx context.Context, tenantID uint64, scope UserManagementListScope,
 		role types.TenantRole, query string, page, pageSize int,
 	) (*UserManagementListResult, error)
+
+	// ListUsersWithRoles 是 ListUsers 的多角色版本：roles 为空表示全部，
+	// 命中任意一个角色即返回；任一角色非法（含空串、带空格、大小写不符）
+	// 返回 400。total/分页按去重用户计算，RoleCounts 不随过滤缩小。
+	ListUsersWithRoles(
+		ctx context.Context, tenantID uint64, roles []types.TenantRole,
+		query string, page, pageSize int,
+	) (*UserManagementListResult, error)
+
+	// ListUsersScopedWithRoles 是 ListUsersScoped 的多角色版本，语义同上；
+	// scope=current 等价 ListUsersWithRoles，other/all 仍只允许系统管理员。
+	ListUsersScopedWithRoles(
+		ctx context.Context, tenantID uint64, scope UserManagementListScope,
+		roles []types.TenantRole, query string, page, pageSize int,
+	) (*UserManagementListResult, error)
 }

@@ -227,8 +227,8 @@ func NewRouter(params RouterParams) *gin.Engine {
 	r.Use(langfuse.GinMiddleware())
 
 	// Audit log injection — middleware/rbac.go's reject paths and the
-	// admin-only /tenants/:id/audit-log endpoint pull the service out
-	// of the gin context. Provider is a no-op when AuditLogService is
+	// owner/system-admin-only /tenants/:id/audit-log endpoint pull the
+	// service out of the gin context. Provider is a no-op when AuditLogService is
 	// nil (e.g. lite mode without DB), so the rbac path degrades to
 	// "log to stderr only" instead of crashing.
 	r.Use(middleware.AuditServiceProvider(params.AuditLogService))

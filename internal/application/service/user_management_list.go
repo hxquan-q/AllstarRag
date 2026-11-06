@@ -29,6 +29,14 @@ type userManagementListRepo interface {
 	CountUserManagementRoleCounts(
 		ctx context.Context, tenantID uint64,
 	) (map[types.TenantRole]int64, error)
+	// 多角色变体（T22）：role IN (...) 过滤，供「编辑」目录一次查询。
+	ListUserManagementPagedWithRoles(
+		ctx context.Context, tenantID uint64, roles []types.TenantRole,
+		search string, offset, limit int,
+	) ([]apprepo.UserManagementRow, error)
+	CountUserManagementWithRoles(
+		ctx context.Context, tenantID uint64, roles []types.TenantRole, search string,
+	) (int64, error)
 }
 
 // ListUsers 返回用户管理页的成员列表。

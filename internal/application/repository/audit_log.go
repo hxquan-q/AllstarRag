@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -36,6 +37,14 @@ func (r *auditLogRepository) Create(ctx context.Context, entry *types.AuditLog) 
 // Keeps a misconfigured client from triggering an unbounded scan; the
 // frontend's default page size is 50 so this is comfortable headroom.
 const auditLogListLimitMax = 100
+
+// escapeAuditLikePattern 转义 LIKE 通配符，使关键词中的 % 和 _ 按字面匹配。
+func escapeAuditLikePattern(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `%`, `\%`)
+	s = strings.ReplaceAll(s, `_`, `\_`)
+	return s
+}
 
 // List returns audit log rows for a tenant, newest-first, applying the
 // optional cursor and filters from AuditLogQuery. Both Action and
@@ -77,6 +86,20 @@ func (r *auditLogRepository) List(
 		}
 		if q.UnscopedOnly {
 			tx = tx.Where("scope_type = ''")
+		}
+		if q.Search != "" {
+			pattern := "%" + escapeAuditLikePattern(q.Search) + "%"
+			// 关键词同时匹配 action 和操作人/目标的用户名/邮箱；LIKE 用
+			// ESCAPE 让 % 和 _ 保持字面语义。用户名/邮箱通过 EXISTS 子查询
+			// 关联，避免 JOIN 影响游标分页的排序与去重。
+			tx = tx.Where(
+				"LOWER(action) LIKE LOWER(?) ESCAPE '\\' "+
+					"OR EXISTS (SELECT 1 FROM users u WHERE u.id = audit_logs.actor_user_id "+
+					"AND (LOWER(u.username) LIKE LOWER(?) ESCAPE '\\' OR LOWER(u.email) LIKE LOWER(?) ESCAPE '\\')) "+
+					"OR EXISTS (SELECT 1 FROM users u2 WHERE u2.id = audit_logs.target_user_id "+
+					"AND (LOWER(u2.username) LIKE LOWER(?) ESCAPE '\\' OR LOWER(u2.email) LIKE LOWER(?) ESCAPE '\\'))",
+				pattern, pattern, pattern, pattern, pattern,
+			)
 		}
 	}
 

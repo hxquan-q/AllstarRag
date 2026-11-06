@@ -581,6 +581,22 @@ func (s *userService) GetUsersByIDs(ctx context.Context, ids []string) (map[stri
 	return s.userRepo.GetUsersByIDs(ctx, ids)
 }
 
+// GetDeletedUserIDs returns the subset of ids whose accounts have been
+// tombstoned. It is deliberately a narrow, optional capability (not part of
+// the wide UserRepository interface) so existing fakes stay untouched; the
+// handler probes for it via an anonymous interface assertion.
+func (s *userService) GetDeletedUserIDs(
+	ctx context.Context, ids []string,
+) (map[string]struct{}, error) {
+	repo, ok := s.userRepo.(interface {
+		GetDeletedUserIDs(context.Context, []string) (map[string]struct{}, error)
+	})
+	if !ok {
+		return map[string]struct{}{}, nil
+	}
+	return repo.GetDeletedUserIDs(ctx, ids)
+}
+
 // GetUserByEmail gets a user by email
 func (s *userService) GetUserByEmail(ctx context.Context, email string) (*types.User, error) {
 	return s.userRepo.GetUserByEmail(ctx, email)
@@ -1288,10 +1304,9 @@ func (s *userService) generateTokensForTenant(
 // tokens. A write failure aborts the switch so we never return a
 // token pair whose later refresh would bounce to a different workspace.
 //
-// Returns ErrMembershipNotFound when the user is not a member of the
-// target tenant. Cross-tenant superuser access (CanAccessAllTenants)
-// is allowed without a membership row, mirroring the auth middleware's
-// resolveTenantRole behaviour.
+// 目标空间没有 active 成员关系时返回 ErrMembershipNotFound。
+// 平台级账号（CanAccessAllTenants 或 IsSystemAdmin）与 auth 中间件的
+// resolveTenantRole 口径一致，允许不依赖 tenant_members 行切换空间。
 func (s *userService) SwitchTenant(
 	ctx context.Context,
 	user *types.User,
@@ -1305,9 +1320,9 @@ func (s *userService) SwitchTenant(
 		return nil, errors.New("target workspace ID is required")
 	}
 
-	// Verify membership unless the caller is a cross-tenant superuser
-	// switching outside their home tenant.
-	if !user.CanAccessAllTenants || targetTenantID == user.TenantID {
+	// 平台级账号（跨空间超管或系统管理员）切到非 home 空间时不需要
+	// tenant_members 行；普通用户仍必须有 active 成员关系。
+	if !(user.CanAccessAllTenants || user.IsSystemAdmin) || targetTenantID == user.TenantID {
 		if s.memberService == nil {
 			return nil, errors.New("workspace membership service unavailable")
 		}

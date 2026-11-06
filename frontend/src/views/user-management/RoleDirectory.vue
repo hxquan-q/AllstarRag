@@ -69,14 +69,15 @@ const scopeOptions = computed(() => [
 .role-directory {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 208px;
-  flex: 0 0 208px;
+  gap: 8px;
+  width: 200px;
+  flex: 0 0 200px;
   min-height: 0;
-  padding: 16px 12px;
+  padding: 12px;
   overflow-y: auto;
-  background: var(--td-bg-color-secondarycontainer);
-  border-radius: var(--td-radius-medium);
+  background: var(--td-bg-color-container);
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--app-radius-lg);
 }
 
 .role-directory__head {
@@ -84,14 +85,14 @@ const scopeOptions = computed(() => [
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 0 8px;
+  padding: 0 4px 4px;
 }
 
 .role-directory__title {
   margin: 0;
   font-size: var(--app-text-base);
   font-weight: 600;
-  color: var(--td-text-color-secondary);
+  color: var(--td-text-color-primary);
 }
 
 .role-directory__scope {
@@ -102,26 +103,39 @@ const scopeOptions = computed(() => [
 .role-directory__list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .role-directory__item {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
   width: 100%;
-  padding: 10px 12px;
+  padding: 8px 10px 8px 14px;
   border: none;
-  border-radius: var(--td-radius-medium);
+  border-radius: var(--app-radius-md);
   background: transparent;
   color: var(--td-text-color-primary);
   font-size: var(--app-text-base);
   line-height: 20px;
   text-align: left;
   cursor: pointer;
+  transition: background var(--app-motion-fast) ease, color var(--app-motion-fast) ease;
+}
+
+.role-directory__item::before {
+  position: absolute;
+  top: 8px;
+  bottom: 8px;
+  left: 4px;
+  width: 3px;
+  border-radius: var(--app-radius-pill);
+  background: transparent;
+  content: '';
 }
 
 .role-directory__item:hover {
@@ -139,6 +153,10 @@ const scopeOptions = computed(() => [
   font-weight: 600;
 }
 
+.role-directory__item--active::before {
+  background: var(--td-brand-color);
+}
+
 .role-directory__label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -146,13 +164,23 @@ const scopeOptions = computed(() => [
 }
 
 .role-directory__count {
+  display: inline-flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
   margin-left: 8px;
+  padding: 0 6px;
+  border-radius: var(--app-radius-pill);
+  background: var(--td-bg-color-secondarycontainer);
   color: var(--td-text-color-secondary);
+  font-size: var(--app-text-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .role-directory__item--active .role-directory__count {
-  color: var(--td-brand-color);
+  background: var(--td-brand-color);
+  color: var(--td-text-color-anti);
 }
 </style>

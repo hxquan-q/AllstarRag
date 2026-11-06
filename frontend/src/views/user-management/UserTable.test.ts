@@ -2,7 +2,7 @@
  * 用户管理右表（T07 / T08 / AC-26、AC-27、AC-29、AC-31）。
  *
  * 覆盖：
- * - 列定义（邮箱 / 用户名 / 角色 / 状态 / 创建时间 / 操作）；
+ * - 列定义（账号 / 角色 / 状态 / 创建时间 / 操作；多空间视图多一列「所属空间」）；
  * - loading / empty / error（含重试入口）三态；
  * - 行内动作门控（owner 目标、自操作、超管目标、交接）；
  * - 角色下拉选项（owner 不含 owner，超管含 owner）。
@@ -39,6 +39,7 @@ const baseProps = {
   currentUserId: 'u-owner',
   isSystemAdmin: false,
   ownerCount: 2,
+  scope: 'current' as 'current' | 'other' | 'all',
 }
 
 function mountTable(t: TestContext, props: Partial<typeof baseProps> = {}) {
@@ -87,18 +88,24 @@ function renderFrom(vm: any): VNode[] {
 
 const hasType = (nodes: VNode[], type: string) => nodes.some((node) => node.type === type)
 
-test('右表列顺序为 邮箱/用户名/角色/状态/创建时间/操作（AC-26）', (t) => {
+test('右表列顺序为 账号/角色/状态/创建时间/操作（AC-26）', (t) => {
   const vm = mountTable(t)
   assert.deepEqual([...vm.columns].map((column: any) => column.colKey), [
-    'email', 'username', 'role', 'status', 'created_at', 'actions',
+    'account', 'role', 'status', 'created_at', 'actions',
   ])
   assert.deepEqual([...vm.columns].map((column: any) => column.title), [
-    'userManagement.columns.email',
-    'userManagement.columns.username',
+    'userManagement.columns.account',
     'userManagement.columns.role',
     'userManagement.columns.status',
     'userManagement.columns.createdAt',
     'userManagement.columns.actions',
+  ])
+})
+
+test('多空间视图在账号列后插入所属空间列（Q34/AC-26）', (t) => {
+  const vm = mountTable(t, { scope: 'other' })
+  assert.deepEqual([...vm.columns].map((column: any) => column.colKey), [
+    'account', 'memberships', 'role', 'status', 'created_at', 'actions',
   ])
 })
 

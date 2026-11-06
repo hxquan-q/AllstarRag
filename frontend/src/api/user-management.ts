@@ -60,8 +60,8 @@ export interface UserManagementListResponse {
 export interface UserManagementListParams {
   /** 空间筛选；缺省即 current。other/all 仅系统管理员可调（后端 403 把关）。 */
   scope?: UserManagementListScope
-  /** 角色筛选；缺省表示全部角色。 */
-  role?: TenantRole
+  /** 角色筛选；缺省表示全部角色。支持逗号分隔多值（如 contributor,admin）。 */
+  role?: TenantRole | string
   /** 按邮箱/用户名模糊筛选。 */
   q?: string
   page?: number

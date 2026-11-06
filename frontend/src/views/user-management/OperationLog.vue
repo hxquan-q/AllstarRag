@@ -119,17 +119,10 @@ const columns = computed(() => [
   { colKey: 'outcome', title: t('userManagement.operations.columns.outcome'), width: 100 },
 ])
 
-// 后端只按 action 精确过滤；关键词在已加载的行上本地匹配操作人/目标。
-const visibleRows = computed(() => {
-  const memberRows = entries.value.filter((row) =>
-    (MEMBER_ACTIONS as readonly string[]).includes(row.action),
-  )
-  const q = keyword.value.trim().toLowerCase()
-  if (!q) return memberRows
-  return memberRows.filter((row) =>
-    `${displayUser(row.actor_user_id)} ${displayUser(row.target_user_id)}`.toLowerCase().includes(q),
-  )
-})
+// 关键词由后端按 action / 操作人 / 目标匹配，前端只保留成员操作类型的过滤。
+const visibleRows = computed(() =>
+  entries.value.filter((row) => (MEMBER_ACTIONS as readonly string[]).includes(row.action)),
+)
 
 function displayUser(userId: string): string {
   if (!userId) return '—'
@@ -192,6 +185,7 @@ async function load(reset: boolean) {
       after_id: reset ? undefined : cursor.value || undefined,
       limit: PAGE_SIZE,
       action: actionFilter.value || undefined,
+      q: keyword.value.trim() || undefined,
     })
     if (!resp.success) throw new Error(resp.message || '')
     const rows = resp.data ?? []
@@ -206,6 +200,16 @@ async function load(reset: boolean) {
 }
 
 watch(actionFilter, () => load(true))
+
+// 关键词交给后端搜索：300ms 防抖并回到第一页。
+let keywordTimer: ReturnType<typeof setTimeout> | null = null
+watch(keyword, () => {
+  if (keywordTimer) clearTimeout(keywordTimer)
+  keywordTimer = setTimeout(() => {
+    keywordTimer = null
+    load(true)
+  }, 300)
+})
 watch(
   () => props.tenantId,
   (id) => {

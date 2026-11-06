@@ -148,38 +148,27 @@ export function useUserManagement() {
   }
 
   /**
-   * 目录对应的列表请求。后端 role 参数不支持多值，「编辑」目录按
-   * contributor/admin 各拉一页再前端合并：total 取两份之和，
-   * 每页最多出现两页条目，分页语义保持一致（Q37）。
+   * 目录对应的列表请求。「编辑」目录一次请求 role=contributor,admin，
+   * total/分页由后端按去重用户计算（T22），不再前端合并两页。
    */
   async function fetchDirectoryList(
     tenantId: number | string,
   ): Promise<{ items: UserRow[]; total: number; roleCounts?: WorkspaceRoleCounts }> {
-    const base: UserManagementListParams = {
+    const role =
+      selectedRole.value === 'editor'
+        ? EDITOR_BACKEND_ROLES.join(',')
+        : (selectedRole.value as TenantRole)
+    const data = parseListResponse(await listUsers(tenantId, {
       scope: scope.value,
       q: searchQuery.value.trim() || undefined,
       page: page.value,
       page_size: pageSize.value,
-    }
-    if (selectedRole.value !== 'editor') {
-      const data = parseListResponse(await listUsers(tenantId, {
-        ...base,
-        role: selectedRole.value as TenantRole,
-      }))
-      return {
-        items: (data.items ?? []).map(toUserRow),
-        total: data.total ?? 0,
-        roleCounts: data.role_counts,
-      }
-    }
-    const responses = await Promise.all(
-      EDITOR_BACKEND_ROLES.map((role) => listUsers(tenantId, { ...base, role })),
-    )
-    const dataList = responses.map(parseListResponse)
+      role,
+    }))
     return {
-      items: dataList.flatMap((data) => (data.items ?? []).map(toUserRow)),
-      total: dataList.reduce((sum, data) => sum + (data.total ?? 0), 0),
-      roleCounts: dataList[0]?.role_counts,
+      items: (data.items ?? []).map(toUserRow),
+      total: data.total ?? 0,
+      roleCounts: data.role_counts,
     }
   }
 

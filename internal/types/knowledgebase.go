@@ -154,6 +154,9 @@ type KnowledgeBase struct {
 	// 仅在列表场景由 handler 批量回填，不落库；为空表示创建者无法解析（用户已删除、
 	// CreatorID 为空的老数据等）。前端用它在卡片来源徽章上做 mine vs workspace 的二分。
 	CreatorName string `yaml:"-"                       json:"creator_name,omitempty"  gorm:"-"`
+	// CreatorDeleted 由列表 handler 批量回填：CreatorID 指向的用户已被墓碑化时为 true。
+	// 与 CreatorName 配合，前端才能区分「已注销」与「老数据没有名字」。
+	CreatorDeleted bool `yaml:"-" json:"creator_deleted" gorm:"-"`
 }
 
 // KnowledgeBaseConfig represents the knowledge base configuration

@@ -193,18 +193,19 @@ test('切换目录触发对应 role 查询并回到第一页（AC-27）', async 
   assert.ok(calls.listUsers.length > before)
 })
 
-test('「编辑」目录同时查询 contributor 与 admin 并合并（Q37）', async (t) => {
+test('「编辑」目录单次请求 contributor,admin（Q37/T22）', async (t) => {
   const { vm, calls } = await mountPage(t, {
     capabilities: ['user.view'],
   })
   const before = calls.listUsers.length
   vm.selectRole('editor')
   await flush()
-  const issued = calls.listUsers.slice(before).map((call) => call.params.role).sort()
-  assert.deepEqual(issued, ['admin', 'contributor'])
-  // 两份 mock 各返回 total=2、1 行 → 合并后 total=4、2 行。
-  assert.equal(vm.total, 4)
-  assert.equal([...vm.rows].length, 2)
+  const issued = calls.listUsers.slice(before).map((call) => call.params.role)
+  // T22 AC-4：一次请求拿合并分页，不再并发两页后前端合并。
+  assert.deepEqual(issued, ['contributor,admin'])
+  // 单次 mock 返回 total=2、1 行。
+  assert.equal(vm.total, 2)
+  assert.equal([...vm.rows].length, 1)
 })
 
 test('超管左目录额外包含「超管」且排在最前（AC-2/41/42）', async (t) => {

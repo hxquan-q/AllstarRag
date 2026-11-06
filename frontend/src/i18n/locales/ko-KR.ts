@@ -9465,6 +9465,7 @@ export default {
       deleted: '삭제된 계정',
     },
     actions: {
+      more: '더보기',
       changeRole: '역할 변경',
       ban: '차단',
       unban: '차단 해제',

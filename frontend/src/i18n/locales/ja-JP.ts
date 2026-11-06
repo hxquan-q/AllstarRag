@@ -9465,6 +9465,7 @@ export default {
       deleted: '削除済みアカウント',
     },
     actions: {
+      more: 'その他',
       changeRole: 'ロールを変更',
       ban: '利用停止',
       unban: '利用停止を解除',

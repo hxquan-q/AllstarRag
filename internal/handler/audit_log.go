@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -12,11 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AuditLogHandler exposes the per-tenant audit-log feed (PR 6, #1303).
-// The route group lives under /tenants/:id/audit-log, gated by
-// PathTenantMatch (URL :id == active tenant) plus an Admin role
-// requirement — leaks of denied-action histories should not surface
-// to ordinary members.
+// AuditLogHandler 提供空间操作记录接口（上游 PR 6, #1303）。
+// 路由为 /tenants/:id/audit-log，守卫是 PathTenantMatch（URL 的 :id 必须等于
+// 当前激活空间）加 OwnerOrSystemAdmin（只放行本空间 owner 和系统管理员），
+// 避免被拒操作的历史暴露给 admin 及以下成员。
 type AuditLogHandler struct {
 	auditService interfaces.AuditLogService
 }
@@ -83,6 +83,7 @@ func (h *AuditLogHandler) ListTenantAuditLog(c *gin.Context) {
 		Outcome:      types.AuditOutcome(c.Query("outcome")),
 		ActorUserID:  c.Query("actor"),
 		UnscopedOnly: true,
+		Search:       strings.TrimSpace(c.Query("q")),
 	}
 
 	entries, err := h.auditService.List(ctx, tenantID, q)

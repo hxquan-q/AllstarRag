@@ -988,7 +988,7 @@ func (h *AuthHandler) GetAuthConfig(c *gin.Context) {
 // @Param        request  body      object{tenant_id=integer,refresh_token=string}  true  "切换请求"
 // @Success      200      {object}  types.LoginResponse
 // @Failure      400      {object}  errors.AppError  "参数错误"
-// @Failure      403      {object}  errors.AppError  "无该空间成员关系或偏好写入失败"
+// @Failure      403      {object}  errors.AppError  "普通用户无该空间成员关系，或偏好写入失败"
 // @Security     Bearer
 // @Router       /auth/switch-tenant [post]
 //

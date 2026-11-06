@@ -255,7 +255,8 @@
                   </div>
                 </div>
                 <div v-if="!authStore.isLiteMode && showKbOriginBadge(kb)" class="bottom-right">
-                  <ResourceOriginBadge :variant="kbOriginVariant(kb)" :creator-name="kb.creator_name" />
+                  <ResourceOriginBadge :variant="kbOriginVariant(kb)" :creator-name="kb.creator_name"
+                    :creator-deleted="kb.creator_deleted" />
                 </div>
               </div>
             </div>
@@ -488,7 +489,8 @@
                   </div>
                 </div>
                 <div v-if="!authStore.isLiteMode && showKbOriginBadge(kb)" class="bottom-right">
-                  <ResourceOriginBadge :variant="kbOriginVariant(kb)" :creator-name="kb.creator_name" />
+                  <ResourceOriginBadge :variant="kbOriginVariant(kb)" :creator-name="kb.creator_name"
+                    :creator-deleted="kb.creator_deleted" />
                 </div>
               </div>
             </div>
@@ -810,6 +812,8 @@ interface KB {
   creator_id?: string;
   // creator_name 由后端 list 接口回填，仅用于卡片右下角来源徽章的 tooltip。
   creator_name?: string;
+  /** 后端标记创建者已墓碑化；与 creator_name 配合区分「已注销」与老数据。 */
+  creator_deleted?: boolean;
 }
 
 const flatKnowledgeBaseSortAccessors: ResourceSortAccessors<any> = {

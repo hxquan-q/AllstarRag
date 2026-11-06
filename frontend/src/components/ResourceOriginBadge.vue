@@ -43,10 +43,12 @@ const props = withDefaults(
     spaceName?: string
     /** Optional creator display name, surfaces in tooltip for `tenant` variant. */
     creatorName?: string
+    /** True when the backend marked the creator account as tombstoned. */
+    creatorDeleted?: boolean
     /** Optional source tenant name, surfaces in tooltip for cross-tenant. */
     sourceTenantName?: string
   }>(),
-  { spaceName: '', creatorName: '', sourceTenantName: '' }
+  { spaceName: '', creatorName: '', creatorDeleted: false, sourceTenantName: '' }
 )
 
 const { t } = useI18n()
@@ -81,9 +83,12 @@ const displayText = computed(() => {
       return authStore.currentTenantName || t('resourceOrigin.tenant')
     case 'creator':
       // Section header already provides the「本空间」context, so we just
-      // show who created it. creator_name 缺失意味着账号已被墓碑化（彻底删除），
-      // 此时显示「已注销用户」，不能回退成「本空间」误导用户。
-      return props.creatorName || t('resourceOrigin.deletedUser')
+      // show who created it. 只有后端明确标记 creator_deleted 时才显示
+      // 「已注销用户」；缺名字但未注销（老数据/抓取数据）回退「本空间」。
+      if (props.creatorName) return props.creatorName
+      return props.creatorDeleted
+        ? t('resourceOrigin.deletedUser')
+        : t('resourceOrigin.tenant')
     case 'space':
       return props.spaceName || t('resourceOrigin.space')
     case 'shared':
@@ -107,7 +112,9 @@ const tooltipText = computed(() => {
       if (props.creatorName) {
         return t('resourceOrigin.tenantTooltipWithCreator', { creator: props.creatorName })
       }
-      return t('resourceOrigin.deletedUserTooltip')
+      return props.creatorDeleted
+        ? t('resourceOrigin.deletedUserTooltip')
+        : t('resourceOrigin.tenantTooltip')
     case 'space':
       if (props.sourceTenantName) {
         return t('resourceOrigin.spaceTooltipWithTenant', {

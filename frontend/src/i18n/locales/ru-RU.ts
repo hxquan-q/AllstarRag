@@ -9465,6 +9465,7 @@ export default {
       deleted: 'Удалённый аккаунт',
     },
     actions: {
+      more: 'Ещё',
       changeRole: 'Изменить роль',
       ban: 'Заблокировать',
       unban: 'Разблокировать',
