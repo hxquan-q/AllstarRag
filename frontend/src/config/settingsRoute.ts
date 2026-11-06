@@ -37,6 +37,8 @@ function isBareIntegrationTab(section: string): section is IntegrationTab {
  * `api`, and bare tab names remain aliases.
  */
 export function normalizeSettingsSection(section: string, tab?: string | null): string {
+  // 旧「成员管理」分区已并入用户管理（Q31）：旧书签 / 快捷入口统一落到新页。
+  if (section === 'members') return 'user-management'
   if (section === 'integrations') {
     return integrationSectionKey(integrationTabFromSection(tab || 'im'))
   }

@@ -126,16 +126,16 @@ test('错误态显示错误提示与重试按钮（AC-31）', async (t) => {
   assert.equal(hasType(nodes, 't-button'), true, 'retry button must be rendered')
 })
 
-test('角色下拉：owner 操作者只看到 viewer/contributor/admin（AC-12/28）', (t) => {
+test('角色下拉：owner 操作者只看到 游客/编辑，不出现 admin（AC-12/28/Q37）', (t) => {
   const vm = mountTable(t)
   assert.deepEqual([...vm.roleOptions].map((option: any) => option.value),
-    ['viewer', 'contributor', 'admin'])
+    ['viewer', 'contributor'])
 })
 
-test('角色下拉：超管操作者包含 owner（AC-28）', (t) => {
+test('角色下拉：超管操作者包含 owner，不出现 admin（AC-28/Q37）', (t) => {
   const vm = mountTable(t, { isSystemAdmin: true })
   assert.deepEqual([...vm.roleOptions].map((option: any) => option.value),
-    ['viewer', 'contributor', 'admin', 'owner'])
+    ['viewer', 'contributor', 'owner'])
 })
 
 test('行内动作门控：owner 目标 / 自操作 / 超管目标（AC-4/5/7/29）', (t) => {

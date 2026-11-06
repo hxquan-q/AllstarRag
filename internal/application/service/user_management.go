@@ -30,6 +30,9 @@ type userManagementService struct {
 	// listRepo 提供用户管理列表的分页/计数窄查询。由真实 tenant member
 	// 仓储实现；缺失时 ListUsers 直接报内部错误，不返回空列表冒充成功。
 	listRepo userManagementListRepo
+	// scopedListRepo 提供多空间视图（scope=other/all）的窄查询。同样由
+	// 真实 tenant member 仓储实现；缺失时 ListUsersScoped 报内部错误。
+	scopedListRepo userManagementScopedListRepo
 
 	// T04 owner 空间 / co-owner / 交接所需的跨域服务。为保持三参构造
 	// 不变，这些依赖由 SetOwnerManagementDeps 在容器或测试里注入；
@@ -66,6 +69,10 @@ func NewUserManagementService(
 	// 列表窄查询挂在 tenant member 仓储上，同样自动探测以保持三参构造。
 	if listRepo, ok := memberRepo.(userManagementListRepo); ok {
 		svc.listRepo = listRepo
+	}
+	// 多空间视图（T16 scope=other/all）窄查询同上自动探测。
+	if scopedRepo, ok := memberRepo.(userManagementScopedListRepo); ok {
+		svc.scopedListRepo = scopedRepo
 	}
 	return svc
 }

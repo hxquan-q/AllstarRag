@@ -18,7 +18,9 @@ const userMenuSource = readFileSync(new URL('../../components/UserMenu.vue', imp
 
 test('Settings 的 navItems 与空间分组包含 user-management，并渲染 UserManagement（T09）', () => {
   assert.match(settingsSource, /\{ key: 'user-management', icon: 'usergroup', label: t\('userManagement\.title'\) \}/)
-  assert.match(settingsSource, /pickItems\(\['tenant', 'user-management', 'members'/)
+  // T20/Q31：旧「成员管理」入口隐藏，空间分组不再含 members。
+  assert.match(settingsSource, /pickItems\(\['tenant', 'user-management', 'defaults'/)
+  assert.doesNotMatch(settingsSource, /pickItems\(\[[^\]]*'members'/)
   assert.match(settingsSource, /currentSection === 'user-management'[\s\S]*?<UserManagement \/>/)
 })
 

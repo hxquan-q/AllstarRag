@@ -162,12 +162,14 @@ test('admin keeps every workspace section; system admin adds the five global one
   // （F14）：owner 的投影含 user.view 可见；普通 admin 与跨空间超管（投影为空，
   // 不再由 canAccessAllTenants 放行）不可见。因此 admin 19、owner 20、
   // crossTenant 19（F14 前为 20）、系统管理员 25。
-  assert.equal(visibleFor('admin').length, 19)
-  assert.equal(visibleFor('owner').length, 20)
-  assert.equal(visibleFor('admin', { crossTenant: true }).length, 19)
+  // T20：members 分区入口隐藏（并入用户管理），各角色可见数再减 1。
+  assert.equal(visibleFor('admin').length, 18)
+  assert.equal(visibleFor('owner').length, 19)
+  assert.equal(visibleFor('admin', { crossTenant: true }).length, 18)
   const systemAdmin = visibleFor('admin', { systemAdmin: true })
-  assert.equal(systemAdmin.length, 25)
-  assert.deepEqual(systemAdmin, baseKeys.filter((key) => key !== 'agentlines'))
+  assert.equal(systemAdmin.length, 24)
+  assert.equal(systemAdmin.includes('members'), false)
+  assert.deepEqual(systemAdmin, baseKeys.filter((key) => key !== 'agentlines' && key !== 'members'))
 })
 
 test('user-management entry follows the user.view capability projection only (T09/AC-1, F14)', () => {

@@ -2,24 +2,33 @@ import type { SystemAdminUser } from '@/api/system'
 import type { TenantRole } from '@/api/tenant/members'
 import type {
   UserManagementItem,
+  UserManagementMembership,
   UserManagementRole,
   UserManagementStatus,
 } from '@/api/user-management'
 
 /**
- * 左目录的类别：空间四角色 + 平台系统管理员（超管）。
- * 超管类别只对系统管理员视图展示，后端也只在超管身份下允许调用。
+ * 左目录的类别（Q37 简化后）：普通管理员(owner) / 编辑(editor) / 游客(viewer)，
+ * 超管视图另加平台系统管理员。
+ * editor 是前端展示口径：聚合后端的 contributor 与 admin 两类账号，
+ * 后端 admin 角色保留不删，已有 admin 账号归入「编辑」栏且权限不变。
  */
-export type DirectoryRole = UserManagementRole
+export type DirectoryRole = 'owner' | 'editor' | 'viewer' | 'system_admin'
 
-/** 右表一行；只保留展示需要的字段（AC-32）。 */
+/** 编辑类包含的后端角色；目录计数与列表查询都按这两个角色聚合。 */
+export const EDITOR_BACKEND_ROLES: TenantRole[] = ['contributor', 'admin']
+
+/** 右表一行；只保留展示需要的字段（AC-32）。role 为空串表示该账号
+ * 在当前视图里没有任何成员关系（scope=all 时可能出现）。 */
 export interface UserRow {
   user_id: string
   email: string
   username: string
-  role: DirectoryRole
+  role: UserManagementRole | ''
   status: UserManagementStatus
   created_at: string
+  /** 多空间视图（scope=other/all）下的成员关系，用于「所属空间」列。 */
+  memberships?: UserManagementMembership[]
 }
 
 /** 左目录一项：类别、当前语言下的文案、该类别成员数。 */
@@ -36,7 +45,7 @@ function normalizeStatus(status: string | undefined): UserManagementStatus {
 
 /** 后端空间成员行 → 表格行。 */
 export function toUserRow(item: UserManagementItem): UserRow {
-  return {
+  const row: UserRow = {
     user_id: item.user_id,
     email: item.email,
     username: item.username,
@@ -44,6 +53,8 @@ export function toUserRow(item: UserManagementItem): UserRow {
     status: normalizeStatus(item.status),
     created_at: item.created_at,
   }
+  if (item.memberships?.length) row.memberships = item.memberships
+  return row
 }
 
 /**
@@ -132,9 +143,11 @@ export function gateUserAction(
   return { allowed: true }
 }
 
-/** 角色下拉可选项：owner 操作者只能改 viewer/contributor/admin。 */
+/**
+ * 角色下拉可选项（Q37 简化后）：只提供 游客(viewer) / 编辑(contributor)，
+ * 超管操作者额外可把成员提升为 普通管理员(owner)（co-owner）。
+ * 后端 admin 角色不再出现在 UI 选项里；「编辑」统一落到 contributor。
+ */
 export function roleChangeOptions(isSystemAdmin: boolean): TenantRole[] {
-  return isSystemAdmin
-    ? ['viewer', 'contributor', 'admin', 'owner']
-    : ['viewer', 'contributor', 'admin']
+  return isSystemAdmin ? ['viewer', 'contributor', 'owner'] : ['viewer', 'contributor']
 }

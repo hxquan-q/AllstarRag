@@ -1,8 +1,9 @@
 <template>
   <t-dialog
     :visible="visible"
-    width="480px"
+    width="520px"
     :header="t('userManagement.addUser.title')"
+    :footer="activeTab !== 'platform'"
     :confirm-btn="{ content: t('userManagement.addUser.submit'), loading: submitting }"
     :cancel-btn="{ content: t('userManagement.dialogs.cancel') }"
     :close-on-overlay-click="!submitting"
@@ -13,57 +14,68 @@
     <t-tabs v-model="activeTab" class="add-user__tabs">
       <t-tab-panel v-if="canCreate" value="create" :label="t('userManagement.addUser.createTab')" />
       <t-tab-panel v-if="canInvite" value="invite" :label="t('userManagement.addUser.inviteTab')" />
+      <t-tab-panel
+        v-if="isSystemAdmin"
+        value="platform"
+        :label="t('userManagement.accountTools.platformTab')"
+      />
     </t-tabs>
 
-    <p class="add-user__desc">{{ description }}</p>
+    <!-- 超管专属：设为普通管理员 / 邀请新普通管理员 / 建无空间平台账号 -->
+    <PlatformAccountForm
+      v-if="activeTab === 'platform'"
+      :visible="visible"
+      @completed="emit('completed')"
+      @close="emit('update:visible', false)"
+    />
 
-    <t-form ref="formRef" :data="form" :rules="rules" label-align="top" @submit.prevent>
-      <template v-if="activeTab === 'create'">
-        <t-form-item :label="t('userManagement.addUser.username')" name="username">
-          <t-input
-            v-model="form.username"
-            :placeholder="t('userManagement.addUser.usernamePlaceholder')"
-            clearable
+    <template v-else>
+      <p class="add-user__desc">{{ description }}</p>
+
+      <t-form ref="formRef" :data="form" :rules="rules" label-align="top" @submit.prevent>
+        <t-form-item :label="t('userManagement.addUser.role')" name="role">
+          <t-select
+            v-model="form.role"
+            :options="roleOptions"
+            :placeholder="t('userManagement.addUser.rolePlaceholder')"
+            :popup-props="{ zIndex: 6200 }"
           />
         </t-form-item>
-        <t-form-item :label="t('userManagement.addUser.email')" name="email">
+
+        <template v-if="activeTab === 'create'">
+          <t-form-item :label="t('userManagement.addUser.username')" name="username">
+            <t-input
+              v-model="form.username"
+              :placeholder="t('userManagement.addUser.usernamePlaceholder')"
+              clearable
+            />
+          </t-form-item>
+          <t-form-item :label="t('userManagement.addUser.email')" name="email">
+            <t-input
+              v-model="form.email"
+              :placeholder="t('userManagement.addUser.emailPlaceholder')"
+              clearable
+            />
+          </t-form-item>
+          <t-form-item :label="t('userManagement.addUser.password')" name="password">
+            <t-input
+              v-model="form.password"
+              type="password"
+              autocomplete="new-password"
+              :placeholder="t('userManagement.addUser.passwordPlaceholder')"
+            />
+          </t-form-item>
+        </template>
+
+        <t-form-item v-else :label="t('userManagement.addUser.email')" name="email">
           <t-input
             v-model="form.email"
             :placeholder="t('userManagement.addUser.emailPlaceholder')"
             clearable
           />
         </t-form-item>
-        <t-form-item :label="t('userManagement.addUser.password')" name="password">
-          <t-input
-            v-model="form.password"
-            type="password"
-            autocomplete="new-password"
-            :placeholder="t('userManagement.addUser.passwordPlaceholder')"
-          />
-        </t-form-item>
-      </template>
-
-      <t-form-item
-        v-else
-        :label="t('userManagement.addUser.email')"
-        name="email"
-      >
-        <t-input
-          v-model="form.email"
-          :placeholder="t('userManagement.addUser.emailPlaceholder')"
-          clearable
-        />
-      </t-form-item>
-
-      <t-form-item :label="t('userManagement.addUser.role')" name="role">
-        <t-select
-          v-model="form.role"
-          :options="roleOptions"
-          :placeholder="t('userManagement.addUser.rolePlaceholder')"
-          :popup-props="{ zIndex: 6200 }"
-        />
-      </t-form-item>
-    </t-form>
+      </t-form>
+    </template>
   </t-dialog>
 </template>
 
@@ -71,15 +83,13 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
-import {
-  createMemberAccount,
-  type TenantRole,
-} from '@/api/tenant/members'
+import { createMemberAccount, type TenantRole } from '@/api/tenant/members'
 import { createInvitation } from '@/api/tenant/invitations'
-import { resolveUserManagementError } from '@/api/user-management'
+import { createCoOwner, resolveUserManagementError } from '@/api/user-management'
 import { allowedCreateRoles } from '@/utils/memberRoles'
+import PlatformAccountForm from './PlatformAccountForm.vue'
 
-type AddUserTab = 'create' | 'invite'
+type AddUserTab = 'create' | 'invite' | 'platform'
 
 const props = defineProps<{
   visible: boolean
@@ -89,6 +99,8 @@ const props = defineProps<{
   isSystemAdmin: boolean
   canCreate: boolean
   canInvite: boolean
+  /** user.owner.add 能力：决定角色下拉里是否出现「普通管理员」。 */
+  canAddOwner: boolean
 }>()
 
 const emit = defineEmits<{
@@ -107,22 +119,35 @@ const form = reactive<{ username: string; email: string; password: string; role:
   role: 'contributor',
 })
 
-const allowedRoles = computed<TenantRole[]>(() =>
-  props.isSystemAdmin ? ['admin', 'contributor', 'viewer'] : allowedCreateRoles(props.actorRole),
-)
+// Q37/Q38：只提供 普通管理员(owner) / 编辑(contributor) / 游客(viewer)；
+// 后端 admin 角色保留，但不出现在建号/邀请选项里。
+const allowedRoles = computed<TenantRole[]>(() => {
+  const base: TenantRole[] = props.isSystemAdmin
+    ? ['contributor', 'viewer']
+    : allowedCreateRoles(props.actorRole).filter((role) => role !== 'admin')
+  return props.canAddOwner ? ['owner', ...base] : base
+})
+
+const roleLabels = computed<Partial<Record<TenantRole, string>>>(() => ({
+  owner: t('userManagement.roles.owner'),
+  contributor: t('userManagement.roles.editor'),
+  viewer: t('userManagement.roles.viewer'),
+}))
 
 const roleOptions = computed(() =>
-  allowedRoles.value.map((role) => ({
-    label: t('userManagement.roles.' + role),
-    value: role,
-  })),
+  allowedRoles.value.map((role) => ({ label: roleLabels.value[role] ?? role, value: role })),
 )
 
-const description = computed(() =>
-  activeTab.value === 'create'
-    ? t('userManagement.addUser.createDesc')
-    : t('userManagement.addUser.inviteDesc'),
-)
+const description = computed(() => {
+  if (activeTab.value === 'create') {
+    return form.role === 'owner'
+      ? t('userManagement.addOwner.createDesc')
+      : t('userManagement.addUser.createDesc')
+  }
+  return form.role === 'owner'
+    ? t('userManagement.addOwner.inviteCoOwnerDesc')
+    : t('userManagement.addUser.inviteDesc')
+})
 
 function emailRules(): FormRule[] {
   return [
@@ -139,7 +164,7 @@ const rules = computed<Record<string, FormRule[]>>(() => {
       { required: true, message: t('userManagement.addUser.errors.roleRequired'), trigger: 'change' },
     ],
   }
-  if (activeTab.value === 'invite') return next
+  if (activeTab.value !== 'create') return next
   next.username = [
     { required: true, message: t('userManagement.addUser.errors.usernameRequired'), trigger: 'blur' },
     { min: 2, max: 50, message: t('userManagement.addUser.errors.usernameLength'), trigger: 'blur' },
@@ -157,7 +182,9 @@ function resetForm() {
   form.password = ''
   const fallback = allowedRoles.value[0] ?? 'contributor'
   form.role = allowedRoles.value.includes('contributor') ? 'contributor' : fallback
-  activeTab.value = props.canCreate ? 'create' : 'invite'
+  if (props.canCreate) activeTab.value = 'create'
+  else if (props.canInvite) activeTab.value = 'invite'
+  else activeTab.value = 'platform'
 }
 
 watch(
@@ -193,7 +220,7 @@ function errorText(error: unknown): string {
 }
 
 async function submit() {
-  if (submitting.value) return
+  if (submitting.value || activeTab.value === 'platform') return
   if (props.tenantId == null) {
     MessagePlugin.error(t('userManagement.errors.unknown'))
     return
@@ -203,11 +230,8 @@ async function submit() {
 
   submitting.value = true
   try {
-    if (activeTab.value === 'create') {
-      await submitCreate()
-    } else {
-      await submitInvite()
-    }
+    if (activeTab.value === 'create') await submitCreate(props.tenantId)
+    else await submitInvite(props.tenantId)
     emit('completed')
     emit('update:visible', false)
   } catch (error) {
@@ -217,30 +241,27 @@ async function submit() {
   }
 }
 
-async function submitCreate() {
-  const tenantId = props.tenantId
-  if (tenantId == null) return
-  const response = await createMemberAccount(tenantId, {
-    username: form.username.trim(),
-    email: form.email.trim(),
-    password: form.password,
-    role: form.role,
-  })
-  if (!response.success) throw new Error(response.message || 'create member account failed')
+/** 普通管理员走 owners/create（密码必填）；编辑/游客走 members/create。 */
+async function submitCreate(tenantId: number) {
+  const body = { username: form.username.trim(), email: form.email.trim(), password: form.password }
+  const response = form.role === 'owner'
+    ? await createCoOwner(tenantId, body)
+    : await createMemberAccount(tenantId, { ...body, role: form.role })
+  if (!response.success) throw new Error(response.message || 'create account failed')
   // 密码只用于本次请求，成功后立刻从内存清掉。
   form.password = ''
-  MessagePlugin.success(t('userManagement.addUser.toasts.created'))
+  MessagePlugin.success(form.role === 'owner'
+    ? t('userManagement.addOwner.toasts.coOwnerCreated')
+    : t('userManagement.addUser.toasts.created'))
 }
 
-async function submitInvite() {
-  const tenantId = props.tenantId
-  if (tenantId == null) return
-  const response = await createInvitation(tenantId, {
-    email: form.email.trim(),
-    role: form.role,
-  })
+/** 邀请统一走 invitations；角色为 owner 时即邀请 co-owner。 */
+async function submitInvite(tenantId: number) {
+  const response = await createInvitation(tenantId, { email: form.email.trim(), role: form.role })
   if (!response.success) throw new Error(response.message || 'create invitation failed')
-  MessagePlugin.success(t('userManagement.addUser.toasts.invited'))
+  MessagePlugin.success(form.role === 'owner'
+    ? t('userManagement.addOwner.toasts.coOwnerInvited')
+    : t('userManagement.addUser.toasts.invited'))
 }
 </script>
 

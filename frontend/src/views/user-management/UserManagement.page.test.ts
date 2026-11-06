@@ -159,13 +159,13 @@ async function mountPage(t: TestContext, options: MountOptions = {}) {
   return { vm: vm as any, calls }
 }
 
-test('owner 左目录为四类，计数来自 role_counts（AC-2/41）', async (t) => {
+test('owner 左目录为三类（普通管理员/编辑/游客），编辑计数=contributor+admin（AC-2/41/Q37）', async (t) => {
   const { vm, calls } = await mountPage(t, {
     capabilities: ['user.view', 'user.owner.add', 'user.create'],
   })
   assert.deepEqual([...vm.directoryEntries].map((entry: any) => entry.key),
-    ['owner', 'admin', 'contributor', 'viewer'])
-  assert.deepEqual([...vm.directoryEntries].map((entry: any) => entry.count), [2, 3, 4, 5])
+    ['owner', 'editor', 'viewer'])
+  assert.deepEqual([...vm.directoryEntries].map((entry: any) => entry.count), [2, 7, 5])
   assert.equal(vm.selectedRole, 'owner')
   assert.equal(vm.total, 2)
   assert.equal([...vm.rows].length, 1)
@@ -182,14 +182,29 @@ test('切换目录触发对应 role 查询并回到第一页（AC-27）', async 
   })
   const before = calls.listUsers.length
   vm.page = 3
-  vm.selectRole('admin')
+  vm.selectRole('viewer')
   await flush()
-  assert.equal(vm.selectedRole, 'admin')
+  assert.equal(vm.selectedRole, 'viewer')
   assert.equal(vm.page, 1)
   const last = calls.listUsers.at(-1)!
-  assert.equal(last.params.role, 'admin')
+  assert.equal(last.params.role, 'viewer')
   assert.equal(last.params.page, 1)
+  assert.equal(last.params.scope, 'current')
   assert.ok(calls.listUsers.length > before)
+})
+
+test('「编辑」目录同时查询 contributor 与 admin 并合并（Q37）', async (t) => {
+  const { vm, calls } = await mountPage(t, {
+    capabilities: ['user.view'],
+  })
+  const before = calls.listUsers.length
+  vm.selectRole('editor')
+  await flush()
+  const issued = calls.listUsers.slice(before).map((call) => call.params.role).sort()
+  assert.deepEqual(issued, ['admin', 'contributor'])
+  // 两份 mock 各返回 total=2、1 行 → 合并后 total=4、2 行。
+  assert.equal(vm.total, 4)
+  assert.equal([...vm.rows].length, 2)
 })
 
 test('超管左目录额外包含「超管」且排在最前（AC-2/41/42）', async (t) => {
@@ -214,7 +229,7 @@ test('超管左目录额外包含「超管」且排在最前（AC-2/41/42）', a
         : { total: 6, admins: [] }),
   })
   assert.deepEqual([...vm.directoryEntries].map((entry: any) => entry.key),
-    ['system_admin', 'owner', 'admin', 'contributor', 'viewer'])
+    ['system_admin', 'owner', 'editor', 'viewer'])
   assert.equal([...vm.directoryEntries][0].count, 6)
   assert.ok(calls.listSystemAdmins.length >= 1)
 
@@ -274,15 +289,24 @@ test('工具栏 owner 管理入口按 user.owner.add 门控（T08 / C4）', asyn
   assert.equal(vm.canAddUser, false)
 })
 
-test('owner 工具栏显示「新建/邀请 co-owner」（T08/AC-9）', async (t) => {
+test('owner 工具栏只有一个「新增账号」入口，不再有独立 co-owner 按钮（Q38/T20）', async (t) => {
   const { vm } = await mountPage(t, {
-    capabilities: ['user.view', 'user.owner.add'],
+    capabilities: ['user.view', 'user.owner.add', 'user.create', 'user.invite'],
   })
   const texts = renderToolbar(vm)
-  assert.ok(texts.includes('userManagement.actions.createCoOwner'))
-  assert.ok(texts.includes('userManagement.actions.inviteCoOwner'))
-  assert.equal(texts.includes('userManagement.actions.provisionOwnerSpace'), false)
-  assert.equal(texts.includes('userManagement.actions.inviteOwner'), false)
+  // renderToolbar 会对同一文本节点收集两次（父数组 + 子节点），按存在性断言，唯一性由下方旧按钮缺席保证。
+  assert.ok(texts.includes('userManagement.actions.addUser'))
+  for (const legacy of ['createCoOwner', 'inviteCoOwner', 'provisionOwnerSpace', 'inviteOwner']) {
+    assert.equal(texts.includes(`userManagement.actions.${legacy}`), false, `${legacy} must be gone`)
+  }
+})
+
+test('无建号/邀请能力的非超管看不到「新增账号」（C4）', async (t) => {
+  const { vm } = await mountPage(t, {
+    capabilities: ['user.view'],
+  })
+  const texts = renderToolbar(vm)
+  assert.equal(texts.includes('userManagement.actions.addUser'), false)
 })
 
 test('超管可提升/撤销系统管理员并刷新列表（AC-42）', async (t) => {
@@ -299,14 +323,15 @@ test('超管可提升/撤销系统管理员并刷新列表（AC-42）', async (t
   assert.ok(calls.listUsers.length > before, 'reload must re-query the current list')
 })
 
-test('超管工具栏显示「设 owner/邀请 owner」（T08/AC-9）', async (t) => {
+test('超管工具栏同样只有「新增账号」，平台账号工具收进弹窗（Q38/T20）', async (t) => {
   const { vm } = await mountPage(t, {
     isSystemAdmin: true,
     role: 'viewer',
     capabilities: ['user.view', 'user.owner.add'],
   })
   const texts = renderToolbar(vm)
-  assert.ok(texts.includes('userManagement.actions.provisionOwnerSpace'))
-  assert.ok(texts.includes('userManagement.actions.inviteOwner'))
-  assert.equal(texts.includes('userManagement.actions.createCoOwner'), false)
+  // renderToolbar 会对同一文本节点收集两次（父数组 + 子节点），按存在性断言，唯一性由下方旧按钮缺席保证。
+  assert.ok(texts.includes('userManagement.actions.addUser'))
+  assert.equal(texts.includes('userManagement.actions.provisionOwnerSpace'), false)
+  assert.equal(texts.includes('userManagement.actions.inviteOwner'), false)
 })

@@ -4,12 +4,16 @@ import {
   listSystemAdmins,
   listUsers,
   resolveUserManagementError,
+  type UserManagementListParams,
+  type UserManagementListResponse,
+  type UserManagementListScope,
   type WorkspaceRoleCounts,
 } from '@/api/user-management'
 import type { TenantRole } from '@/api/tenant/members'
 import { useAuthStore } from '@/stores/auth'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import {
+  EDITOR_BACKEND_ROLES,
   systemAdminToUserRow,
   toUserRow,
   type DirectoryEntry,
@@ -41,6 +45,8 @@ export function useUserManagement() {
   const capabilities = useCapabilitiesStore()
 
   const selectedRole = ref<DirectoryRole>('owner')
+  /** 空间筛选（Q34）：current 默认；other/all 仅系统管理员界面可见，后端放行。 */
+  const scope = ref<UserManagementListScope>('current')
   const searchQuery = ref('')
   const page = ref(1)
   const pageSize = ref(DEFAULT_PAGE_SIZE)
@@ -73,6 +79,16 @@ export function useUserManagement() {
   let requestSeq = 0
   let searchTimer: ReturnType<typeof setTimeout> | null = null
 
+  // 目录计数；scope=other/all 时后端按视图内去重用户数返回，键可能缺 0 值。
+  const directoryCount = (key: DirectoryRole): number => {
+    const counts = roleCounts.value
+    if (key === 'editor') return (counts.contributor ?? 0) + (counts.admin ?? 0)
+    if (key === 'system_admin') return systemAdminCount.value
+    return counts[key as 'owner' | 'viewer'] ?? 0
+  }
+
+  // 左目录（Q37）：owner 视角三类，超管视角另加系统管理员共四类；
+  // 编辑 = contributor + admin 前端聚合。
   const directoryEntries = computed<DirectoryEntry[]>(() => {
     const entries: DirectoryEntry[] = []
     if (capabilities.isSystemAdmin) {
@@ -83,14 +99,9 @@ export function useUserManagement() {
       })
     }
     entries.push(
-      { key: 'owner', label: t('userManagement.directory.owner'), count: roleCounts.value.owner },
-      { key: 'admin', label: t('userManagement.directory.admin'), count: roleCounts.value.admin },
-      {
-        key: 'contributor',
-        label: t('userManagement.directory.contributor'),
-        count: roleCounts.value.contributor,
-      },
-      { key: 'viewer', label: t('userManagement.directory.viewer'), count: roleCounts.value.viewer },
+      { key: 'owner', label: t('userManagement.directory.owner'), count: directoryCount('owner') },
+      { key: 'editor', label: t('userManagement.directory.editor'), count: directoryCount('editor') },
+      { key: 'viewer', label: t('userManagement.directory.viewer'), count: directoryCount('viewer') },
     )
     return entries
   })
@@ -129,6 +140,49 @@ export function useUserManagement() {
     })
   }
 
+  function parseListResponse(response: UserManagementListResponse) {
+    if (!response.success || !response.data) {
+      throw new Error(response.message || 'user management list failed')
+    }
+    return response.data
+  }
+
+  /**
+   * 目录对应的列表请求。后端 role 参数不支持多值，「编辑」目录按
+   * contributor/admin 各拉一页再前端合并：total 取两份之和，
+   * 每页最多出现两页条目，分页语义保持一致（Q37）。
+   */
+  async function fetchDirectoryList(
+    tenantId: number | string,
+  ): Promise<{ items: UserRow[]; total: number; roleCounts?: WorkspaceRoleCounts }> {
+    const base: UserManagementListParams = {
+      scope: scope.value,
+      q: searchQuery.value.trim() || undefined,
+      page: page.value,
+      page_size: pageSize.value,
+    }
+    if (selectedRole.value !== 'editor') {
+      const data = parseListResponse(await listUsers(tenantId, {
+        ...base,
+        role: selectedRole.value as TenantRole,
+      }))
+      return {
+        items: (data.items ?? []).map(toUserRow),
+        total: data.total ?? 0,
+        roleCounts: data.role_counts,
+      }
+    }
+    const responses = await Promise.all(
+      EDITOR_BACKEND_ROLES.map((role) => listUsers(tenantId, { ...base, role })),
+    )
+    const dataList = responses.map(parseListResponse)
+    return {
+      items: dataList.flatMap((data) => (data.items ?? []).map(toUserRow)),
+      total: dataList.reduce((sum, data) => sum + (data.total ?? 0), 0),
+      roleCounts: dataList[0]?.role_counts,
+    }
+  }
+
   async function load() {
     if (!canView.value) return
     const currentSeq = ++requestSeq
@@ -149,20 +203,12 @@ export function useUserManagement() {
           total.value = 0
           return
         }
-        const response = await listUsers(currentTenantId, {
-          role: selectedRole.value,
-          q: searchQuery.value.trim() || undefined,
-          page: page.value,
-          page_size: pageSize.value,
-        })
+        const result = await fetchDirectoryList(currentTenantId)
         if (currentSeq !== requestSeq) return
-        if (!response.success || !response.data) {
-          throw new Error(response.message || 'user management list failed')
-        }
-        rows.value = (response.data.items ?? []).map(toUserRow)
-        total.value = response.data.total ?? 0
-        if (response.data.role_counts) {
-          roleCounts.value = response.data.role_counts
+        rows.value = result.items
+        total.value = result.total
+        if (result.roleCounts) {
+          roleCounts.value = result.roleCounts
         }
       }
       initialized.value = true
@@ -193,6 +239,16 @@ export function useUserManagement() {
     if (role === 'system_admin' && !capabilities.isSystemAdmin) return
     clearSearchTimer()
     selectedRole.value = role
+    page.value = 1
+    void load()
+  }
+
+  /** 切换空间筛选（Q34）：回到第一页重新加载；other/all 仅超管可见，入口由界面门控。 */
+  function selectScope(next: UserManagementListScope) {
+    if (next === scope.value) return
+    if (next !== 'current' && !capabilities.isSystemAdmin) return
+    clearSearchTimer()
+    scope.value = next
     page.value = 1
     void load()
   }
@@ -276,6 +332,8 @@ export function useUserManagement() {
     ownerCount,
     directoryEntries,
     selectedRole,
+    scope,
+    selectScope,
     searchQuery,
     rows,
     total,

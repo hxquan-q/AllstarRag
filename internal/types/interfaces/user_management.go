@@ -7,16 +7,39 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
+// UserManagementListScope 是用户管理列表的空间筛选口径：
+//   - current：仅本空间（与旧 ListUsers 一致）；
+//   - other：在本空间之外任一空间持有 active 成员关系的用户；
+//   - all：全平台全部非墓碑用户。
+type UserManagementListScope string
+
+const (
+	UserManagementScopeCurrent UserManagementListScope = "current"
+	UserManagementScopeOther   UserManagementListScope = "other"
+	UserManagementScopeAll     UserManagementListScope = "all"
+)
+
+// UserManagementMembership 是多空间视图（scope=other/all）中一条成员
+// 关系的投影：用户在哪个空间、以什么角色存在。
+type UserManagementMembership struct {
+	TenantID   uint64           `json:"tenant_id"`
+	TenantName string           `json:"tenant_name"`
+	Role       types.TenantRole `json:"role"`
+}
+
 // UserManagementListItem 是用户管理列表的一行。只暴露前端渲染需要的
 // 字段；密码哈希、token 等敏感字段不进入该 DTO（AC-32）。
+// Memberships 只在多空间视图（scope=other/all）填充，按 tenant_id
+// 升序；current 视图为空。
 type UserManagementListItem struct {
-	UserID    string           `json:"user_id"`
-	Email     string           `json:"email"`
-	Username  string           `json:"username"`
-	Role      types.TenantRole `json:"role"`
-	Status    string           `json:"status"`
-	IsActive  bool             `json:"is_active"`
-	CreatedAt time.Time        `json:"created_at"`
+	UserID      string                     `json:"user_id"`
+	Email       string                     `json:"email"`
+	Username    string                     `json:"username"`
+	Role        types.TenantRole           `json:"role"`
+	Status      string                     `json:"status"`
+	IsActive    bool                       `json:"is_active"`
+	CreatedAt   time.Time                  `json:"created_at"`
+	Memberships []UserManagementMembership `json:"memberships,omitempty"`
 }
 
 // UserManagementListResult 是用户管理列表接口的返回体。RoleCounts 是整空间
@@ -91,5 +114,17 @@ type UserManagementService interface {
 	ListUsers(
 		ctx context.Context, tenantID uint64, role types.TenantRole,
 		query string, page, pageSize int,
+	) (*UserManagementListResult, error)
+
+	// ListUsersScoped 返回带空间筛选的用户列表。scope=current 与
+	// ListUsers 完全一致；scope=other/all 是系统管理员专属（非系统管理
+	// 员 403）：other = 在本空间之外任一空间持有 active 成员关系的去重
+	// 用户（memberships 只含其它空间），all = 全平台非墓碑用户（含无
+	// 任何成员关系的账号，memberships 聚合全部 active 关系并按
+	// tenant_id 升序）。role 过滤匹配视图内任意成员关系的角色，
+	// RoleCounts 按视图内"有该角色的去重用户数"计。scope 非法值 400。
+	ListUsersScoped(
+		ctx context.Context, tenantID uint64, scope UserManagementListScope,
+		role types.TenantRole, query string, page, pageSize int,
 	) (*UserManagementListResult, error)
 }

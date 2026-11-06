@@ -380,6 +380,9 @@ const canSeeSection = (key: string): boolean => {
   // 由 F1/F11 的能力投影给出；能力未加载时 fail-closed，不再用
   // canAccessAllTenants / isSystemAdmin 另起第二套判断。
   if (key === 'user-management') return capabilitiesStore.can('user.view')
+  // 旧「成员管理」入口隐藏（Q31）：组件与后端接口保留，旧链接经
+  // normalizeSettingsSection 跳到 user-management。
+  if (key === 'members') return false
   if (isIntegrationSection(key)) {
     const min = INTEGRATION_TAB_MIN_ROLE[integrationTabFromSection(key)]
     if (!min) return true
@@ -467,7 +470,7 @@ const navGroups = computed<NavGroup[]>(() => {
     {
       key: 'workspace',
       label: t('settings.navGroups.workspace'),
-      items: pickItems(['tenant', 'user-management', 'members', 'defaults', 'chathistory', 'memory']),
+      items: pickItems(['tenant', 'user-management', 'defaults', 'chathistory', 'memory']),
     },
     {
       key: 'models_runtime',

@@ -23569,7 +23569,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数",
+                "description": "返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系",
                 "produces": [
                     "application/json"
                 ],
@@ -23582,12 +23582,18 @@
                         "type": "string",
                         "description": "空间 ID",
                         "name": "id",
-                        "in": "path",
-                        "required": true
+                        "in": "path"
                     },
                     {
                         "type": "string",
-                        "description": "角色筛选：viewer/contributor/admin/owner，缺省为全部",
+                        "default": "current",
+                        "description": "空间筛选：current（默认，仅本空间）/other（其它空间有成员关系的用户）/all（全平台用户），other/all 仅系统管理员",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "角色筛选：viewer/contributor/admin/owner，缺省为全部；多空间视图匹配任意空间的成员关系角色",
                         "name": "role",
                         "in": "query"
                     },
@@ -23614,21 +23620,20 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "成员列表",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": true
+                            "$ref": "#/definitions/internal_handler.UserManagementListResponse"
                         }
                     },
                     "400": {
-                        "description": "role 非法或分页参数非法",
+                        "description": "role/scope 非法或分页参数非法",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "403": {
-                        "description": "非本空间 owner 或系统管理员",
+                        "description": "非本空间 owner 或系统管理员；scope=other/all 非系统管理员",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -38298,6 +38303,52 @@
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementListItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "memberships": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementMembership"
+                    }
+                },
+                "role": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementMembership": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole"
+                },
+                "tenant_id": {
+                    "type": "integer"
+                },
+                "tenant_name": {
+                    "type": "string"
+                }
+            }
+        },
         "gorm.DeletedAt": {
             "type": "object",
             "properties": {
@@ -42478,6 +42529,39 @@
                 },
                 "sort_order": {
                     "type": "integer"
+                }
+            }
+        },
+        "internal_handler.UserManagementListData": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementListItem"
+                    }
+                },
+                "role_counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handler.UserManagementListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/internal_handler.UserManagementListData"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
                 }
             }
         },

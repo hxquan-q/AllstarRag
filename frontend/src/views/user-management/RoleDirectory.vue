@@ -1,6 +1,19 @@
 <template>
   <aside class="role-directory" :aria-label="title">
-    <h2 class="role-directory__title">{{ title }}</h2>
+    <div class="role-directory__head">
+      <h2 class="role-directory__title">{{ title }}</h2>
+      <!-- 空间筛选（Q34）：仅系统管理员视图渲染；owner 固定 current。 -->
+      <t-select
+        v-if="showScopeFilter"
+        size="small"
+        class="role-directory__scope"
+        :value="scope"
+        :options="scopeOptions"
+        :popup-props="{ zIndex: 6200 }"
+        :aria-label="t('userManagement.spaceFilter.title')"
+        @change="(value: unknown) => emit('scope-change', value as UserManagementListScope)"
+      />
+    </div>
     <ul class="role-directory__list">
       <li v-for="entry in entries" :key="entry.key">
         <button
@@ -19,18 +32,37 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
+import type { UserManagementListScope } from '@/api/user-management'
 import type { DirectoryEntry, DirectoryRole } from './types'
 
-defineProps<{
-  /** 目录标题（调用方传入已翻译文案）。 */
-  title: string
-  entries: DirectoryEntry[]
-  selected: DirectoryRole
-}>()
+withDefaults(
+  defineProps<{
+    /** 目录标题（调用方传入已翻译文案）。 */
+    title: string
+    entries: DirectoryEntry[]
+    selected: DirectoryRole
+    /** 是否渲染右上角的空间筛选（仅系统管理员视图）。 */
+    showScopeFilter?: boolean
+    /** 当前空间筛选；owner 视图恒为 current。 */
+    scope?: UserManagementListScope
+  }>(),
+  { showScopeFilter: false, scope: 'current' },
+)
 
 const emit = defineEmits<{
   select: [role: DirectoryRole]
+  'scope-change': [scope: UserManagementListScope]
 }>()
+
+const { t } = useI18n()
+
+const scopeOptions = computed(() => [
+  { label: t('userManagement.spaceFilter.current'), value: 'current' },
+  { label: t('userManagement.spaceFilter.other'), value: 'other' },
+  { label: t('userManagement.spaceFilter.all'), value: 'all' },
+])
 </script>
 
 <style scoped lang="less">
@@ -47,12 +79,24 @@ const emit = defineEmits<{
   border-radius: var(--td-radius-medium);
 }
 
+.role-directory__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+}
+
 .role-directory__title {
   margin: 0;
-  padding: 0 8px;
   font-size: var(--app-text-base);
   font-weight: 600;
   color: var(--td-text-color-secondary);
+}
+
+.role-directory__scope {
+  width: 96px;
+  flex: 0 0 auto;
 }
 
 .role-directory__list {

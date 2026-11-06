@@ -38,14 +38,27 @@
               <span class="user-table__role-text">{{ roleLabel(row.role) }}</span>
             </t-tooltip>
             <t-select
-              v-else-if="canChangeRole(row)"
-              :model-value="row.role"
+              v-else-if="canChangeRole(row) && row.role"
+              :model-value="selectValue(row)"
               size="small"
               :options="roleOptions"
               :popup-props="{ zIndex: 6200 }"
               @change="(value: unknown) => onRoleChange(row, value)"
             />
             <span v-else class="user-table__role-text">{{ roleLabel(row.role) }}</span>
+          </template>
+          <template #memberships="{ row }">
+            <div v-if="row.memberships?.length" class="user-table__memberships">
+              <t-tag
+                v-for="membership in row.memberships"
+                :key="`${membership.tenant_id}-${membership.role}`"
+                size="small"
+                variant="light"
+              >
+                {{ membership.tenant_name }} · {{ roleLabel(membership.role) }}
+              </t-tag>
+            </div>
+            <span v-else class="user-table__role-text">—</span>
           </template>
           <template #status="{ row }">
             <t-tag
@@ -137,6 +150,23 @@
                     <template #icon><t-icon name="secured" /></template>
                   </t-button>
                 </t-tooltip>
+
+                <t-tooltip
+                  v-if="canResetPassword"
+                  :content="resetPasswordTooltip(row)"
+                  placement="top"
+                >
+                  <t-button
+                    shape="square"
+                    variant="text"
+                    size="small"
+                    :disabled="!resetPasswordAllowed(row)"
+                    :aria-label="t('userManagement.resetPassword.action')"
+                    @click.stop="emit('reset-password', row)"
+                  >
+                    <template #icon><t-icon name="lock-off" /></template>
+                  </t-button>
+                </t-tooltip>
               </template>
             </div>
           </template>
@@ -164,12 +194,14 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TenantRole } from '@/api/tenant/members'
-import type { UserManagementStatus } from '@/api/user-management'
+import type {
+  UserManagementListScope,
+  UserManagementStatus,
+} from '@/api/user-management'
 import {
   gateUserAction,
   roleChangeOptions,
   type ActionGate,
-  type DirectoryRole,
   type UserActionKind,
   type UserActionPermissions,
   type UserRow,
@@ -177,20 +209,36 @@ import {
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
-const props = defineProps<{
-  items: UserRow[]
-  total: number
-  page: number
-  pageSize: number
-  loading: boolean
-  error: string
-  permissions: UserActionPermissions
-  /** 当前登录用户 ID；用于禁用“操作自己”。 */
-  currentUserId: string
-  isSystemAdmin: boolean
-  /** 当前空间 owner 总数；仅作门控上下文，owner 行的角色下拉已一律禁用。 */
-  ownerCount: number
-}>()
+/** t-table 列描述；ellipsis/宽度都可选。 */
+type TableColumn = {
+  colKey: string
+  title: string
+  ellipsis?: boolean
+  minWidth?: number
+  width?: number
+}
+
+const props = withDefaults(
+  defineProps<{
+    items: UserRow[]
+    total: number
+    page: number
+    pageSize: number
+    loading: boolean
+    error: string
+    permissions: UserActionPermissions
+    /** 当前登录用户 ID；用于禁用“操作自己”。 */
+    currentUserId: string
+    isSystemAdmin: boolean
+    /** 当前空间 owner 总数；仅作门控上下文，owner 行的角色下拉已一律禁用。 */
+    ownerCount: number
+    /** 空间筛选（Q34）：other/all 时显示「所属空间」列。 */
+    scope?: UserManagementListScope
+    /** 是否显示「重置密码」行操作（owner/系统管理员）；后端仍逐接口校验（C4）。 */
+    canResetPassword?: boolean
+  }>(),
+  { scope: 'current', canResetPassword: false },
+)
 
 const emit = defineEmits<{
   'update:page': [page: number]
@@ -204,6 +252,7 @@ const emit = defineEmits<{
   transfer: [row: UserRow]
   'promote-system-admin': [row: UserRow]
   'revoke-system-admin': [row: UserRow]
+  'reset-password': [row: UserRow]
 }>()
 
 const { t, locale } = useI18n()
@@ -218,30 +267,52 @@ const currentPageSize = computed({
   set: (value: number) => emit('update:pageSize', value),
 })
 
-const columns = computed(() => [
-  { colKey: 'email', title: t('userManagement.columns.email'), ellipsis: true, minWidth: 220 },
-  {
-    colKey: 'username',
-    title: t('userManagement.columns.username'),
-    ellipsis: true,
-    minWidth: 160,
-  },
-  { colKey: 'role', title: t('userManagement.columns.role'), width: 160 },
-  { colKey: 'status', title: t('userManagement.columns.status'), width: 110 },
-  {
-    colKey: 'created_at',
-    title: t('userManagement.columns.createdAt'),
-    width: 170,
-  },
-  { colKey: 'actions', title: t('userManagement.columns.actions'), width: 200 },
-])
+// 角色下拉的展示值：后端 admin 账号归入「编辑」，选值统一落到 contributor。
+// 走到这里的角色只会是 viewer/contributor/admin（owner 行显示 tooltip，
+// system_admin 行显示文本），兜底取 contributor。
+function selectValue(row: UserRow): TenantRole {
+  if (row.role === 'viewer') return 'viewer'
+  return 'contributor'
+}
+
+const columns = computed<TableColumn[]>(() => {
+  const list: TableColumn[] = [
+    { colKey: 'email', title: t('userManagement.columns.email'), ellipsis: true, minWidth: 220 },
+    {
+      colKey: 'username',
+      title: t('userManagement.columns.username'),
+      ellipsis: true,
+      minWidth: 160,
+    },
+  ]
+  // 多空间视图才展示「所属空间」；current 视图就是本空间，不重复（AC-26）。
+  if (props.scope !== 'current') {
+    list.push({
+      colKey: 'memberships',
+      title: t('userManagement.spaceFilter.spaces'),
+      minWidth: 220,
+    })
+  }
+  list.push(
+    { colKey: 'role', title: t('userManagement.columns.role'), width: 160 },
+    { colKey: 'status', title: t('userManagement.columns.status'), width: 110 },
+    {
+      colKey: 'created_at',
+      title: t('userManagement.columns.createdAt'),
+      width: 170,
+    },
+    { colKey: 'actions', title: t('userManagement.columns.actions'), width: 200 },
+  )
+  return list
+})
 
 // 显式列出每个键，方便 i18n 缺键审计静态识别。
-const roleLabels = computed<Record<DirectoryRole, string>>(() => ({
+// Q37：contributor 与 admin 在界面上统一显示为「编辑」。
+const roleLabels = computed<Record<string, string>>(() => ({
   system_admin: t('userManagement.roles.systemAdmin'),
   owner: t('userManagement.roles.owner'),
-  admin: t('userManagement.roles.admin'),
-  contributor: t('userManagement.roles.contributor'),
+  admin: t('userManagement.roles.editor'),
+  contributor: t('userManagement.roles.editor'),
   viewer: t('userManagement.roles.viewer'),
 }))
 
@@ -258,8 +329,8 @@ const roleOptions = computed(() =>
   })),
 )
 
-function roleLabel(role: DirectoryRole): string {
-  return roleLabels.value[role]
+function roleLabel(role: string): string {
+  return role ? (roleLabels.value[role] ?? role) : '—'
 }
 
 function statusLabel(status: UserManagementStatus): string {
@@ -322,6 +393,20 @@ function revokeTooltip(row: UserRow): string {
   return label
 }
 
+/** 不能重置自己；owner 操作者不能重置其他普通管理员（与后端特权目标保护一致）。 */
+function resetPasswordAllowed(row: UserRow): boolean {
+  if (row.user_id === props.currentUserId) return false
+  if (row.status === 'deleted') return false
+  if (row.role === 'owner' && !props.isSystemAdmin) return false
+  return true
+}
+
+function resetPasswordTooltip(row: UserRow): string {
+  if (row.user_id === props.currentUserId) return t('userManagement.tooltips.self')
+  if (row.role === 'owner' && !props.isSystemAdmin) return t('userManagement.tooltips.ownerProtected')
+  return t('userManagement.resetPassword.action')
+}
+
 function emitStatusAction(row: UserRow) {
   if (!statusGate(row).allowed) return
   if (row.status === 'banned') emit('unban', row)
@@ -380,6 +465,14 @@ function formatDateTime(value: string): string {
 
 .user-table__role-text {
   color: var(--td-text-color-primary);
+}
+
+.user-table__memberships {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
 }
 
 .user-table__pager {

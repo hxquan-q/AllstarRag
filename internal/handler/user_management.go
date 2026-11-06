@@ -288,20 +288,36 @@ func (h *UserManagementHandler) CreateCoOwnerAccount(c *gin.Context) {
 	})
 }
 
+// UserManagementListData 是用户管理列表响应的 data 部分，仅用于 Swagger 文档。
+// role_counts 始终包含 viewer/contributor/admin/owner 四个键。
+type UserManagementListData struct {
+	Items      []interfaces.UserManagementListItem `json:"items"`
+	Total      int64                               `json:"total"`
+	RoleCounts map[string]int64                    `json:"role_counts"`
+}
+
+// UserManagementListResponse 是 GET /tenants/{id}/user-management 的完整响应体，
+// 仅用于 Swagger 文档，运行时仍由 gin.H 组装，字段与此一致。
+type UserManagementListResponse struct {
+	Success bool                   `json:"success" example:"true"`
+	Data    UserManagementListData `json:"data"`
+}
+
 // ListUsers 返回用户管理页的成员列表（owner / 系统管理员）。
 //
 //	@Summary      列出用户管理成员
-//	@Description  返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数
+//	@Description  返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系
 //	@Tags         空间成员
 //	@Produce      json
-//	@Param        id         path   string  true   "空间 ID"
-//	@Param        role       query  string  false  "角色筛选：viewer/contributor/admin/owner，缺省为全部"
+//	@Param        id         path   string  false  "空间 ID"
+//	@Param        scope      query  string  false  "空间筛选：current（默认，仅本空间）/other（其它空间有成员关系的用户）/all（全平台用户），other/all 仅系统管理员"  default(current)
+//	@Param        role       query  string  false  "角色筛选：viewer/contributor/admin/owner，缺省为全部；多空间视图匹配任意空间的成员关系角色"
 //	@Param        q          query  string  false  "按邮箱/用户名模糊筛选"
 //	@Param        page       query  int     false  "页码（从 1 起）"  default(1)
 //	@Param        page_size  query  int     false  "每页数量（最大 100）"  default(20)
-//	@Success      200  {object}  map[string]interface{}
-//	@Failure      400  {object}  map[string]interface{}  "role 非法或分页参数非法"
-//	@Failure      403  {object}  map[string]interface{}  "非本空间 owner 或系统管理员"
+//	@Success      200  {object}  handler.UserManagementListResponse  "成员列表"
+//	@Failure      400  {object}  map[string]interface{}  "role/scope 非法或分页参数非法"
+//	@Failure      403  {object}  map[string]interface{}  "非本空间 owner 或系统管理员；scope=other/all 非系统管理员"
 //	@Failure      500  {object}  map[string]interface{}  "内部错误"
 //	@Security     Bearer
 //	@Router       /tenants/{id}/user-management [get]
@@ -310,6 +326,21 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 
 	tenantID, ok := parseTenantIDFromPath(c)
 	if !ok {
+		return
+	}
+
+	// scope 精确匹配（不宽容大小写）：缺省与 current 走旧单空间路径
+	// （现有调用方零破坏）；other/all 走多空间路径；非法值在触达服务层
+	// 之前直接 400。
+	scope := interfaces.UserManagementListScope(strings.TrimSpace(c.Query("scope")))
+	scoped := false
+	switch scope {
+	case "", interfaces.UserManagementScopeCurrent:
+	case interfaces.UserManagementScopeOther, interfaces.UserManagementScopeAll:
+		scoped = true
+	default:
+		_ = c.Error(apperrors.NewValidationError(
+			"scope must be one of current, other, all"))
 		return
 	}
 
@@ -325,7 +356,14 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 		return
 	}
 
-	result, err := h.userManagementService.ListUsers(ctx, tenantID, role, q, page, pageSize)
+	var result *interfaces.UserManagementListResult
+	var err error
+	if scoped {
+		result, err = h.userManagementService.ListUsersScoped(
+			ctx, tenantID, scope, role, q, page, pageSize)
+	} else {
+		result, err = h.userManagementService.ListUsers(ctx, tenantID, role, q, page, pageSize)
+	}
 	if err != nil {
 		h.renderServiceError(c, err)
 		return

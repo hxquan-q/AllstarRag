@@ -14,6 +14,16 @@ import type { SystemAdminUser } from '@/api/system'
 
 export type UserManagementRole = TenantRole | 'system_admin'
 
+/** 空间筛选口径：current=本空间；other=其他空间有关系的用户；all=全平台（T16）。 */
+export type UserManagementListScope = 'current' | 'other' | 'all'
+
+/** 多空间视图里一条成员关系：用户在哪个空间、以什么角色存在。 */
+export interface UserManagementMembership {
+  tenant_id: number | string
+  tenant_name: string
+  role: TenantRole
+}
+
 /** 列表行的状态：active=正常；banned=已封禁；deleted=账号已注销（墓碑）。 */
 export type UserManagementStatus = 'active' | 'banned' | 'deleted'
 
@@ -25,6 +35,8 @@ export interface UserManagementItem {
   status: UserManagementStatus | string
   is_active: boolean
   created_at: string
+  /** 仅 scope=other/all 返回；current 视图为空。 */
+  memberships?: UserManagementMembership[]
 }
 
 /** 左侧角色目录的整空间计数，始终包含四个键（无成员为 0）。 */
@@ -46,6 +58,8 @@ export interface UserManagementListResponse {
 }
 
 export interface UserManagementListParams {
+  /** 空间筛选；缺省即 current。other/all 仅系统管理员可调（后端 403 把关）。 */
+  scope?: UserManagementListScope
   /** 角色筛选；缺省表示全部角色。 */
   role?: TenantRole
   /** 按邮箱/用户名模糊筛选。 */
@@ -56,6 +70,7 @@ export interface UserManagementListParams {
 
 function buildListQuery(params: UserManagementListParams): string {
   const u = new URLSearchParams()
+  if (params.scope) u.set('scope', params.scope)
   if (params.role) u.set('role', params.role)
   const q = params.q?.trim()
   if (q) u.set('q', q)
