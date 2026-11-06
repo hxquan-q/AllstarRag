@@ -159,7 +159,7 @@ test('行内动作门控：owner 目标 / 自操作 / 超管目标（AC-4/5/7/29
   assert.equal(vm.statusGate(sysAdmin).allowed, false)
 })
 
-test('超管视图中 owner 行允许封禁、注销需先交接（AC-8/13）', (t) => {
+test('超管视图中 owner 行允许封禁；注销/降级一律先交接（AC-8/13，F2）', (t) => {
   const vm = mountTable(t, { isSystemAdmin: true, currentUserId: 'u-admin' })
   const ownerTarget: UserRow = {
     user_id: 'u-other-owner', email: 'o@example.com', username: 'o',
@@ -167,7 +167,10 @@ test('超管视图中 owner 行允许封禁、注销需先交接（AC-8/13）', 
   }
   assert.equal(vm.statusGate(ownerTarget).allowed, true)
   assert.equal(vm.gate('purge', ownerTarget).reasonKey, 'userManagement.tooltips.transferRequired')
-  assert.equal(vm.gate('changeRole', ownerTarget).allowed, true)
+  // F2：owner 行角色下拉一律禁用并提示先交接；ownerCount=2 不再放行超管降级
+  // （后端对 owner → 非 owner 一律 403）。
+  assert.equal(vm.gate('changeRole', ownerTarget).allowed, false)
+  assert.equal(vm.roleGate(ownerTarget).reasonKey, 'userManagement.tooltips.transferRequired')
 })
 
 test('封禁行状态决定按钮语义为解封（AC-17）', (t) => {
