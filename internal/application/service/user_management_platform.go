@@ -104,6 +104,11 @@ func (s *userManagementService) PlatformUnbanUser(
 	if err != nil {
 		return nil, err
 	}
+	// 平台解封不允许以自己为目标（与 ban/purge 的自目标口径一致）：在
+	// SetUserActive 之前拒绝，保证被拒绝的请求不改 is_active、不写审计。
+	if target.ID == auditActor(ctx) {
+		return nil, apperrors.NewForbiddenError("you cannot unban your own account")
+	}
 	user, err := s.userRepo.SetUserActive(ctx, target.ID, auditActor(ctx), true)
 	if err != nil {
 		return nil, mapUserStatusError(err)

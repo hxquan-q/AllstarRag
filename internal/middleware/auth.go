@@ -101,7 +101,35 @@ func isTenantOptionalAPI(path, method string) bool {
 		return true
 	case path == "/api/v1/tenants" && method == http.MethodPost:
 		return true
+	// 平台账号操作不依赖成员关系（T42 / GPT #6）：无租户系统管理员调
+	// ban/unban/purge 不应被 409 TENANT_REQUIRED 挡住。这里只窄匹配
+	// 三条路由；非系统管理员随后仍由路由组 g.SystemAdmin() 拒绝为 403，
+	// API Key 通道（isPlatformTenantOptionalAPI）不受影响。
+	case method == http.MethodPost && isPlatformUserStatusAPI(path):
+		return true
 	case strings.HasPrefix(path, "/api/v1/me/invitations"):
+		return true
+	default:
+		return false
+	}
+}
+
+// isPlatformUserStatusAPI 窄匹配三条平台账号操作路由：
+// POST /api/v1/system/admin/users/{user_id}/{ban|unban|purge}。
+// 不按整个 /system/admin/ 前缀放行，避免把其余系统管理接口暴露给无租户
+// JWT；这些路由的权限仍由路由组 g.SystemAdmin() 判定。
+func isPlatformUserStatusAPI(path string) bool {
+	path = strings.TrimSuffix(strings.TrimSpace(path), "/")
+	const prefix = "/api/v1/system/admin/users/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	userID, action, ok := strings.Cut(strings.TrimPrefix(path, prefix), "/")
+	if !ok || userID == "" {
+		return false
+	}
+	switch action {
+	case "ban", "unban", "purge":
 		return true
 	default:
 		return false

@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 
@@ -58,7 +60,10 @@ func (h *UserManagementHandler) changePlatformStatus(c *gin.Context, ban bool) {
 	ctx := c.Request.Context()
 
 	var req memberStatusChangeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
+	// 平台 ban/unban 的请求体在 Swagger 里标为可选（reason 可省略）：
+	// 完全不带 body 时 ShouldBindJSON 返回 io.EOF，这里按空请求体继续；
+	// 非法 JSON 等其它绑定错误仍 400。purge 不走本函数，body 仍必填。
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		_ = c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
 		return
 	}
