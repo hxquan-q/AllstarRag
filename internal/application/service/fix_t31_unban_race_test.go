@@ -1,40 +1,32 @@
 package service
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
+	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/stretchr/testify/require"
 )
 
-// t31BlockingLatestBan 让 A 的解封在“读到旧 ban 记录”之后暂停，
-// 以便在检查与写入之间插入 B 的新封禁，稳定复现 F-UNBAN 的竞态窗口。
-type t31BlockingLatestBan struct {
-	entry   *types.AuditLog
-	entered chan struct{}
-	release chan struct{}
-	once    sync.Once
-}
+// F36：用仓储提供的 BanUserTx 事务内暂停点，构造确定性的“封禁与解封并发”
+// 场景，而不是依赖生产路径永远进不去的阻塞桩。
+//
+// 复现目标（F35 残留竞态）：旧的实现把 is_active=false 放在 SetUserActive
+// 独立事务里提交，ban 审计在事务提交之后才写。并发的 UnbanUserTx 可以在
+// “状态已提交、审计未写入”之间读到旧 ban，从而让旧来源的解封覆盖新的封禁。
+//
+// 新实现把「锁 users 行 → 状态 → 吊销 token → 写 ban 审计」放进同一事务，
+// 并在写审计前提供测试暂停点 BanTxPauseBeforeAudit。本用例在暂停点停住
+// ban 事务，验证：
+//  1. 暂停点确实被触发（若实现退回旧路径，钩子永不触发，用例在等待处失败）；
+//  2. 暂停期间未提交的 ban 审计对其他连接不可见；
+//  3. 另一路 unban 被 users 行锁挡住，不会读到旧 ban 后抢先解封；
+//  4. ban 提交后 unban 看到最新已提交 ban（发生在租户 B），按口径 403，
+//     终态保持封禁，租户 A 不产生成功的 unban 审计。
 
-func (b *t31BlockingLatestBan) LatestBanAuditForTarget(
-	ctx context.Context,
-	targetUserID string,
-) (*types.AuditLog, error) {
-	b.once.Do(func() { close(b.entered) })
-	select {
-	case <-b.release:
-		return b.entry, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(5 * time.Second):
-		return b.entry, nil
-	}
-}
-
+// t31CountAudit 统计指定租户下某动作的成功审计条数。
 func t31CountAudit(t *testing.T, env *umTestEnv, tenantID uint64, action types.AuditAction) int64 {
 	t.Helper()
 	var n int64
@@ -45,9 +37,6 @@ func t31CountAudit(t *testing.T, env *umTestEnv, tenantID uint64, action types.A
 	return n
 }
 
-// 目标初始 active；A 的历史 ban 审计已存在（stub 返回它）。A 的解封停在
-// 检查之后；此时 B 对同一目标发起新封禁并成功。无论执行顺序如何，最终
-// 状态都必须是“封禁”，A 的旧解封不得把 B 的新封禁覆盖掉。
 func TestT31ConcurrentBanDoesNotGetOverwrittenByStaleUnban(t *testing.T) {
 	env := newUMTestEnv(t)
 	umSeedUser(t, env, "actor-a", nil)
@@ -58,59 +47,86 @@ func TestT31ConcurrentBanDoesNotGetOverwrittenByStaleUnban(t *testing.T) {
 	umSeedMembership(t, env, "target", umTenantA, types.TenantRoleViewer)
 	umSeedMembership(t, env, "target", umTenantB, types.TenantRoleViewer)
 
-	stale := &types.AuditLog{
+	// 租户 A 的历史 ban 审计（较早，id 更小）。若解封在 ban 事务提交前
+	// 读到它，就会误判“最近一次 ban 在本租户”并错误放行。
+	require.NoError(t, env.db.Create(&types.AuditLog{
 		TenantID:     umTenantA,
 		Action:       types.AuditActionMemberBanned,
 		Outcome:      types.AuditOutcomeSuccess,
 		TargetUserID: "target",
 		CreatedAt:    time.Now().Add(-time.Hour),
-	}
-	require.NoError(t, env.db.Create(stale).Error)
+	}).Error)
 
-	stub := &t31BlockingLatestBan{
-		entry:   stale,
-		entered: make(chan struct{}),
-		release: make(chan struct{}),
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var enteredOnce sync.Once
+	hook := func(stage string) {
+		if stage != apprepo.BanTxPauseBeforeAudit {
+			return
+		}
+		enteredOnce.Do(func() { close(entered) })
+		select {
+		case <-release:
+		case <-time.After(10 * time.Second):
+			// 兜底防止用例自身永久挂起；正常路径由主 goroutine 释放。
+		}
 	}
-	umSvc := env.svc.(*userManagementService)
-	umSvc.WithLatestBanLookup(stub)
+	banCtx := apprepo.WithBanTxPauseHook(
+		umCallerCtx("actor-b", umTenantB, types.TenantRoleOwner, false), hook)
+
+	banDone := make(chan error, 1)
+	go func() {
+		_, err := env.svc.BanUser(banCtx, umTenantB, "target", "newer ban")
+		banDone <- err
+	}()
+
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("BanUserTx 的 before_ban_audit 暂停点未被触发：封禁没有走" +
+			"「状态变更 + ban 审计同事务」的 BanUserTx，F35 竞态会复发" +
+			"（F36 要求本用例在实现退回旧路径时失败）")
+	}
+
+	// 暂停点位于审计写入前且事务尚未提交：其他连接看不到这条 ban 审计。
+	require.Zero(t, t31CountAudit(t, env, umTenantB, types.AuditActionMemberBanned),
+		"未提交的 ban 审计不应对其他连接可见")
 
 	unbanDone := make(chan error, 1)
 	go func() {
-		_, err := umSvc.UnbanUser(
+		_, err := env.svc.UnbanUser(
 			umCallerCtx("actor-a", umTenantA, types.TenantRoleOwner, false),
 			umTenantA, "target", "stale unban")
 		unbanDone <- err
 	}()
 
-	entered := false
+	// ban 事务持有 users 行（SQLite 为库级写锁）时，解封必须被挡住，
+	// 不能先读到旧 ban 再写入 active=true。
 	select {
-	case <-stub.entered:
-		entered = true
-	case <-time.After(2 * time.Second):
-		// 实现若不再调用注入的预检查（例如已下沉到仓储事务），
-		// 直接进入后面的并发封禁步骤，仍按最终状态断言。
+	case err := <-unbanDone:
+		close(release)
+		<-banDone
+		t.Fatalf("ban 事务暂停期间解封不应返回，实际已返回 err=%v", err)
+	case <-time.After(300 * time.Millisecond):
 	}
 
-	_, err := umSvc.BanUser(
-		umCallerCtx("actor-b", umTenantB, types.TenantRoleOwner, false),
-		umTenantB, "target", "newer ban")
-	require.NoError(t, err, "B 的有效封禁应成功")
+	close(release)
+	require.NoError(t, <-banDone, "B 的有效封禁应在暂停点释放后提交")
 
-	if entered {
-		close(stub.release)
+	select {
+	case err := <-unbanDone:
+		// ban 已提交且最近一次 ban 属于租户 B，租户 A 的普通 owner 不得解封。
+		umRequireHTTPStatus(t, err, 403)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ban 提交后解封仍未返回，疑似死锁")
 	}
-	unbanErr := <-unbanDone
 
-	user := umLoadUser(t, env, "target")
-	require.False(t, user.IsActive,
+	require.False(t, umLoadUser(t, env, "target").IsActive,
 		"newer ban must not be overwritten by a stale unban")
-	if entered {
-		// 旧来源的解封必须被拒绝；串行化后 A 应看到 B 的最新 ban。
-		umRequireHTTPStatus(t, unbanErr, 403)
-		require.Zero(t, t31CountAudit(t, env, umTenantA, types.AuditActionMemberUnbanned),
-			"rejected unban must not write a success audit")
-	}
+	require.EqualValues(t, 1, t31CountAudit(t, env, umTenantB, types.AuditActionMemberBanned),
+		"ban 事务提交后应恰好有一条租户 B 的 ban 审计")
+	require.Zero(t, t31CountAudit(t, env, umTenantA, types.AuditActionMemberUnbanned),
+		"被拒绝的解封不得写成功审计")
 }
 
 func TestT31UnbanRejectsNonLatestTenantSerial(t *testing.T) {

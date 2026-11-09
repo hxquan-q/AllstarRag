@@ -45,6 +45,9 @@ func newT33PurgeEnv(t *testing.T) *umTestEnv {
 		&types.Message{},
 		&types.TemporaryDocument{},
 		&types.Knowledge{},
+		// F37：会话派生的追问缓存与消息产物也要随会话清理。
+		&types.MessageSuggestionSet{},
+		&types.MessageArtifactRecord{},
 	))
 	for _, ddl := range []string{
 		`CREATE TABLE IF NOT EXISTS user_kb_pins (
@@ -347,4 +350,62 @@ func TestT33PurgeRollbackLeavesNoHalfCleanup(t *testing.T) {
 	require.EqualValues(t, 1, umCount(t, env, &types.TemporaryDocument{}, "id = ?", "att-1"))
 	// 失败事务不得留下 purge 审计。
 	require.Empty(t, umAuditRows(t, env, umTenantA, types.AuditAction("rbac.member_purged")))
+}
+
+// TestT33PurgeRemovesSessionDerivedData 覆盖 F37：
+// 彻底删除后，会话派生的追问缓存（message_suggestion_sets）与消息产物
+// （message_artifacts）不得留下无法再通过 API 访问的孤儿行；其他账号的
+// 同表数据不受影响。
+func TestT33PurgeRemovesSessionDerivedData(t *testing.T) {
+	env := newT33PurgeEnv(t)
+	t33SeedBase(t, env)
+
+	t33SeedSession(t, env, "s-1", "target")
+	t33SeedSession(t, env, "s-other", "other")
+
+	for id, sessionID := range map[string]string{
+		"set-1":     "s-1",
+		"set-other": "s-other",
+	} {
+		require.NoError(t, env.db.Create(&types.MessageSuggestionSet{
+			ID:                 id,
+			TenantID:           umTenantA,
+			SessionID:          sessionID,
+			AssistantMessageID: "m-1",
+			AgentID:            "agent-1",
+			Placement:          "after_answer",
+			ConfigHash:         "hash",
+			Status:             "ready",
+			Questions:          types.SuggestionItems{},
+		}).Error)
+	}
+	for id, sessionID := range map[string]string{
+		"artifact-1":     "s-1",
+		"artifact-other": "s-other",
+	} {
+		require.NoError(t, env.db.Create(&types.MessageArtifactRecord{
+			ID:        id,
+			SessionID: sessionID,
+			MessageID: "m-1",
+			Position:  0,
+			URL:       "local://artifacts/" + id,
+			FileName:  id + ".md",
+			FileType:  ".md",
+			FileSize:  8,
+			CreatedAt: time.Now().UTC(),
+		}).Error)
+	}
+
+	require.NoError(t, env.svc.PurgeUser(
+		umCallerCtx("actor", umTenantA, types.TenantRoleOwner, false),
+		umTenantA, "target", "target@example.com", "purge session derived data"))
+
+	t33RequirePhysicalGone(t, env, &types.MessageSuggestionSet{}, "set-1")
+	t33RequirePhysicalGone(t, env, &types.MessageArtifactRecord{}, "artifact-1")
+	require.EqualValues(t, 1,
+		umCount(t, env, &types.MessageSuggestionSet{}, "id = ?", "set-other"),
+		"another account's suggestion set must survive")
+	require.EqualValues(t, 1,
+		umCount(t, env, &types.MessageArtifactRecord{}, "id = ?", "artifact-other"),
+		"another account's message artifact must survive")
 }

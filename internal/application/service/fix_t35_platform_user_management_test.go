@@ -64,6 +64,9 @@ func TestT35PlatformBanWorksWithoutMembership(t *testing.T) {
 	rows := umAuditRows(t, env, 0, types.AuditActionMemberBanned)
 	require.Len(t, rows, 1, "platform ban must write a system-scope audit row")
 	require.Equal(t, "sysadmin", rows[0].ActorUserID)
+	// F40：平台审计口径固定 system_admin，不取调用者租户角色（无角色时会
+	// 落成 viewer），与既有 tenant_id=0 系统审计一致。
+	require.Equal(t, "system_admin", rows[0].ActorRole)
 	require.Equal(t, "target", rows[0].TargetUserID)
 	require.Equal(t, types.AuditOutcomeSuccess, rows[0].Outcome)
 
@@ -149,8 +152,10 @@ func TestT35PlatformUnbanBypassesLatestBanTenant(t *testing.T) {
 	require.True(t, user.IsActive)
 	require.True(t, umLoadUser(t, env, "target").IsActive)
 
-	require.Len(t, umAuditRows(t, env, 0, types.AuditActionMemberUnbanned), 1,
-		"platform unban must write a system-scope audit row")
+	unbanRows := umAuditRows(t, env, 0, types.AuditActionMemberUnbanned)
+	require.Len(t, unbanRows, 1, "platform unban must write a system-scope audit row")
+	// F40：平台 unban 审计同样固定 system_admin。
+	require.Equal(t, "system_admin", unbanRows[0].ActorRole)
 }
 
 // purge 跨空间 / 无成员关系账号允许；owner 目标必须先交接。
@@ -175,7 +180,10 @@ func TestT35PlatformPurgeRequiresOwnerHandover(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, t35UserDeleted(t, env, "target"),
 		"platform purge must tombstone the account after handover")
-	require.Len(t, umAuditRows(t, env, 0, types.AuditActionMemberPurged), 1)
+	purgeRows := umAuditRows(t, env, 0, types.AuditActionMemberPurged)
+	require.Len(t, purgeRows, 1)
+	// F40：平台 purge 审计同样固定 system_admin。
+	require.Equal(t, "system_admin", purgeRows[0].ActorRole)
 }
 
 // 平台注销完全没有成员关系的普通账号也允许（全平台视图里的无空间账号）。
@@ -220,6 +228,50 @@ func TestT35PlatformPurgeRequiresRevokingPrivileges(t *testing.T) {
 		Where("id = ?", "target").Update("is_system_admin", false).Error)
 	require.NoError(t, env.svc.PlatformPurgeUser(ctx, "target", "target@example.com", "gdpr"))
 	require.True(t, t35UserDeleted(t, env, "target"))
+}
+
+// F41：共享 PurgeUserTx 恢复 fail-closed 后，缺 sessions 表不允许“静默跳过”
+// 并返回成功——整单事务必须回滚，账号不得被墓碑化、不得写 purge 审计。
+func TestT35PlatformPurgeFailsClosedWhenSessionsTableMissing(t *testing.T) {
+	env := newUMTestEnv(t)
+	umSeedUser(t, env, "sysadmin", func(u *types.User) { u.IsSystemAdmin = true })
+	umSeedUser(t, env, "target", nil)
+	require.NoError(t, env.db.Create(&types.Session{
+		TenantID: umTenantA, UserID: "target", Title: "session before purge",
+	}).Error)
+	require.NoError(t, env.db.Migrator().DropTable("sessions"))
+
+	err := env.svc.PlatformPurgeUser(t35SystemAdminCtx("sysadmin"),
+		"target", "target@example.com", "gdpr")
+	require.Error(t, err, "sessions 缺表必须让整单 purge 事务失败（fail-closed）")
+	require.False(t, t35UserDeleted(t, env, "target"),
+		"purge 失败时账号不得被墓碑化")
+	require.Empty(t, umAuditRows(t, env, 0, types.AuditActionMemberPurged),
+		"purge 失败时不得写成功审计")
+}
+
+// F41：个人数据表同样 fail-closed。用 raw SQL 建的 user_kb_pins 缺表时，
+// 之前已执行的删除（如 sessions）必须一并回滚，不能留下“PII 删了一半”。
+func TestT35PlatformPurgeFailsClosedWhenPersonalDataTableMissing(t *testing.T) {
+	env := newUMTestEnv(t)
+	umSeedUser(t, env, "sysadmin", func(u *types.User) { u.IsSystemAdmin = true })
+	umSeedUser(t, env, "target", nil)
+	require.NoError(t, env.db.Create(&types.Session{
+		TenantID: umTenantA, UserID: "target", Title: "session before purge",
+	}).Error)
+	require.NoError(t, env.db.Migrator().DropTable("user_kb_pins"))
+
+	err := env.svc.PlatformPurgeUser(t35SystemAdminCtx("sysadmin"),
+		"target", "target@example.com", "gdpr")
+	require.Error(t, err, "个人数据表缺表必须让整单 purge 事务失败（fail-closed）")
+	require.False(t, t35UserDeleted(t, env, "target"))
+	require.Empty(t, umAuditRows(t, env, 0, types.AuditActionMemberPurged))
+
+	var sessions int64
+	require.NoError(t, env.db.Model(&types.Session{}).
+		Where("user_id = ?", "target").Count(&sessions).Error)
+	require.EqualValues(t, 1, sessions,
+		"后续步骤失败必须回滚先前已执行的 sessions 删除，避免半清理")
 }
 
 // confirm_email 仍必须与目标邮箱一致；不匹配 400 且零副作用。

@@ -56,12 +56,29 @@ func newUMTestEnv(t *testing.T) *umTestEnv {
 	sqlDB.SetMaxOpenConns(4)
 	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
 
+	// F41：PurgeUserTx 的 sessions 与个人数据表恢复 fail-closed（缺表/写失败
+	// 整单回滚）后，所有走 newUMTestEnv 的用例都必须先具备这些表，否则
+	// 平台注销会在“no such table”处回滚。这里一次性补齐，不再提供缺表跳过。
 	require.NoError(t, db.AutoMigrate(
 		&types.User{},
 		&types.TenantMember{},
 		&types.AuthToken{},
 		&types.AuditLog{},
+		&types.Session{},
+		&types.TenantInvitation{},
+		&types.UserResourceFavorite{},
+		&types.MCPOAuthToken{},
+		&types.TenantUserEnvVar{},
+		&types.Notification{},
 	))
+	// user_kb_pins 的 GORM 模型是 repository 包内未导出的 userKBPinRow，
+	// 按迁移的真实列建最小表即可，列名与 Delete(&userKBPinRow{}) 对齐。
+	require.NoError(t, db.Exec(`CREATE TABLE IF NOT EXISTS user_kb_pins (
+		tenant_id integer NOT NULL,
+		user_id varchar(36) NOT NULL,
+		kb_id varchar(64) NOT NULL,
+		pinned_at datetime
+	)`).Error)
 
 	userRepo := apprepo.NewUserRepository(db)
 	memberRepo := apprepo.NewTenantMemberRepository(db)
