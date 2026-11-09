@@ -49,12 +49,10 @@ func (r *sessionRepository) Create(ctx context.Context, session *types.Session) 
 	return session, nil
 }
 
-// CreateIdempotent inserts a session for automation and delegated-agent runs.
-// It keeps the caller-assigned ID (the BeforeCreate hook would rewrite it, so
-// hooks are skipped) and treats a duplicate ID as success instead of an error.
-// The canonical web owner is locked first with the same fence as Create, so
-// account deletion and this insert serialize on the users row: a tombstoned
-// owner is rejected before any row is written.
+// CreateIdempotent 供 automation 与委托代理运行建会话：保留调用方预分配的
+// ID（BeforeCreate 钩子会改写它，因此跳过钩子），重复 ID 视为成功而非报错。
+// 插入前先用与 Create 相同的围栏锁住 canonical web 用户，使注销与本插入在
+// users 行上串行：墓碑用户在任何行写入之前就被拒绝。
 func (r *sessionRepository) CreateIdempotent(
 	ctx context.Context, session *types.Session,
 ) (*types.Session, error) {
