@@ -79,6 +79,22 @@ func newUMTestEnv(t *testing.T) *umTestEnv {
 		kb_id varchar(64) NOT NULL,
 		pinned_at datetime
 	)`).Error)
+	// T39：注销事务会向 task_pending_ops 写入 purge:cleanup 任务。生产库
+	// 该表由迁移建立；这里按 task_queue_test.go 的 SQLite 兼容列补齐，避免
+	// 既有 purge 夹具在实现入队后因缺表整单回滚。
+	require.NoError(t, db.Exec(`CREATE TABLE IF NOT EXISTS task_pending_ops (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		tenant_id   INTEGER NOT NULL,
+		task_type   VARCHAR(64) NOT NULL,
+		scope       VARCHAR(32) NOT NULL,
+		scope_id    VARCHAR(64) NOT NULL,
+		op          VARCHAR(32) NOT NULL,
+		dedup_key   VARCHAR(128) NOT NULL DEFAULT '',
+		payload     TEXT NOT NULL DEFAULT '{}',
+		fail_count  INTEGER NOT NULL DEFAULT 0,
+		enqueued_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+		claimed_at  DATETIME
+	)`).Error)
 
 	userRepo := apprepo.NewUserRepository(db)
 	memberRepo := apprepo.NewTenantMemberRepository(db)
