@@ -88,6 +88,13 @@ func purgeUserChatDataTx(tx *gorm.DB, userID string) error {
 		}
 	}
 
+	// 与消息写入共用 sessions 行锁：必须在收集/删除 messages 之前先锁住目标
+	// 会话，消息写入才会被串行化。purge 先拿到锁时旧请求复核失败；消息先
+	// 提交时这里的删除会覆盖它。锁序保持 users → sessions → messages。
+	if err := lockPurgeSessionsTx(tx, userID); err != nil {
+		return err
+	}
+
 	var messages []types.Message
 	if err := tx.Unscoped().
 		Select("id", "knowledge_id", "attachments").
@@ -154,6 +161,21 @@ func purgeUserChatDataTx(tx *gorm.DB, userID string) error {
 		return err
 	}
 	return nil
+}
+
+// lockPurgeSessionsTx 锁定目标账号的全部未删除会话行：PostgreSQL/MySQL 用
+// SELECT ... FOR UPDATE，SQLite 用空更新取写锁（与 lockPurgeTarget 一致）。
+// 调用点必须在删除 messages 之前，保证消息写入与注销清理使用同一把
+// session 锁、不会在删除消息与删除会话之间插入孤儿消息。
+func lockPurgeSessionsTx(tx *gorm.DB, userID string) error {
+	if tx.Name() == "sqlite" {
+		return tx.Model(&types.Session{}).
+			Where("user_id = ?", userID).
+			UpdateColumn("updated_at", gorm.Expr("updated_at")).Error
+	}
+	var sessions []types.Session
+	return forUpdate(tx).Model(&types.Session{}).Select("id").
+		Where("user_id = ?", userID).Find(&sessions).Error
 }
 
 // enqueuePurgeKnowledgeCleanupTx 把聊天历史 knowledge 按 (租户, KB) 分组入队。

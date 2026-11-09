@@ -76,21 +76,19 @@ func sessionUserIDForLookup(ctx context.Context) string {
 	return types.SessionOwnerIDFromContext(ctx)
 }
 
-// CreateMessage creates a new message within an existing session
+// CreateMessage creates a new message within an existing session.
+//
+// 会话存在性、作用域与账号状态的复核与消息插入在同一个事务里完成，并对目标
+// 会话行加锁（CreateMessageInSessionTx）：注销事务先拿到会话锁时这里复核
+// 失败；这里先提交时注销会删掉这条消息，不会留下孤儿。
 func (s *messageService) CreateMessage(ctx context.Context, message *types.Message) (*types.Message, error) {
 	logger.Info(ctx, "Start creating message")
 	logger.Infof(ctx, "Creating message for session ID: %s", message.SessionID)
 
 	tenantID := types.MustTenantIDFromContext(ctx)
-	logger.Infof(ctx, "Checking if session exists, tenant ID: %d, session ID: %s", tenantID, message.SessionID)
-	_, err := s.sessionRepo.Get(ctx, tenantID, sessionUserIDForLookup(ctx), message.SessionID)
-	if err != nil {
-		logger.Errorf(ctx, "Failed to get session: %v", err)
-		return nil, err
-	}
-
-	logger.Info(ctx, "Session exists, creating message")
-	createdMessage, err := s.messageRepo.CreateMessage(ctx, message)
+	createdMessage, err := s.messageRepo.CreateMessageInSessionTx(
+		ctx, message, tenantID, sessionUserIDForLookup(ctx),
+	)
 	if err != nil {
 		logger.ErrorWithFields(ctx, err, map[string]interface{}{
 			"session_id": message.SessionID,
@@ -400,6 +398,13 @@ func (s *messageService) IndexMessageToKB(ctx context.Context, userQuery string,
 	var passages []string
 	passage := fmt.Sprintf("[Session: %s]\nQ: %s\nA: %s", sessionID, userQuery, assistantAnswer)
 	passages = append(passages, passage)
+
+	// 消息可能已被注销清理删除（purge 与索引异步执行）；此时不能再创建
+	// 聊天历史索引，否则会留下无法通过消息访问、却仍可被检索命中的孤儿文本。
+	if _, err := s.messageRepo.GetMessage(ctx, sessionID, messageID); err != nil {
+		logger.Infof(ctx, "Skipping message index for %s: message no longer exists", messageID)
+		return
+	}
 
 	// Use async (non-sync) passage creation so it doesn't block the response
 	knowledge, err := s.knowService.CreateKnowledgeFromPassage(ctx, cfg.KnowledgeBaseID, passages, "")
