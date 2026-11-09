@@ -290,11 +290,23 @@ func (s *temporaryDocumentService) Delete(ctx context.Context, tenantID uint64, 
 // knowledge entry. Drop only this document's claim, including on rollback;
 // an unreadable binding count must never authorize deleting shared bytes.
 func (s *temporaryDocumentService) releaseResource(ctx context.Context, documentID, ref string) error {
+	return releaseTemporaryDocumentResource(ctx, s.resourceCatalog, s.fileService, documentID, ref)
+}
+
+// releaseTemporaryDocumentResource 是附件资源释放的共用语义：先释放本
+// 文档的引用，引用归零（或不是目录句柄）时才删物理文件。注销清理 worker
+// 通过适配器复用同一实现。
+func releaseTemporaryDocumentResource(
+	ctx context.Context,
+	catalog interfaces.ResourceCatalog,
+	files interfaces.FileService,
+	documentID, ref string,
+) error {
 	if ref == "" {
 		return nil
 	}
-	if s.resourceCatalog != nil {
-		remaining, err := s.resourceCatalog.Release(ctx, ref, types.ResourceOwnerTemporaryDocument, documentID)
+	if catalog != nil {
+		remaining, err := catalog.Release(ctx, ref, types.ResourceOwnerTemporaryDocument, documentID)
 		if err != nil {
 			return fmt.Errorf("release attachment resource: %w", err)
 		}
@@ -302,7 +314,7 @@ func (s *temporaryDocumentService) releaseResource(ctx context.Context, document
 			return nil
 		}
 	}
-	return s.fileService.DeleteFile(ctx, ref)
+	return files.DeleteFile(ctx, ref)
 }
 
 func temporaryDocumentImageRefs(raw types.JSON) []types.TemporaryDocumentImage {

@@ -1,11 +1,43 @@
 package repository
 
 import (
+	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"gorm.io/gorm"
 )
+
+// purge:cleanup 与 wiki 共用 task_pending_ops 表，必须用独立的三元组隔离，
+// 避免被 wiki 消费者当成自己的任务取走。
+const (
+	purgeCleanupTaskType = "purge:cleanup"
+	purgeCleanupScope    = "purge"
+	purgeCleanupScopeID  = "global"
+
+	purgeCleanupOpKnowledge  = "knowledge"
+	purgeCleanupOpAttachment = "attachment"
+)
+
+// purgeCleanupKnowledgePayload 描述一批需要异步清理索引的聊天历史知识。
+type purgeCleanupKnowledgePayload struct {
+	TenantID        uint64   `json:"tenant_id"`
+	KnowledgeBaseID string   `json:"knowledge_base_id"`
+	KnowledgeIDs    []string `json:"knowledge_ids"`
+}
+
+// purgeCleanupAttachmentDocument 是一个需要释放对象存储引用的独占附件。
+type purgeCleanupAttachmentDocument struct {
+	ID          string `json:"id"`
+	ResourceRef string `json:"resource_ref"`
+}
+
+// purgeCleanupAttachmentPayload 描述一个租户下需要异步释放的独占附件。
+type purgeCleanupAttachmentPayload struct {
+	TenantID  uint64                           `json:"tenant_id"`
+	Documents []purgeCleanupAttachmentDocument `json:"documents"`
+}
 
 // purgeUserChatDataTx 清理目标账号所有会话里的聊天数据：
 //
@@ -16,9 +48,12 @@ import (
 //     （引用判定跨会话、跨账号，同租户；共享附件保留）；
 //  5. 物理删除消息 knowledge_id 指向的聊天历史 knowledges。
 //
-// 不删除 knowledge_bases / custom_agents / 普通知识库文档，也不在事务内
-// 删除对象存储 blob：temporary_documents 记录删除后，blob 交给既有的
-// 过期清理流程回收（见 T33 notes 的 carryover）。
+// 索引（chunks/向量/图谱）与独占附件的对象存储 blob 不在事务内直接删除：
+// 第 3–5 步收集清理载荷，并在同一事务里写入 task_pending_ops 的
+// purge:cleanup 任务，由后台 worker 异步执行、失败重试（T39）。事务回滚时
+// 任务随事务一起消失，不会留下指向仍存活数据的清理任务。
+//
+// 不删除 knowledge_bases / custom_agents / 普通知识库文档。
 func purgeUserChatDataTx(tx *gorm.DB, userID string) error {
 	migrator := tx.Migrator()
 	// 轻量库/部分测试夹具可能没有消息表，与沙箱表缺失时一样跳过，
@@ -57,6 +92,16 @@ func purgeUserChatDataTx(tx *gorm.DB, userID string) error {
 		return err
 	}
 	knowledgeIDs, attachmentIDs := collectPurgeMessageRefs(messages)
+	if migrator.HasTable("temporary_documents") {
+		// 上传后未发送的附件只有 session 级记录，不会出现在消息引用里；
+		// 它们同样属于该账号的会话临时数据，必须一起参与“独占”判定。
+		// Unscoped：已软删的行也要回收其对象存储资源。
+		sessionDocumentIDs, err := listSessionTemporaryDocumentIDsTx(tx, sessionIDs)
+		if err != nil {
+			return err
+		}
+		attachmentIDs = appendUniqueIDs(attachmentIDs, sessionDocumentIDs...)
+	}
 
 	// 先物理删除消息（含软删历史），附件引用判定看到的就是删除后的状态。
 	if err := tx.Unscoped().
@@ -80,12 +125,20 @@ func purgeUserChatDataTx(tx *gorm.DB, userID string) error {
 		}
 	}
 
+	var exclusiveAttachments []types.TemporaryDocument
 	if len(attachmentIDs) > 0 && migrator.HasTable("temporary_documents") {
-		if err := deleteUnreferencedTemporaryDocumentsTx(tx, attachmentIDs); err != nil {
+		documents, err := purgeUnreferencedTemporaryDocumentsTx(tx, attachmentIDs)
+		if err != nil {
 			return err
 		}
+		exclusiveAttachments = documents
 	}
 	if len(knowledgeIDs) > 0 && migrator.HasTable("knowledges") {
+		// 先按知识行解析出 (租户, 聊天 KB) 再删行，事务外 worker 才拿得到
+		// 清理向量/图谱所需的作用域。
+		if err := enqueuePurgeKnowledgeCleanupTx(tx, userID, tenantIDs, knowledgeIDs); err != nil {
+			return err
+		}
 		// tenant 过滤保证只删本空间消息指向的聊天历史条目，不越过租户边界。
 		if err := tx.Unscoped().
 			Where("id IN ? AND tenant_id IN ?", knowledgeIDs, tenantIDs).
@@ -93,7 +146,106 @@ func purgeUserChatDataTx(tx *gorm.DB, userID string) error {
 			return err
 		}
 	}
+	if err := enqueuePurgeAttachmentCleanupTx(tx, userID, exclusiveAttachments); err != nil {
+		return err
+	}
 	return nil
+}
+
+// enqueuePurgeKnowledgeCleanupTx 把聊天历史 knowledge 按 (租户, KB) 分组入队。
+// 一次注销可能跨多个空间，因此可能写多行；同一 dedup_key 让 ClaimBatch 把
+// 它们按同一次注销成组领取。知识行缺失（已被清理）时无法确定 KB 作用域，
+// 跳过该条：其索引由对应 KB 的删除路径负责。
+func enqueuePurgeKnowledgeCleanupTx(
+	tx *gorm.DB, userID string, tenantIDs []uint64, knowledgeIDs []string,
+) error {
+	type knowledgeRow struct {
+		ID              string `gorm:"column:id"`
+		TenantID        uint64 `gorm:"column:tenant_id"`
+		KnowledgeBaseID string `gorm:"column:knowledge_base_id"`
+	}
+	var rows []knowledgeRow
+	if err := tx.Unscoped().Model(&types.Knowledge{}).
+		Select("id", "tenant_id", "knowledge_base_id").
+		Where("id IN ? AND tenant_id IN ?", knowledgeIDs, tenantIDs).
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	type groupKey struct {
+		TenantID        uint64
+		KnowledgeBaseID string
+	}
+	grouped := make(map[groupKey][]string)
+	for _, row := range rows {
+		key := groupKey{TenantID: row.TenantID, KnowledgeBaseID: row.KnowledgeBaseID}
+		grouped[key] = append(grouped[key], row.ID)
+	}
+	for key, ids := range grouped {
+		payload, err := json.Marshal(purgeCleanupKnowledgePayload{
+			TenantID:        key.TenantID,
+			KnowledgeBaseID: key.KnowledgeBaseID,
+			KnowledgeIDs:    ids,
+		})
+		if err != nil {
+			return err
+		}
+		if err := createPurgeCleanupTaskTx(
+			tx, key.TenantID, userID, purgeCleanupOpKnowledge, payload,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// enqueuePurgeAttachmentCleanupTx 把独占附件按租户分组入队。resource_ref
+// 为空的记录没有对象存储资源可释放，只删行不入队。
+func enqueuePurgeAttachmentCleanupTx(
+	tx *gorm.DB, userID string, documents []types.TemporaryDocument,
+) error {
+	grouped := make(map[uint64][]purgeCleanupAttachmentDocument)
+	for _, document := range documents {
+		ref := strings.TrimSpace(document.ResourceRef)
+		if ref == "" {
+			continue
+		}
+		grouped[document.TenantID] = append(
+			grouped[document.TenantID],
+			purgeCleanupAttachmentDocument{ID: document.ID, ResourceRef: ref},
+		)
+	}
+	for tenantID, docs := range grouped {
+		payload, err := json.Marshal(purgeCleanupAttachmentPayload{
+			TenantID: tenantID, Documents: docs,
+		})
+		if err != nil {
+			return err
+		}
+		if err := createPurgeCleanupTaskTx(
+			tx, tenantID, userID, purgeCleanupOpAttachment, payload,
+		); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// createPurgeCleanupTaskTx 在注销事务内写一条 purge:cleanup 任务。
+// 缺表/写入失败都让整个注销事务回滚（fail-closed）：不能让账号墓碑化成功
+// 却把索引和 blob 永久留在存储里。
+func createPurgeCleanupTaskTx(
+	tx *gorm.DB, tenantID uint64, userID, op string, payload []byte,
+) error {
+	return tx.Create(&types.TaskPendingOp{
+		TenantID:   tenantID,
+		TaskType:   purgeCleanupTaskType,
+		Scope:      purgeCleanupScope,
+		ScopeID:    purgeCleanupScopeID,
+		Op:         op,
+		DedupKey:   "purge:" + userID + ":" + op,
+		Payload:    payload,
+		EnqueuedAt: time.Now().UTC(),
+	}).Error
 }
 
 // collectPurgeMessageRefs 汇总消息引用的聊天历史知识 ID 与附件 ID，
@@ -122,14 +274,75 @@ func collectPurgeMessageRefs(messages []types.Message) (knowledgeIDs, attachment
 	return knowledgeIDs, attachmentIDs
 }
 
-// deleteUnreferencedTemporaryDocumentsTx 只物理删除“独占”的聊天附件记录：
+// listSessionTemporaryDocumentIDsTx 收集目标会话下所有临时附件 ID（含软删
+// 行），覆盖“上传后从未发送”的文档。是否存在共享引用仍由后续独占判定处理。
+func listSessionTemporaryDocumentIDsTx(tx *gorm.DB, sessionIDs []string) ([]string, error) {
+	var ids []string
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	if err := tx.Unscoped().Model(&types.TemporaryDocument{}).
+		Where("session_id IN ?", sessionIDs).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, err
+	}
+	return ids, nil
+}
+
+// appendUniqueIDs 把 extra 中尚未出现的 ID 追加到 ids，保持既有顺序。
+func appendUniqueIDs(ids []string, extra ...string) []string {
+	seen := make(map[string]struct{}, len(ids)+len(extra))
+	for _, id := range ids {
+		seen[id] = struct{}{}
+	}
+	for _, id := range extra {
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// purgeUnreferencedTemporaryDocumentsTx 只物理删除“独占”的聊天附件记录，
+// 并返回被删记录（含 resource_ref）供异步 worker 释放对象存储资源：
 // 只要同租户下还有任一未删除消息（任意会话、任意账号）的 attachments
-// JSON 引用同 id，就保留该行及其 resource_ref。
+// JSON 引用同 id，就保留该行及其 resource_ref（共享附件不入队）。
 //
 // 各数据库的 JSON 成员判定与 temporary_document.expiredQuery 保持一致：
 // SQLite 用 json_each + 标量键 NOT IN，MySQL 用 JSON_CONTAINS，
 // PostgreSQL 用 jsonb 包含运算符。
-func deleteUnreferencedTemporaryDocumentsTx(tx *gorm.DB, ids []string) error {
+func purgeUnreferencedTemporaryDocumentsTx(
+	tx *gorm.DB, ids []string,
+) ([]types.TemporaryDocument, error) {
+	var documents []types.TemporaryDocument
+	if err := unreferencedTemporaryDocumentsTx(tx, ids).
+		Select("id", "tenant_id", "resource_ref").
+		Find(&documents).Error; err != nil {
+		return nil, err
+	}
+	if len(documents) == 0 {
+		return nil, nil
+	}
+	deleteIDs := make([]string, 0, len(documents))
+	for _, document := range documents {
+		deleteIDs = append(deleteIDs, document.ID)
+	}
+	if err := tx.Unscoped().
+		Where("id IN ?", deleteIDs).
+		Delete(&types.TemporaryDocument{}).Error; err != nil {
+		return nil, err
+	}
+	return documents, nil
+}
+
+// unreferencedTemporaryDocumentsTx 构造“没有任何未删除消息再引用”的
+// temporary_documents 查询。选择与删除共用同一判定，避免两边漂移。
+func unreferencedTemporaryDocumentsTx(tx *gorm.DB, ids []string) *gorm.DB {
 	query := tx.Unscoped().Model(&types.TemporaryDocument{}).Where("id IN ?", ids)
 	if tx.Name() == "sqlite" {
 		referenced := tx.Table("messages m").
@@ -140,8 +353,7 @@ func deleteUnreferencedTemporaryDocumentsTx(tx *gorm.DB, ids []string) error {
 			Where("json_extract(a.value, '$.id') IS NOT NULL")
 		return query.
 			Where("(CAST(temporary_documents.tenant_id AS TEXT) || ':' || temporary_documents.id) NOT IN (?)",
-				referenced).
-			Delete(&types.TemporaryDocument{}).Error
+				referenced)
 	}
 
 	// PostgreSQL 走 attachments 的 GIN 索引；MySQL 走 JSON_CONTAINS。
@@ -155,6 +367,5 @@ func deleteUnreferencedTemporaryDocumentsTx(tx *gorm.DB, ids []string) error {
 		Where("m.deleted_at IS NULL").
 		Where(containsAttachment)
 	return query.
-		Where("NOT EXISTS (?)", referenced).
-		Delete(&types.TemporaryDocument{}).Error
+		Where("NOT EXISTS (?)", referenced)
 }

@@ -572,6 +572,18 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}
 	must(container.Provide(service.NewTemporaryDocumentService))
 	must(container.Invoke(startTemporaryDocumentCleanup))
+	// T39：注销事务写入的 purge:cleanup 任务（聊天历史索引与独占附件）由
+	// 后台 worker 异步消费。与 wiki 共用 task_pending_ops，但三元组独立。
+	must(container.Provide(func(repo interfaces.KnowledgeBaseRepository) service.PurgeKnowledgeBaseLookup {
+		return repo
+	}))
+	must(container.Provide(func(models interfaces.ModelService) service.PurgeEmbeddingResolver {
+		return models
+	}))
+	must(container.Provide(service.NewTemporaryDocumentReleaser))
+	must(container.Provide(service.NewPurgeVectorEngineAdapter))
+	must(container.Provide(service.NewPurgeCleanupService))
+	must(container.Invoke(startPurgeCleanupWorker))
 
 	// Chat pipeline components for processing chat requests
 	logger.Debugf(ctx, "[Container] Registering chat pipeline plugins...")
@@ -2314,6 +2326,41 @@ func startTemporaryDocumentCleanup(svc interfaces.TemporaryDocumentService, clea
 		}
 	}()
 	cleaner.RegisterWithName("TemporaryDocumentCleanup", func() error {
+		close(stop)
+		return nil
+	})
+}
+
+// startPurgeCleanupWorker 消费注销事务写入的 purge:cleanup 任务。启动后先
+// 跑一轮，之后每分钟一轮；失败只记 warn，不阻塞启动。多副本同时跑是安全
+// 的：ClaimBatch 在 PostgreSQL 上用 SKIP LOCKED 领取互不重叠的 key。
+func startPurgeCleanupWorker(svc service.PurgeCleanupService, cleaner interfaces.ResourceCleaner) {
+	if svc == nil || cleaner == nil {
+		logger.Warnf(context.Background(), "[Container] purge cleanup worker unavailable")
+		return
+	}
+	stop := make(chan struct{})
+	run := func() {
+		if n, err := svc.RunOnce(context.Background()); err != nil {
+			logger.Warnf(context.Background(), "[PurgeCleanup] run failed: %v", err)
+		} else if n > 0 {
+			logger.Infof(context.Background(), "[PurgeCleanup] processed %d task(s)", n)
+		}
+	}
+	go func() {
+		run()
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				run()
+			case <-stop:
+				return
+			}
+		}
+	}()
+	cleaner.RegisterWithName("PurgeCleanup", func() error {
 		close(stop)
 		return nil
 	})
