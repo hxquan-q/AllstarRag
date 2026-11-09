@@ -260,6 +260,38 @@ func (r *fakeTenantMemberRepo) RemoveOwnerAtomically(
 	return nil
 }
 
+// TransferOwnershipTx 是 T40 仓储契约的测试替身实现：在内存里复核
+// from 为 active owner、to 为 active 成员后一次性交换角色，模拟真实
+// 仓储的单事务原子性（失败时不做任何改动）。
+func (r *fakeTenantMemberRepo) TransferOwnershipTx(
+	ctx context.Context, tenantID uint64, fromUserID, toUserID string,
+) error {
+	var from, to *types.TenantMember
+	for _, e := range r.rows {
+		if e.TenantID != tenantID || e.DeletedAt.Valid ||
+			e.Status != types.TenantMemberStatusActive {
+			continue
+		}
+		switch e.UserID {
+		case fromUserID:
+			from = e
+		case toUserID:
+			to = e
+		}
+	}
+	if from == nil || from.Role != types.TenantRoleOwner {
+		return apprepo.ErrRoleChanged
+	}
+	if to == nil {
+		return gormErrRecordNotFound
+	}
+	to.Role = types.TenantRoleOwner
+	to.UpdatedAt = time.Now()
+	from.Role = types.TenantRoleAdmin
+	from.UpdatedAt = time.Now()
+	return nil
+}
+
 // Compile-time guard so the test stays in sync with the interface.
 var _ interfaces.TenantMemberRepository = (*fakeTenantMemberRepo)(nil)
 
