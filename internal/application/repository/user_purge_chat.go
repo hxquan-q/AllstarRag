@@ -2,6 +2,7 @@ package repository
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -28,9 +29,12 @@ type purgeCleanupKnowledgePayload struct {
 }
 
 // purgeCleanupAttachmentDocument 是一个需要释放对象存储引用的独占附件。
+// ImageRefs 是该附件解析产物的图片存储引用（去空、保序去重），worker 必须
+// 逐个释放，语义与正常 Delete 一致。
 type purgeCleanupAttachmentDocument struct {
-	ID          string `json:"id"`
-	ResourceRef string `json:"resource_ref"`
+	ID          string   `json:"id"`
+	ResourceRef string   `json:"resource_ref"`
+	ImageRefs   []string `json:"image_refs"`
 }
 
 // purgeCleanupAttachmentPayload 描述一个租户下需要异步释放的独占附件。
@@ -209,9 +213,17 @@ func enqueuePurgeAttachmentCleanupTx(
 		if ref == "" {
 			continue
 		}
+		imageRefs, err := purgeCleanupImageRefs(document.ImageRefs)
+		if err != nil {
+			return fmt.Errorf("decode image refs of temporary document %s: %w", document.ID, err)
+		}
 		grouped[document.TenantID] = append(
 			grouped[document.TenantID],
-			purgeCleanupAttachmentDocument{ID: document.ID, ResourceRef: ref},
+			purgeCleanupAttachmentDocument{
+				ID:          document.ID,
+				ResourceRef: ref,
+				ImageRefs:   imageRefs,
+			},
 		)
 	}
 	for tenantID, docs := range grouped {
@@ -228,6 +240,33 @@ func enqueuePurgeAttachmentCleanupTx(
 		}
 	}
 	return nil
+}
+
+// purgeCleanupImageRefs 解析 temporary_documents.image_refs 里的图片 URL，
+// 跳过空白项并保序去重；解析失败让注销事务回滚（fail-closed），避免静默
+// 丢掉图片引用清理。
+func purgeCleanupImageRefs(raw types.JSON) ([]string, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var images []types.TemporaryDocumentImage
+	if err := json.Unmarshal(raw, &images); err != nil {
+		return nil, err
+	}
+	seen := make(map[string]struct{}, len(images))
+	refs := make([]string, 0, len(images))
+	for _, image := range images {
+		url := strings.TrimSpace(image.URL)
+		if url == "" {
+			continue
+		}
+		if _, ok := seen[url]; ok {
+			continue
+		}
+		seen[url] = struct{}{}
+		refs = append(refs, url)
+	}
+	return refs, nil
 }
 
 // createPurgeCleanupTaskTx 在注销事务内写一条 purge:cleanup 任务。
@@ -321,7 +360,7 @@ func purgeUnreferencedTemporaryDocumentsTx(
 ) ([]types.TemporaryDocument, error) {
 	var documents []types.TemporaryDocument
 	if err := unreferencedTemporaryDocumentsTx(tx, ids).
-		Select("id", "tenant_id", "resource_ref").
+		Select("id", "tenant_id", "resource_ref", "image_refs").
 		Find(&documents).Error; err != nil {
 		return nil, err
 	}

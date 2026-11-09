@@ -68,8 +68,9 @@ type purgeCleanupKnowledgePayload struct {
 }
 
 type purgeCleanupAttachmentDocument struct {
-	ID          string `json:"id"`
-	ResourceRef string `json:"resource_ref"`
+	ID          string   `json:"id"`
+	ResourceRef string   `json:"resource_ref"`
+	ImageRefs   []string `json:"image_refs"`
 }
 
 type purgeCleanupAttachmentPayload struct {
@@ -243,10 +244,13 @@ func (s *purgeCleanupService) cleanupAttachments(ctx context.Context, raw json.R
 		if documentID == "" {
 			return fmt.Errorf("invalid attachment payload: empty document id")
 		}
-		if err := s.attachmentReleaser.ReleaseResource(
-			ctx, documentID, document.ResourceRef,
-		); err != nil {
-			return fmt.Errorf("release attachment %s: %w", documentID, err)
+		// 源文件在前，解析图片在后；compactPurgeIDs 去空白并保序去重，
+		// 与正常 Delete 的“同一 ref 只释放一次”语义一致。
+		refs := compactPurgeIDs(append([]string{document.ResourceRef}, document.ImageRefs...))
+		for _, ref := range refs {
+			if err := s.attachmentReleaser.ReleaseResource(ctx, documentID, ref); err != nil {
+				return fmt.Errorf("release attachment %s ref %s: %w", documentID, ref, err)
+			}
 		}
 	}
 	return nil
