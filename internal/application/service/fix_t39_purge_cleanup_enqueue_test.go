@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/stretchr/testify/require"
@@ -190,6 +191,19 @@ func TestT39PurgeRollbackLeavesNoCleanupTasks(t *testing.T) {
 	t33SeedChatKnowledge(t, env, "k-1", "kb-chat")
 	t33SeedTemporaryDocument(t, env, "att-1", "s-1", "local://attachments/a.pdf")
 
+	// 记录事务内是否确有 purge:cleanup 入队尝试，避免“回滚后无行”变成
+	// 空洞断言（入队被跳过时也会无行）。
+	sawPurgeTaskCreate := false
+	const observeName = "t39_observe_purge_task_create"
+	require.NoError(t, env.db.Callback().Create().Before("gorm:create").Register(
+		observeName, func(tx *gorm.DB) {
+			if tx.Statement != nil && tx.Statement.Schema != nil &&
+				tx.Statement.Schema.Table == "task_pending_ops" {
+				sawPurgeTaskCreate = true
+			}
+		}))
+	t.Cleanup(func() { _ = env.db.Callback().Create().Remove(observeName) })
+
 	const callbackName = "t39_fail_audit_create"
 	require.NoError(t, env.db.Callback().Create().Before("gorm:create").Register(
 		callbackName, func(tx *gorm.DB) {
@@ -208,8 +222,93 @@ func TestT39PurgeRollbackLeavesNoCleanupTasks(t *testing.T) {
 		umTenantA, "target", "target@example.com", "t39 rollback")
 	require.ErrorContains(t, err, "t39 injected audit failure")
 
+	require.True(t, sawPurgeTaskCreate,
+		"the failed transaction must have attempted to enqueue cleanup tasks (same transaction)")
 	require.Empty(t, t39PurgeTaskRows(t, env),
 		"a rolled-back purge must not leave purge:cleanup tasks behind")
 	// 账号仍活跃，证明事务整体回滚而不是只回滚任务表。
 	require.True(t, umLoadUser(t, env, "target").IsActive)
+}
+
+// TestT39PurgeEnqueuesUnsentSessionAttachments 覆盖复核 #11（AC-1）：
+// 上传后从未发送的附件只有 session 级 temporary_documents 行、没有消息引用，
+// 也必须参与独占判定并入队清理；同租户其他未删消息仍引用的会话级附件是
+// 共享附件，不得入队、不得删除；其他账号会话的附件零副作用。
+func TestT39PurgeEnqueuesUnsentSessionAttachments(t *testing.T) {
+	env := newT39PurgeEnv(t)
+	t33SeedBase(t, env)
+
+	t33SeedSession(t, env, "s-1", "target")
+	t33SeedSession(t, env, "s-other", "other")
+
+	// 目标会话里一条纯文本消息，没有任何附件引用，模拟“上传后未发送”的场景。
+	t33SeedMessage(t, env, "m-1", "s-1", "user", "text only, upload never sent", "", nil)
+
+	// 会话级独占附件：只挂在 s-1，无消息引用 → 必须入队并删行。
+	t33SeedTemporaryDocument(t, env, "att-unsent", "s-1", "local://attachments/unsent.pdf")
+	// 会话级共享附件：挂在 s-1，但 other 的未删除消息仍引用它 → 保留且不入队。
+	t33SeedTemporaryDocument(t, env, "att-session-shared", "s-1",
+		"local://attachments/session-shared.pdf")
+	t33SeedMessage(t, env, "m-other", "s-other", "user", "still using the session attachment", "",
+		types.MessageAttachments{
+			{ID: "att-session-shared", FileName: "session-shared.pdf", FileType: ".pdf", FileSize: 16},
+		})
+	// 其他账号会话里的未发送附件：不得入队、不得删除。
+	t33SeedTemporaryDocument(t, env, "att-other", "s-other", "local://attachments/other.pdf")
+
+	require.NoError(t, env.svc.PurgeUser(
+		umCallerCtx("actor", umTenantA, types.TenantRoleOwner, false),
+		umTenantA, "target", "target@example.com", "t39 unsent attachments"))
+
+	rows := t39PurgeTaskRows(t, env)
+	require.Len(t, rows, 1,
+		"only the session-level exclusive attachment deserves an attachment task")
+	attachmentTask := t39TaskByOp(t, rows, "attachment")
+	var ap t39AttachmentPayload
+	require.NoError(t, json.Unmarshal(attachmentTask.Payload, &ap))
+	require.EqualValues(t, umTenantA, ap.TenantID)
+	require.Equal(t, []t39AttachmentDoc{
+		{ID: "att-unsent", ResourceRef: "local://attachments/unsent.pdf"},
+	}, ap.Documents,
+		"an unsent session attachment is exclusive; shared and other-user attachments stay out")
+
+	t33RequirePhysicalGone(t, env, &types.TemporaryDocument{}, "att-unsent")
+	require.EqualValues(t, 1,
+		umCount(t, env, &types.TemporaryDocument{}, "id = ?", "att-session-shared"),
+		"a session-level attachment still referenced by another live message must survive")
+	require.EqualValues(t, 1,
+		umCount(t, env, &types.TemporaryDocument{}, "id = ?", "att-other"),
+		"another account's session attachment must survive")
+}
+
+// TestT39PurgeReclaimsSoftDeletedUnsentAttachment 覆盖复核 #11 的实现约定
+// （T39-notes OQ8）：已软删的上传附件（从未发送）同样回收对象存储资源，
+// 即入队 attachment 任务并物理删除行。
+func TestT39PurgeReclaimsSoftDeletedUnsentAttachment(t *testing.T) {
+	env := newT39PurgeEnv(t)
+	t33SeedBase(t, env)
+
+	t33SeedSession(t, env, "s-1", "target")
+	t33SeedMessage(t, env, "m-1", "s-1", "user", "text only", "", nil)
+
+	t33SeedTemporaryDocument(t, env, "att-soft-unsent", "s-1",
+		"local://attachments/soft-unsent.pdf")
+	require.NoError(t, env.db.Exec(
+		"UPDATE temporary_documents SET deleted_at = ? WHERE id = ?",
+		time.Now(), "att-soft-unsent").Error)
+
+	require.NoError(t, env.svc.PurgeUser(
+		umCallerCtx("actor", umTenantA, types.TenantRoleOwner, false),
+		umTenantA, "target", "target@example.com", "t39 soft-deleted unsent attachment"))
+
+	rows := t39PurgeTaskRows(t, env)
+	require.Len(t, rows, 1, "a soft-deleted unsent attachment must still be reclaimed")
+	attachmentTask := t39TaskByOp(t, rows, "attachment")
+	var ap t39AttachmentPayload
+	require.NoError(t, json.Unmarshal(attachmentTask.Payload, &ap))
+	require.Equal(t, []t39AttachmentDoc{
+		{ID: "att-soft-unsent", ResourceRef: "local://attachments/soft-unsent.pdf"},
+	}, ap.Documents)
+
+	t33RequirePhysicalGone(t, env, &types.TemporaryDocument{}, "att-soft-unsent")
 }
