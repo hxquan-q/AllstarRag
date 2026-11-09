@@ -9624,7 +9624,7 @@ export default {
       noPermission: '你没有权限执行该操作。',
       notFound: '账号或空间不存在。',
       conflict: '当前状态不允许该操作，请刷新后重试。',
-      platformForbidden: '仅系统管理员可执行该操作。',
+      platformForbidden: '无权限执行该操作，目标可能受保护或调用者不是系统管理员。',
       platformNotFound: '目标账号不存在。',
       platformConflict: '账号当前状态不允许该操作，请刷新后重试。',
       usernameExists: '用户名已被占用。',

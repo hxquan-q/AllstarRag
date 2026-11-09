@@ -9625,7 +9625,7 @@ export default {
       noPermission: '이 작업을 수행할 권한이 없습니다.',
       notFound: '계정 또는 워크스페이스가 존재하지 않습니다.',
       conflict: '현재 상태에서는 이 작업을 수행할 수 없습니다. 새로고침 후 다시 시도하세요.',
-      platformForbidden: '이 작업은 시스템 관리자만 수행할 수 있습니다.',
+      platformForbidden: '이 작업을 수행할 권한이 없습니다. 대상이 보호되어 있거나 호출자가 시스템 관리자가 아닐 수 있습니다.',
       platformNotFound: '대상 계정이 존재하지 않습니다.',
       platformConflict: '계정의 현재 상태에서는 이 작업을 수행할 수 없습니다. 새로고침 후 다시 시도하세요.',
       usernameExists: '이미 사용 중인 사용자 이름입니다.',

@@ -9631,7 +9631,7 @@ export default {
       noPermission: 'You do not have permission to perform this action.',
       notFound: 'The account or workspace no longer exists.',
       conflict: 'This action conflicts with the current state. Refresh and try again.',
-      platformForbidden: 'Only system administrators can perform this action.',
+      platformForbidden: 'You do not have permission to perform this action. The target may be protected, or the caller may not be a system administrator.',
       platformNotFound: 'The target account does not exist.',
       platformConflict: 'The account is in a state that does not allow this action. Refresh and try again.',
       usernameExists: 'The username is already taken.',

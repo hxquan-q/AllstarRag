@@ -9621,7 +9621,7 @@ export default {
       noPermission: '你沒有權限執行此操作。',
       notFound: '帳號或工作區不存在。',
       conflict: '目前狀態不允許此操作，請重新整理後重試。',
-      platformForbidden: '僅系統管理員可執行此操作。',
+      platformForbidden: '無權限執行此操作，目標可能受保護或呼叫者不是系統管理員。',
       platformNotFound: '目標帳號不存在。',
       platformConflict: '帳號目前狀態不允許此操作，請重新整理後再試。',
       usernameExists: '使用者名稱已被占用。',

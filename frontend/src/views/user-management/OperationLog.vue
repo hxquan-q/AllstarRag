@@ -188,9 +188,18 @@ function isLatestRequest(seq: number): boolean {
   return seq === requestSeq
 }
 
+// 让所有飞行中的请求立即失效：它们随后的响应/错误/finally 都会被
+// isLatestRequest 丢弃，不再写回状态。
+function invalidateInFlight(): void {
+  requestSeq += 1
+}
+
 async function load(reset: boolean) {
   const tenantId = props.tenantId
   if (!tenantId) return
+  // 关键词防抖等待期间禁止「加载更多」：此时的游标属于旧关键词，拼上新
+  // 关键词会串数据；等防抖到点后由 load(true) 从第一页重新请求。
+  if (!reset && keywordTimer !== null) return
   // 「加载更多」重复点击仍然忽略；重置类请求（关键词/筛选/刷新）即使上一轮
   // 还在 loading 也必须发起新一轮，否则新关键词会被旧请求挡掉。
   if (!reset && loading.value) return
@@ -231,11 +240,12 @@ watch(actionFilter, () => {
   void load(true)
 })
 
-// 关键词交给后端搜索：300ms 防抖并回到第一页。关键词一变就重置游标；
-// 新请求由 load(true) 立即发出，旧请求的响应靠序号丢弃。
+// 关键词交给后端搜索：300ms 防抖并回到第一页。关键词一变就立即作废飞行中
+// 的旧请求（不能等防抖到点），否则旧响应会在防抖窗口内抢先写回旧结果。
 let keywordTimer: ReturnType<typeof setTimeout> | null = null
 watch(keyword, () => {
   clearKeywordTimer()
+  invalidateInFlight()
   keywordTimer = setTimeout(() => {
     keywordTimer = null
     void load(true)
@@ -259,7 +269,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearKeywordTimer()
   // 让飞行中的请求失效，避免卸载后写回状态。
-  requestSeq += 1
+  invalidateInFlight()
 })
 </script>
 
