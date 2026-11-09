@@ -8,6 +8,7 @@ import (
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/types"
+	"gorm.io/gorm"
 )
 
 // TransferOwner 交接空间 owner 身份。
@@ -16,8 +17,8 @@ import (
 //   - 普通 owner 只能传自己；fromUserID 为空时按调用者处理；
 //   - 系统管理员可传任意 owner，且不受工作区角色限制；
 //   - 目标必须是本空间 active 成员，否则 404；
-//   - 顺序是先提目标为 owner、再降源为 admin，任何时刻都至少保留
-//     1 名 owner；降级用 UpdateRole 的最后 owner 保护兜底。
+//   - 提升目标、降级源在仓储的单个事务内完成；失败整体回滚，不做
+//     跨事务补偿（T40），因此不会撤销其他已成功的交接。
 func (s *userManagementService) TransferOwner(
 	ctx context.Context,
 	tenantID uint64,
@@ -44,9 +45,6 @@ func (s *userManagementService) TransferOwner(
 	if !types.IsSystemAdminFromContext(ctx) && from != callerID {
 		return apperrors.NewForbiddenError("owners can only transfer their own ownership")
 	}
-	if s.memberService == nil {
-		return apperrors.NewInternalServerError("owner management dependencies are not configured")
-	}
 
 	source, err := s.loadActiveMembership(ctx, from, tenantID)
 	if err != nil {
@@ -55,8 +53,7 @@ func (s *userManagementService) TransferOwner(
 	if source.Role != types.TenantRoleOwner {
 		return apperrors.NewNotFoundError("source owner membership not found")
 	}
-	target, err := s.loadActiveMembership(ctx, to, tenantID)
-	if err != nil {
+	if _, err := s.loadActiveMembership(ctx, to, tenantID); err != nil {
 		return err
 	}
 	// 不能把空间交给被封禁的账号，否则交接后空间会立刻没有可登录的 owner（F30）。
@@ -69,18 +66,10 @@ func (s *userManagementService) TransferOwner(
 		return apperrors.NewBadRequestError("cannot transfer ownership to a banned account")
 	}
 
-	previousTargetRole := target.Role
-	if previousTargetRole != types.TenantRoleOwner {
-		if err := s.updateRoleGuarded(ctx, to, tenantID, previousTargetRole, types.TenantRoleOwner, false); err != nil {
-			return err
-		}
-	}
-	if err := s.updateRoleGuarded(ctx, from, tenantID, types.TenantRoleOwner, types.TenantRoleAdmin, true); err != nil {
-		// 降级失败时把目标恢复原角色，避免留下"交接了一半"的状态。
-		if previousTargetRole != types.TenantRoleOwner {
-			_ = s.updateRoleGuarded(ctx, to, tenantID, types.TenantRoleOwner, previousTargetRole, true)
-		}
-		return err
+	// 角色变更在仓储事务内完成；事务会再次复核角色与封禁状态，
+	// 并发交接失败时不会留下半迁移状态。
+	if err := s.memberRepo.TransferOwnershipTx(ctx, tenantID, from, to); err != nil {
+		return transferOwnershipError(err)
 	}
 
 	s.emitOwnerAudit(ctx, tenantID, types.AuditActionOwnerTransferred, to, map[string]string{
@@ -90,21 +79,18 @@ func (s *userManagementService) TransferOwner(
 	return nil
 }
 
-// updateRoleGuarded 在成员服务支持时走带 CAS 的角色更新；不支持该能力的
-// 测试替身回退到旧的 UpdateRole 路径。
-func (s *userManagementService) updateRoleGuarded(
-	ctx context.Context,
-	userID string,
-	tenantID uint64,
-	expectedRole, newRole types.TenantRole,
-	allowOwnerDemotion bool,
-) error {
-	if guarded, ok := s.memberService.(interface {
-		UpdateRoleGuarded(
-			context.Context, string, uint64, types.TenantRole, types.TenantRole, bool,
-		) error
-	}); ok {
-		return guarded.UpdateRoleGuarded(ctx, userID, tenantID, expectedRole, newRole, allowOwnerDemotion)
+// transferOwnershipError 把仓储事务的哨兵映射成对外状态码：
+// 目标被封禁 → 400；事务内复核发现角色已变化 → 409；目标成员/用户
+// 在事务期间消失 → 404；其余错误交给上层按 500 处理。
+func transferOwnershipError(err error) error {
+	switch {
+	case errors.Is(err, apprepo.ErrTargetBanned):
+		return apperrors.NewBadRequestError("cannot transfer ownership to a banned account")
+	case errors.Is(err, apprepo.ErrRoleChanged):
+		return ErrMembershipChanged
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		return apperrors.NewNotFoundError("target membership not found")
+	default:
+		return err
 	}
-	return s.memberService.UpdateRole(ctx, userID, tenantID, newRole)
 }

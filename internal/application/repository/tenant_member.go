@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -26,6 +27,11 @@ var ErrRoleChanged = errors.New("repository: membership role changed")
 // ErrOwnerDemotionRequiresTransfer 由 UpdateRoleGuarded 返回：试图把 owner
 // 直接降为非 owner，但没有走 transfer-owner 交接路径（T32 / AC-13 / AC-20）。
 var ErrOwnerDemotionRequiresTransfer = errors.New("repository: owner demotion requires transfer")
+
+// ErrTargetBanned 由 TransferOwnershipTx 返回：交接目标账号已被封禁
+// （users.is_active=false）。服务层据此返回 400，而不是把错误当成
+// “角色已变化”的 409（T40）。
+var ErrTargetBanned = errors.New("repository: transfer target is banned")
 
 // forUpdateClause returns the gorm SELECT ... FOR UPDATE clause. Kept
 // in one place so we can swap it out for `clause.Locking{Strength: "UPDATE"}`
@@ -218,6 +224,100 @@ func (r *tenantMemberRepository) UpdateRoleGuarded(
 			Updates(map[string]any{
 				"role":       newRole,
 				"updated_at": time.Now(),
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrRoleChanged
+		}
+		return nil
+	})
+}
+
+// TransferOwnershipTx 在单个事务内完成空间 owner 交接（T40）。
+//
+// 锁序：先把 from/to 两个 user_id 排序，再按升序逐行 SELECT ... FOR UPDATE。
+// 并发交接因此按相同顺序加锁，避免旧实现“先锁源行、再锁其他 owner”的
+// 交叉等待死锁（A→C 与 B→D）。SQLite 没有行锁，先对两条成员行做一次
+// 空更新拿到库级写锁，让并发交接串行化，避免读后升级写时的 SQLITE_BUSY。
+//
+// 事务内复核（不依赖服务层预检）：from 必须是 active owner；to 必须是
+// active 成员；to 用户必须存在且 is_active=true。任一不满足即返回 error
+// 且零改动。随后先把 to 提升为 owner，再把 from 降为 admin；任一 UPDATE
+// 未命中返回 ErrRoleChanged，整单回滚，不做跨事务补偿。
+func (r *tenantMemberRepository) TransferOwnershipTx(
+	ctx context.Context,
+	tenantID uint64,
+	fromUserID, toUserID string,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		lockIDs := []string{fromUserID, toUserID}
+		sort.Strings(lockIDs)
+		if tx.Name() == "sqlite" {
+			if err := tx.Model(&types.TenantMember{}).
+				Where("tenant_id = ? AND user_id IN ?", tenantID, lockIDs).
+				UpdateColumn("updated_at", gorm.Expr("updated_at")).Error; err != nil {
+				return err
+			}
+		}
+
+		locked := make(map[string]*types.TenantMember, len(lockIDs))
+		for _, userID := range lockIDs {
+			var member types.TenantMember
+			err := tx.Clauses(forUpdateClause()).
+				Where("tenant_id = ? AND user_id = ?", tenantID, userID).
+				First(&member).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			locked[userID] = &member
+		}
+
+		from := locked[fromUserID]
+		if from == nil || from.Status != types.TenantMemberStatusActive ||
+			from.Role != types.TenantRoleOwner {
+			return ErrRoleChanged
+		}
+		to := locked[toUserID]
+		if to == nil || to.Status != types.TenantMemberStatusActive {
+			return ErrRoleChanged
+		}
+
+		var targetUser types.User
+		if err := lockUserRows(tx).
+			Where("id = ?", toUserID).
+			First(&targetUser).Error; err != nil {
+			return err
+		}
+		if !targetUser.IsActive {
+			return ErrTargetBanned
+		}
+
+		now := time.Now()
+		res := tx.Model(&types.TenantMember{}).
+			Where("tenant_id = ? AND user_id = ? AND status = ?",
+				tenantID, toUserID, types.TenantMemberStatusActive).
+			Updates(map[string]any{
+				"role":       types.TenantRoleOwner,
+				"updated_at": now,
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrRoleChanged
+		}
+
+		res = tx.Model(&types.TenantMember{}).
+			Where("tenant_id = ? AND user_id = ? AND status = ? AND role = ?",
+				tenantID, fromUserID, types.TenantMemberStatusActive, types.TenantRoleOwner).
+			Updates(map[string]any{
+				"role":       types.TenantRoleAdmin,
+				"updated_at": now,
 			})
 		if res.Error != nil {
 			return res.Error
