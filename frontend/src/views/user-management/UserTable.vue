@@ -66,6 +66,7 @@
               :permissions="permissions"
               :owner-count="ownerCount"
               :can-reset-password="canResetPassword"
+              :scope="scope"
               :t="t"
               @ban="emit('ban', $event)"
               @unban="emit('unban', $event)"
@@ -212,7 +213,12 @@ const columns = computed<TableColumn[]>(() => {
       title: t('userManagement.columns.createdAt'),
       width: 120,
     },
-    { colKey: 'actions', title: t('userManagement.columns.actions'), width: 120 },
+    {
+      colKey: 'actions',
+      title: t('userManagement.columns.actions'),
+      // 多空间视图多一个「切换到该空间」按钮，操作列加宽。
+      width: props.scope === 'current' ? 120 : 200,
+    },
   )
   return list
 })
@@ -237,6 +243,10 @@ function gate(kind: 'changeRole', row: UserRow): ActionGate {
 
 function roleGate(row: UserRow): ActionGate {
   if (row.role === 'system_admin') return { allowed: false }
+  // 多空间视图不能直接改角色：先切到账号所在空间再操作（Q44）。
+  if (props.scope !== 'current') {
+    return { allowed: false, reasonKey: 'userManagement.tooltips.switchSpaceRequired' }
+  }
   return gate('changeRole', row)
 }
 

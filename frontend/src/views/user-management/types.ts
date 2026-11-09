@@ -2,6 +2,7 @@ import type { SystemAdminUser } from '@/api/system'
 import type { TenantRole } from '@/api/tenant/members'
 import type {
   UserManagementItem,
+  UserManagementListScope,
   UserManagementMembership,
   UserManagementRole,
   UserManagementStatus,
@@ -150,4 +151,49 @@ export function gateUserAction(
  */
 export function roleChangeOptions(isSystemAdmin: boolean): TenantRole[] {
   return isSystemAdmin ? ['viewer', 'contributor', 'owner'] : ['viewer', 'contributor']
+}
+
+/**
+ * 多空间视图（scope=other/all）的封禁/解封/注销走平台接口（T35），
+ * 不携带当前 tenantId；当前空间视图继续用空间内成员接口。
+ */
+export function usesPlatformAccountActions(scope: UserManagementListScope): boolean {
+  return scope !== 'current'
+}
+
+/** 改角色/交接是空间内操作，只在当前空间视图可用（Q44）。 */
+export function canManageMembershipInScope(scope: UserManagementListScope): boolean {
+  return scope === 'current'
+}
+
+/** 「切换到该空间」的候选目标。 */
+export interface TenantSwitchTarget {
+  tenantId: number
+  tenantName: string | null
+  label: string
+}
+
+/**
+ * 从行内成员关系解析可切换的空间：
+ * - 排除当前空间（切过去没有意义）；
+ * - 同一空间只保留一条；
+ * - 非法 id 直接丢弃。
+ */
+export function resolveTenantSwitchTargets(
+  memberships: UserManagementMembership[] | undefined,
+  currentTenantId?: number | null,
+): TenantSwitchTarget[] {
+  const targets: TenantSwitchTarget[] = []
+  const seen = new Set<number>()
+  const currentId = currentTenantId == null ? null : Number(currentTenantId)
+  for (const membership of memberships ?? []) {
+    const tenantId = Number(membership.tenant_id)
+    if (!Number.isFinite(tenantId) || tenantId <= 0) continue
+    if (currentId !== null && tenantId === currentId) continue
+    if (seen.has(tenantId)) continue
+    seen.add(tenantId)
+    const tenantName = membership.tenant_name || null
+    targets.push({ tenantId, tenantName, label: tenantName || `#${tenantId}` })
+  }
+  return targets
 }

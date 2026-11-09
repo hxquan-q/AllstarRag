@@ -100,6 +100,7 @@
       :target="actionTarget"
       :mode="actionMode"
       :candidates="transferCandidates"
+      :use-platform-api="platformAccountActions"
       @close="closeAction"
       @completed="onActionCompleted"
     />
@@ -140,10 +141,11 @@ import ResetPasswordDialog from './ResetPasswordDialog.vue'
 import InviteManagement from './InviteManagement.vue'
 import OperationLog from './OperationLog.vue'
 import { useUserManagement } from './useUserManagement'
-import type {
-  UserActionMode,
-  UserActionPermissions,
-  UserRow,
+import {
+  usesPlatformAccountActions,
+  type UserActionMode,
+  type UserActionPermissions,
+  type UserRow,
 } from './types'
 
 const { t } = useI18n()
@@ -182,6 +184,9 @@ const permissions = computed<UserActionPermissions>(() => ({
   purge: can('user.purge'),
   transfer: can('space.transfer'),
 }))
+
+// 多空间视图（scope=other/all）的封禁/解封/注销走 T35 平台接口，不再传当前 tenantId。
+const platformAccountActions = computed(() => usesPlatformAccountActions(scope.value))
 
 const canManageOwners = computed(() => can('user.owner.add'))
 const canCreateUser = computed(() => can('user.create'))

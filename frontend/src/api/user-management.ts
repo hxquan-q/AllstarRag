@@ -111,6 +111,30 @@ export interface PurgeMemberResponse {
   message?: string
 }
 
+/**
+ * 平台级封禁/解封响应（T35）：只回账号摘要，不含成员关系。
+ * 平台接口不依赖调用者当前空间的成员关系。
+ */
+export interface PlatformUserStatusResponse {
+  success: boolean
+  data?: {
+    user: {
+      id: string
+      username?: string
+      email?: string
+      is_active: boolean
+      status?: string
+    }
+  }
+  message?: string
+}
+
+export interface PlatformPurgeRequest {
+  /** 必须与目标账号当前邮箱一致，否则后端返回 400。 */
+  confirm_email: string
+  reason?: string
+}
+
 export interface TransferOwnerRequest {
   /** 省略表示把调用者自己持有的 owner 身份交出去。 */
   from_user_id?: string
@@ -240,6 +264,48 @@ export async function purgeMember(
 }
 
 /**
+ * 平台级封禁账号（仅系统管理员，任意空间账号；不传当前 tenantId）。
+ * Backend: POST /api/v1/system/admin/users/:user_id/ban。
+ */
+export async function platformBanUser(
+  userId: string,
+  reason?: string,
+): Promise<PlatformUserStatusResponse> {
+  return (await post(
+    `/api/v1/system/admin/users/${userId}/ban`,
+    { reason: reason ?? '' } satisfies BanMemberRequest,
+  )) as unknown as PlatformUserStatusResponse
+}
+
+/**
+ * 平台级解封账号（仅系统管理员）；不受「最近一次 ban 必须在本空间」限制。
+ * Backend: POST /api/v1/system/admin/users/:user_id/unban。
+ */
+export async function platformUnbanUser(
+  userId: string,
+  reason?: string,
+): Promise<PlatformUserStatusResponse> {
+  return (await post(
+    `/api/v1/system/admin/users/${userId}/unban`,
+    { reason: reason ?? '' } satisfies BanMemberRequest,
+  )) as unknown as PlatformUserStatusResponse
+}
+
+/**
+ * 平台级彻底删除（墓碑化）账号（仅系统管理员，任意空间账号）。
+ * Backend: POST /api/v1/system/admin/users/:user_id/purge。
+ */
+export async function platformPurgeUser(
+  userId: string,
+  body: PlatformPurgeRequest,
+): Promise<PurgeMemberResponse> {
+  return (await post(
+    `/api/v1/system/admin/users/${userId}/purge`,
+    body,
+  )) as unknown as PurgeMemberResponse
+}
+
+/**
  * 空间交接：把 owner 身份交给本空间成员；普通管理员只能交出自己持有的
  * owner 身份，系统管理员可指定 from_user_id。
  * Backend: POST /api/v1/tenants/:id/transfer-owner。
@@ -329,5 +395,24 @@ const STATUS_ERROR_KEYS: Record<number, string> = {
 export function resolveUserManagementError(error: unknown): string {
   const status = (error as { status?: number } | null)?.status
   const key = status != null ? STATUS_ERROR_KEYS[status] : undefined
+  return i18n.global.t(key ?? 'userManagement.errors.unknown')
+}
+
+// 平台级账号接口（T35）与空间内接口共用状态码，但文案强调平台语义：
+// 403=非系统管理员、404=目标账号不存在、409=账号状态冲突。
+// 404 必须给出明确提示，不能被静默吞掉。
+const PLATFORM_STATUS_ERROR_KEYS: Record<number, string> = {
+  400: 'userManagement.errors.invalidRequest',
+  401: 'userManagement.errors.noPermission',
+  403: 'userManagement.errors.platformForbidden',
+  404: 'userManagement.errors.platformNotFound',
+  409: 'userManagement.errors.platformConflict',
+  422: 'userManagement.errors.invalidRequest',
+}
+
+/** 把平台级账号接口的错误转成可读文案；未知状态回退到通用失败提示。 */
+export function resolvePlatformUserManagementError(error: unknown): string {
+  const status = (error as { status?: number } | null)?.status
+  const key = status != null ? PLATFORM_STATUS_ERROR_KEYS[status] : undefined
   return i18n.global.t(key ?? 'userManagement.errors.unknown')
 }

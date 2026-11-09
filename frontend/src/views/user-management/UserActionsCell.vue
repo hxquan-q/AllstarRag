@@ -37,6 +37,13 @@
         </t-button>
       </t-tooltip>
 
+      <!-- 多空间视图：改角色/交接不可用，改为切到账号所在空间再操作（Q44）。 -->
+      <SwitchSpaceButton
+        v-if="!canManageMembership"
+        :memberships="row.memberships"
+        :label="t('userManagement.actions.switchSpace')"
+      />
+
       <t-dropdown trigger="click" placement="bottom-right" :popup-props="{ zIndex: 6200 }">
         <t-button
           shape="square"
@@ -50,7 +57,7 @@
         <template #dropdown>
           <t-dropdown-menu>
             <t-dropdown-item
-              v-if="row.role === 'owner'"
+              v-if="row.role === 'owner' && canManageMembership"
               :disabled="!gate('transfer', row).allowed"
               @click="emit('transfer', row)"
             >
@@ -86,13 +93,16 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import type { UserManagementListScope } from '@/api/user-management'
 import {
+  canManageMembershipInScope,
   gateUserAction,
   type ActionGate,
   type UserActionKind,
   type UserActionPermissions,
   type UserRow,
 } from './types'
+import SwitchSpaceButton from './SwitchSpaceButton.vue'
 
 const props = defineProps<{
   row: UserRow
@@ -101,9 +111,15 @@ const props = defineProps<{
   permissions: UserActionPermissions
   ownerCount: number
   canResetPassword: boolean
+  /** 空间筛选口径：多空间视图禁用改角色/交接，改为「切换到该空间」。 */
+  scope?: UserManagementListScope
   /** 由 UserTable 注入的 i18n 函数，避免子组件各自 useI18n。 */
   t: (key: string) => string
 }>()
+
+const canManageMembership = computed(() =>
+  canManageMembershipInScope(props.scope ?? 'current'),
+)
 
 const emit = defineEmits<{
   ban: [row: UserRow]

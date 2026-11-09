@@ -68,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listAuditLog, type AuditLog, type AuditOutcome } from '@/api/tenant/audit-log'
 import { listUsers, resolveUserManagementError } from '@/api/user-management'
@@ -175,9 +175,26 @@ async function loadUserNames(tenantId: number) {
   }
 }
 
+// 关键词/筛选/空间切换都会并发触发请求：用请求序号保证只有最新一轮的
+// 响应能写回。旧响应（包括错误）一律丢弃，避免新关键词被旧结果覆盖。
+let requestSeq = 0
+
+function beginRequest(): number {
+  requestSeq += 1
+  return requestSeq
+}
+
+function isLatestRequest(seq: number): boolean {
+  return seq === requestSeq
+}
+
 async function load(reset: boolean) {
   const tenantId = props.tenantId
-  if (!tenantId || loading.value) return
+  if (!tenantId) return
+  // 「加载更多」重复点击仍然忽略；重置类请求（关键词/筛选/刷新）即使上一轮
+  // 还在 loading 也必须发起新一轮，否则新关键词会被旧请求挡掉。
+  if (!reset && loading.value) return
+  const seq = beginRequest()
   loading.value = true
   error.value = ''
   try {
@@ -187,42 +204,62 @@ async function load(reset: boolean) {
       action: actionFilter.value || undefined,
       q: keyword.value.trim() || undefined,
     })
+    if (!isLatestRequest(seq)) return
     if (!resp.success) throw new Error(resp.message || '')
     const rows = resp.data ?? []
     entries.value = reset ? rows : [...entries.value, ...rows]
     cursor.value = resp.next_cursor ?? 0
     hasMore.value = Boolean(resp.next_cursor)
   } catch (err) {
+    if (!isLatestRequest(seq)) return
     error.value = resolveUserManagementError(err)
   } finally {
-    loading.value = false
+    if (isLatestRequest(seq)) loading.value = false
   }
 }
 
-watch(actionFilter, () => load(true))
+function clearKeywordTimer() {
+  if (keywordTimer) {
+    clearTimeout(keywordTimer)
+    keywordTimer = null
+  }
+}
 
-// 关键词交给后端搜索：300ms 防抖并回到第一页。
+// 筛选变化立即重置游标；同时取消尚未触发的关键词防抖，避免连发两次。
+watch(actionFilter, () => {
+  clearKeywordTimer()
+  void load(true)
+})
+
+// 关键词交给后端搜索：300ms 防抖并回到第一页。关键词一变就重置游标；
+// 新请求由 load(true) 立即发出，旧请求的响应靠序号丢弃。
 let keywordTimer: ReturnType<typeof setTimeout> | null = null
 watch(keyword, () => {
-  if (keywordTimer) clearTimeout(keywordTimer)
+  clearKeywordTimer()
   keywordTimer = setTimeout(() => {
     keywordTimer = null
-    load(true)
+    void load(true)
   }, 300)
 })
 watch(
   () => props.tenantId,
   (id) => {
     if (!id) return
-    loadUserNames(id)
-    load(true)
+    void loadUserNames(id)
+    void load(true)
   },
 )
 
 onMounted(() => {
   if (!props.tenantId) return
-  loadUserNames(props.tenantId)
-  load(true)
+  void loadUserNames(props.tenantId)
+  void load(true)
+})
+
+onBeforeUnmount(() => {
+  clearKeywordTimer()
+  // 让飞行中的请求失效，避免卸载后写回状态。
+  requestSeq += 1
 })
 </script>
 

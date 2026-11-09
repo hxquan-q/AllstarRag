@@ -74,7 +74,11 @@ import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import {
   banMember,
+  platformBanUser,
+  platformPurgeUser,
+  platformUnbanUser,
   purgeMember,
+  resolvePlatformUserManagementError,
   resolveUserManagementError,
   transferOwner,
   unbanMember,
@@ -87,6 +91,11 @@ const props = defineProps<{
   mode: UserActionMode | null
   /** 交接候选人：本空间 active 成员。 */
   candidates: UserRow[]
+  /**
+   * true：多空间视图（scope=other/all），封禁/解封/注销走平台接口（T35），
+   * 不传当前 tenantId；false：当前空间沿用空间内成员接口。
+   */
+  usePlatformApi?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -169,14 +178,28 @@ function toastSuccess(key: string) {
 }
 
 function toastFailure(error: unknown) {
-  MessagePlugin.error(resolveUserManagementError(error))
+  MessagePlugin.error(
+    props.usePlatformApi
+      ? resolvePlatformUserManagementError(error)
+      : resolveUserManagementError(error),
+  )
 }
 
 async function submitBanOrUnban(): Promise<boolean> {
-  if (props.tenantId == null || !props.target) return false
+  if (!props.target) return false
   const reason = form.reason.trim() || undefined
-  const action = props.mode === 'unban' ? unbanMember : banMember
-  const response = await action(props.tenantId, props.target.user_id, reason)
+  let response: { success: boolean; message?: string }
+  if (props.usePlatformApi) {
+    // 多空间视图：平台接口按 users.id 定位，不带当前 tenantId。
+    response = props.mode === 'unban'
+      ? await platformUnbanUser(props.target.user_id, reason)
+      : await platformBanUser(props.target.user_id, reason)
+  } else {
+    if (props.tenantId == null) return false
+    response = props.mode === 'unban'
+      ? await unbanMember(props.tenantId, props.target.user_id, reason)
+      : await banMember(props.tenantId, props.target.user_id, reason)
+  }
   if (!response.success) throw new Error(response.message || 'member status change failed')
   toastSuccess(
     props.mode === 'unban'
@@ -187,23 +210,33 @@ async function submitBanOrUnban(): Promise<boolean> {
 }
 
 async function submitPurge(): Promise<boolean> {
-  if (props.tenantId == null || !props.target) return false
+  if (!props.target) return false
   const email = form.confirmEmail.trim()
   if (email !== props.target.email.trim()) {
     MessagePlugin.error(t('userManagement.dialogs.purgeEmailMismatch'))
     return false
   }
-  const response = await purgeMember(props.tenantId, props.target.user_id, {
-    confirm_email: email,
-    reason: form.reason.trim() || undefined,
-  })
+  let response: { success: boolean; message?: string }
+  if (props.usePlatformApi) {
+    response = await platformPurgeUser(props.target.user_id, {
+      confirm_email: email,
+      reason: form.reason.trim() || undefined,
+    })
+  } else {
+    if (props.tenantId == null) return false
+    response = await purgeMember(props.tenantId, props.target.user_id, {
+      confirm_email: email,
+      reason: form.reason.trim() || undefined,
+    })
+  }
   if (!response.success) throw new Error(response.message || 'purge failed')
   toastSuccess('userManagement.toasts.purgeSuccess')
   return true
 }
 
 async function submitTransfer(): Promise<boolean> {
-  if (props.tenantId == null || !props.target) return false
+  // 交接是空间内操作：多空间视图只能先切到账号所在空间再交接（Q44）。
+  if (props.usePlatformApi || props.tenantId == null || !props.target) return false
   if (!transferForm.toUserId) {
     MessagePlugin.error(t('userManagement.dialogs.transferTargetRequired'))
     return false
