@@ -881,8 +881,8 @@ func (s *userService) ChangePassword(ctx context.Context, userID, oldPassword, n
 // admin HTTP boundary; this service owns the security-critical persistence and
 // session invalidation so no caller can accidentally update only one of them.
 //
-// 生产仓储实现 passwordResetTx 时，「跨空间 owner 复核 + 写密码」在同一
-// 事务内完成（用户行锁 + 事务内复核成员关系），消除 T30 的 TOCTOU。
+// 生产仓储实现 passwordResetTx 时，「特权目标 / 跨空间 owner 复核 + 写密码」
+// 在同一事务内完成（用户行锁 + 事务内复核），消除 T30 与 R4b 发现的 TOCTOU。
 func (s *userService) AdminResetPassword(ctx context.Context, userID, newPassword string) error {
 	if err := ValidatePasswordPolicy(newPassword, s.complexPasswordEnabled(ctx)); err != nil {
 		return err
@@ -911,14 +911,25 @@ func (s *userService) AdminResetPassword(ctx context.Context, userID, newPasswor
 	// 角色”的账号。目标可能在本空间只是 viewer/contributor，却在另一个
 	// 空间是 owner；改掉的密码是全局的，等于跨空间接管。同空间 owner 的
 	// 重置仍允许（现有用途）。查询失败按 fail-closed 拒绝。
-	enforceOtherOwnerCheck := !callerOnSystemAdminBoundary(ctx) && s.memberService != nil
+	onSystemAdminBoundary := callerOnSystemAdminBoundary(ctx)
+	enforceOtherOwnerCheck := !onSystemAdminBoundary && s.memberService != nil
 	callerTenantID, _ := types.TenantIDFromContext(ctx)
+	// F42（R4b）：上面的特权目标预检在事务外；事务内以已锁定的 users 行为准
+	// 再复核一次，堵住预检之后、加锁之前被并发授予平台特权的窗口。
+	// 命中时事务回滚，不写密码、不吊销 token、不写审计。
+	enforcePrivilegedTargetCheck := !onSystemAdminBoundary
 
 	// 生产路径：复核与密码写入同事务，避免“校验后、写入前”被并发提升。
 	if resetter, ok := s.userRepo.(passwordResetTx); ok {
 		if _, err := resetter.ResetPasswordTx(
-			ctx, userID, callerTenantID, enforceOtherOwnerCheck, string(hashedPassword),
+			ctx, userID, callerTenantID, enforceOtherOwnerCheck,
+			enforcePrivilegedTargetCheck, string(hashedPassword),
 		); err != nil {
+			if errors.Is(err, apprepo.ErrResetTargetPrivileged) {
+				logger.Warnf(ctx,
+					"AdminResetPassword denied: privileged target user=%s", userID)
+				return ErrCannotResetPrivilegedTarget
+			}
 			if errors.Is(err, apprepo.ErrResetTargetOwnsAnotherWorkspace) {
 				logger.Warnf(ctx,
 					"AdminResetPassword denied: target owns another workspace user=%s", userID)
@@ -943,14 +954,15 @@ func (s *userService) AdminResetPassword(ctx context.Context, userID, newPasswor
 	return s.tokenRepo.RevokeTokensByUserID(ctx, userID)
 }
 
-// passwordResetTx 是"事务内复核跨空间 owner + 写密码"的窄接口，由真实
-// user repository 实现。测试替身不实现时回退事务外的检查路径。
+// passwordResetTx 是"事务内复核特权目标 / 跨空间 owner + 写密码"的窄接口，
+// 由真实 user repository 实现。测试替身不实现时回退事务外的检查路径。
 type passwordResetTx interface {
 	ResetPasswordTx(
 		ctx context.Context,
 		targetUserID string,
 		callerTenantID uint64,
 		enforceOtherWorkspaceOwnerCheck bool,
+		enforcePrivilegedTargetCheck bool,
 		passwordHash string,
 	) (*types.User, error)
 }

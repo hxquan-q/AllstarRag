@@ -15,13 +15,20 @@ import (
 // 因此必须拒绝。
 var ErrResetTargetOwnsAnotherWorkspace = errors.New("reset target owns another workspace")
 
-// ResetPasswordTx 在单事务内完成「锁目标 users 行 → 复核跨空间 owner →
-// 写密码哈希」。
+// ErrResetTargetPrivileged 表示目标是平台级特权账号（系统管理员或可跨空间），
+// 而调用方不在系统管理边界上。在事务内锁定并复核 users 行后返回，此时尚未
+// 写密码，调用方也不应再吊销 token 或写审计。
+var ErrResetTargetPrivileged = errors.New("reset target holds platform privileges")
+
+// ResetPasswordTx 在单事务内完成「锁目标 users 行 → 复核特权目标 /
+// 跨空间 owner → 写密码哈希」。
 //
 // 目的是消除 T30 的 TOCTOU：原实现先在事务外读成员关系，再写密码；若目标
 // 在校验与写入之间被并发提升为其他空间的 owner，重置仍会成功。这里先锁
-// users 行（提升/交接路径更新成员行时会被这把锁挡住），再在事务内按
-// id 顺序锁住目标的 active 成员行并复核，最后写密码。
+// users 行（挡住针对 users 行的并发写，含平台授权 UPDATE），再在事务内按
+// id 顺序锁住目标的 active 成员行并复核跨空间 owner（真正挡住角色提升/
+// 交接的是成员行 FOR UPDATE），最后写密码。特权目标检查同样放在事务内，
+// 避免「事务外预检通过、加锁前被并发授予平台特权」的窗口。
 //
 // SQLite 没有行锁，先做一次空更新拿库级写锁；真实生产库（PostgreSQL /
 // MySQL）用 SELECT ... FOR UPDATE。
@@ -30,6 +37,7 @@ func (r *userRepository) ResetPasswordTx(
 	targetUserID string,
 	callerTenantID uint64,
 	enforceOtherWorkspaceOwnerCheck bool,
+	enforcePrivilegedTargetCheck bool,
 	passwordHash string,
 ) (*types.User, error) {
 	var user types.User
@@ -51,6 +59,11 @@ func (r *userRepository) ResetPasswordTx(
 		}
 		if user.DeletedAt.Valid {
 			return ErrUserNotFound
+		}
+		// 特权目标复核：必须在已锁定 users 行之后、写密码之前。命中时直接
+		// 回滚事务，不写密码、不吊销 token、不写审计。
+		if enforcePrivilegedTargetCheck && (user.IsSystemAdmin || user.CanAccessAllTenants) {
+			return ErrResetTargetPrivileged
 		}
 
 		if enforceOtherWorkspaceOwnerCheck {

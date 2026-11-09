@@ -47,7 +47,8 @@ func (s *userManagementService) loadPlatformTarget(
 }
 
 // PlatformBanUser 账号级封禁：is_active=false + 吊销全部 token，成员关系
-// 保持不动。自己 / 最后活跃系统管理员保护复用仓储 SetUserActive。
+// 保持不动。自己 / 最后活跃系统管理员保护由 BanUserTx 在同一事务内复核，
+// 与 SetUserActive 使用相同的 lockSystemAdmins 锁序。
 func (s *userManagementService) PlatformBanUser(
 	ctx context.Context,
 	targetUserID string,
