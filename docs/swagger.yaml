@@ -28510,6 +28510,54 @@ paths:
         state and system administrator flag. Follow has_more using offset + limit.
         tenant_id is the home workspace, not a list of memberships. No search or role
         filter is supported: paginate before drawing conclusions.'
+  /system/admin/users/{user_id}/ban:
+    post:
+      description: 系统管理员按 user_id 封禁任意账号（不依赖当前空间成员关系）：置 is_active=false 并吊销全部 token，写
+        tenant_id=0 的系统审计
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 封禁原因（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.memberStatusChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 最小账号摘要（不含 preferences / 密码哈希 / 成员关系）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 非系统管理员、操作自己或目标是最后一名活跃系统管理员
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标账号不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 平台封禁账号
+      tags:
+      - 平台用户管理
   /system/admin/users/{user_id}/owner-space:
     post:
       description: 系统管理员把已有账号设为 owner：已有独立空间则复用，否则新建空间并成为唯一 owner
@@ -28555,6 +28603,101 @@ paths:
       summary: 设置账号为 owner
       tags:
       - 系统管理
+  /system/admin/users/{user_id}/purge:
+    post:
+      description: 系统管理员按 user_id 墓碑化任意账号（跨空间/无成员关系均可）：清空 PII、清理个人数据并写系统审计；owner 需先交接、系统管理员需先撤权，不可恢复
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 确认邮箱与原因（原因可选）
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.memberPurgeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 仅包含被处理账号 id
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法或 confirm_email 与目标邮箱不一致
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 非系统管理员、操作自己、目标仍有特权或 owner 未交接
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标账号不存在（含重复删除）
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 平台注销账号
+      tags:
+      - 平台用户管理
+  /system/admin/users/{user_id}/unban:
+    post:
+      description: 系统管理员按 user_id 解封任意账号：恢复登录能力，不恢复历史 token，不受「最近一次 ban 必须在当前空间」限制
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 解封原因（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.memberStatusChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 最小账号摘要（不含 preferences / 密码哈希 / 成员关系）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 非系统管理员
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标账号不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 平台解封账号
+      tags:
+      - 平台用户管理
   /system/admin/users/create:
     post:
       consumes:
