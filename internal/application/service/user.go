@@ -75,6 +75,12 @@ var (
 	// 等于接管账号——因此在这里按 fail-closed 拒绝，而不是只拦在某一条
 	// HTTP 边界上。
 	ErrCannotResetPrivilegedTarget = errors.New("cannot reset this member's password from a workspace endpoint")
+
+	// ErrCannotResetElsewhereOwner 由 AdminResetPassword 返回：目标用户在其他
+	// 空间持有 active owner 成员关系，而调用方不在系统管理边界上。密码是
+	// 全局的，空间级重置会连带接管对方作为 owner 的另一个空间，因此拒绝。
+	// 同空间 owner 的重置不受影响；查询失败同样按 fail-closed 处理。
+	ErrCannotResetElsewhereOwner = errors.New("cannot reset a member who owns another workspace from a workspace endpoint")
 )
 
 // Machine-readable change-password failure reasons for HTTP details fields.
@@ -892,6 +898,16 @@ func (s *userService) AdminResetPassword(ctx context.Context, userID, newPasswor
 		logger.Warnf(ctx, "AdminResetPassword denied: privileged target user=%s", userID)
 		return ErrCannotResetPrivilegedTarget
 	}
+	// F-RESET-OWNER（T30）：非系统管理边界不得重置“在其他空间持有 owner
+	// 角色”的账号。目标可能在本空间只是 viewer/contributor，却在另一个
+	// 空间是 owner；改掉的密码是全局的，等于跨空间接管。同空间 owner 的
+	// 重置仍允许（现有用途）。查询失败按 fail-closed 拒绝。
+	if !callerOnSystemAdminBoundary(ctx) && s.memberService != nil {
+		if !s.canResetPasswordFromCallerWorkspace(ctx, userID) {
+			logger.Warnf(ctx, "AdminResetPassword denied: target owns another workspace user=%s", userID)
+			return ErrCannotResetElsewhereOwner
+		}
+	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -904,6 +920,31 @@ func (s *userService) AdminResetPassword(ctx context.Context, userID, newPasswor
 	}
 
 	return s.tokenRepo.RevokeTokensByUserID(ctx, userID)
+}
+
+// canResetPasswordFromCallerWorkspace 判断调用方所在空间是否有资格重置目标
+// 的全局密码。只要目标在“调用方当前空间之外”的任意空间持有 active owner
+// 角色，就拒绝——否则空间级重置会连带接管那个空间。查询失败按 fail-closed
+// 处理，宁可拒绝也不放行。
+func (s *userService) canResetPasswordFromCallerWorkspace(ctx context.Context, targetUserID string) bool {
+	if s.memberService == nil {
+		return false
+	}
+	callerTenantID, _ := types.TenantIDFromContext(ctx)
+	members, err := s.memberService.ListByUser(ctx, targetUserID)
+	if err != nil {
+		logger.Warnf(ctx, "AdminResetPassword: list memberships for target %s failed: %v", targetUserID, err)
+		return false
+	}
+	for _, m := range members {
+		if m == nil || m.Status != types.TenantMemberStatusActive || m.Role != types.TenantRoleOwner {
+			continue
+		}
+		if m.TenantID != callerTenantID {
+			return false
+		}
+	}
+	return true
 }
 
 // callerOnSystemAdminBoundary 判定调用方是否站在「系统管理边界」上：与

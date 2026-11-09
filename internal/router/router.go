@@ -265,6 +265,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		RegisterAuthRoutes(v1, params.AuthHandler, rbacGuards)
 		RegisterTenantRoutes(v1, params.TenantHandler, params.TenantMemberHandler, params.TenantInvitationHandler, params.AuditLogHandler, rbacGuards)
 		RegisterUserManagementRoutes(v1, params.UserManagementHandler, rbacGuards)
+		RegisterPlatformUserManagementRoutes(v1, params.UserManagementHandler, rbacGuards)
 		RegisterOwnerManagementRoutes(v1, params.OwnerManagementHandler, rbacGuards)
 		RegisterMyInvitationRoutes(v1, params.TenantInvitationHandler)
 		RegisterKnowledgeBaseRoutes(v1, params.KBHandler, rbacGuards)

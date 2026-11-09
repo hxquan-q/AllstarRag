@@ -67,6 +67,14 @@ var (
 	// is forbidden; an explicit ownership transfer must happen first.
 	ErrLastOwner = errors.New("cannot demote or remove the last active owner of the tenant")
 
+	// ErrMembershipChanged 表示事务内复核发现目标角色已与调用方预读的
+	// expectedRole 不一致（并发提权/降级），应让调用方刷新后重试（T32）。
+	ErrMembershipChanged = errors.New("tenant membership role changed")
+
+	// ErrOwnerDemotionRequiresTransfer 表示直接降级 owner；必须先走
+	// transfer-owner 交接（T32 / AC-13 / AC-20）。
+	ErrOwnerDemotionRequiresTransfer = errors.New("owner demotion requires ownership transfer")
+
 	// ErrTargetPrivileged 表示目标账号是系统管理员或跨空间超管。
 	// 非系统管理员不能修改其角色（AC-5）。
 	ErrTargetPrivileged = errors.New("target is a platform administrator")
@@ -426,6 +434,82 @@ func (s *tenantMemberService) UpdateRole(
 	}
 	s.emitRoleChangeAudit(ctx, tenantID, userID, oldRole, newRole)
 	return nil
+}
+
+// guardedRoleUpdater is the optional repository capability used by
+// UpdateRoleGuarded. Kept as a narrow interface so existing repository
+// doubles that only implement TenantMemberRepository keep compiling.
+type guardedRoleUpdater interface {
+	UpdateRoleGuarded(
+		ctx context.Context,
+		userID string,
+		tenantID uint64,
+		expectedRole, newRole types.TenantRole,
+		allowOwnerDemotion bool,
+	) error
+}
+
+// UpdateRoleGuarded performs the role change with a transaction-time CAS
+// on expectedRole (T32). Direct owner -> non-owner transitions are
+// rejected unless allowOwnerDemotion is set, and only transfer-owner may
+// set it. The last-owner invariant is enforced inside the repository
+// transaction; a stale expectedRole returns ErrMembershipChanged.
+func (s *tenantMemberService) UpdateRoleGuarded(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	expectedRole, newRole types.TenantRole,
+	allowOwnerDemotion bool,
+) error {
+	if !newRole.IsValid() {
+		return ErrInvalidTenantRole
+	}
+	if err := rejectAPIKeyOwnerAssignment(ctx, newRole); err != nil {
+		return err
+	}
+	if expectedRole == types.TenantRoleOwner && newRole != types.TenantRoleOwner && !allowOwnerDemotion {
+		return ErrOwnerDemotionRequiresTransfer
+	}
+	if newRole == types.TenantRoleOwner {
+		if err := s.guardOwnerPromotionTarget(ctx, userID, tenantID, newRole); err != nil {
+			return err
+		}
+	}
+
+	if updater, ok := s.repo.(guardedRoleUpdater); ok {
+		err := updater.UpdateRoleGuarded(ctx, userID, tenantID, expectedRole, newRole, allowOwnerDemotion)
+		switch {
+		case err == nil:
+			if expectedRole != newRole {
+				s.emitRoleChangeAudit(ctx, tenantID, userID, expectedRole, newRole)
+			}
+			return nil
+		case errors.Is(err, apprepo.ErrLastOwner):
+			return ErrLastOwner
+		case errors.Is(err, apprepo.ErrRoleChanged):
+			return ErrMembershipChanged
+		case errors.Is(err, apprepo.ErrOwnerDemotionRequiresTransfer):
+			return ErrOwnerDemotionRequiresTransfer
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return ErrMembershipNotFound
+		default:
+			return err
+		}
+	}
+
+	// Fallback for repository doubles without the guarded capability
+	// (test-only paths). Real repositories always take the branch above.
+	current, err := s.repo.Get(ctx, userID, tenantID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrMembershipNotFound
+	}
+	if current.Role != expectedRole {
+		return ErrMembershipChanged
+	}
+	return s.UpdateRole(ctx, userID, tenantID, newRole)
 }
 
 // ValidateRoleChangeTarget 校验改角色的目标保护（AC-5/AC-6）：非系统

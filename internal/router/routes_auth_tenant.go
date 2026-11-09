@@ -219,6 +219,32 @@ func RegisterUserManagementRoutes(
 	tenantByID.GET("/user-management", g.OwnerOrSystemAdmin(), h.ListUsers)
 }
 
+// RegisterPlatformUserManagementRoutes 注册平台级账号操作接口（T35）：
+//   - POST /system/admin/users/:user_id/ban
+//   - POST /system/admin/users/:user_id/unban
+//   - POST /system/admin/users/:user_id/purge
+//
+// 平台接口按 users.id 定位账号，不依赖当前工作区成员关系，因此：
+//   - 不挂 g.PathTenantMatch()（URL 中没有空间维度）；
+//   - 组级只挂 g.SystemAdmin()，非系统管理员 403；
+//   - 不走 apiKeyGroup 声明 → API Key 授权表查不到该路由，网关默认拒绝。
+//
+// 目标保护与跨空间规则仍在 UserManagementService 内完成，服务层会再证
+// 一次系统管理员身份（C4）。
+func RegisterPlatformUserManagementRoutes(
+	r *gin.RouterGroup,
+	h *handler.UserManagementHandler,
+	g *rbacGuards,
+) {
+	if h == nil {
+		return
+	}
+	adminRoutes := r.Group("/system/admin", g.SystemAdmin())
+	adminRoutes.POST("/users/:user_id/ban", h.PlatformBanUser)
+	adminRoutes.POST("/users/:user_id/unban", h.PlatformUnbanUser)
+	adminRoutes.POST("/users/:user_id/purge", h.PlatformPurgeUser)
+}
+
 // RegisterOwnerManagementRoutes 注册仅系统管理员可用的 owner 分配接口：
 //   - POST /system/admin/users/:user_id/owner-space
 //   - POST /system/admin/owners/invite

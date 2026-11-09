@@ -25,9 +25,10 @@ var (
 // PurgeUserTx 在单事务内完成账号墓碑化与个人数据清理。
 //
 // 步骤：锁 users 行 → 复核目标未删除/未持有特权 → 锁住目标的 active
-// 成员行并复核 owner / 跨空间归属 → 退役并删除会话 → 清理成员关系、
+// 成员行并复核 owner / 跨空间归属 → 清理目标会话里的消息、独占的聊天
+// 附件记录与聊天历史 knowledges → 退役并删除会话 → 清理成员关系、
 // 邀请、token、收藏、pins、MCP token、环境变量、个人通知 → 匿名化并
-// 软删 users 行 → 写审计。资产表（knowledge_bases / knowledge /
+// 软删 users 行 → 写审计。资产表（knowledge_bases / 普通 knowledge /
 // custom_agents 等）完全不动，creator_id 继续指向墓碑。
 //
 // 成员行加锁把"服务层校验后、事务提交前"的并发提权挡住：并发的
@@ -70,6 +71,11 @@ func (r *userRepository) PurgeUserTx(
 		}
 
 		now := time.Now().UTC()
+		// 聊天数据必须先于会话删除：附件引用判定依赖 sessions 行来确认
+		// 租户归属。消息、聊天历史与独占附件在同一事务内物理删除。
+		if err := purgeUserChatDataTx(tx, targetUserID); err != nil {
+			return err
+		}
 		if err := purgeUserSessionsTx(tx, targetUserID, now); err != nil {
 			return err
 		}
@@ -125,6 +131,10 @@ func lockPurgeMemberRows(tx *gorm.DB) *gorm.DB {
 // RetireSessionsTx（Lite/测试库可能没有沙箱表），否则直接删会话行。
 func purgeUserSessionsTx(tx *gorm.DB, userID string, at time.Time) error {
 	migrator := tx.Migrator()
+	// 轻量库/部分测试夹具可能没有会话表，与消息表/沙箱表缺失时一样跳过。
+	if !migrator.HasTable("sessions") {
+		return nil
+	}
 	if migrator.HasTable("session_sandbox_assignments") &&
 		migrator.HasTable("sandbox_user_machines") {
 		ids, err := ownerSessionIDs(tx, userID)
@@ -140,44 +150,52 @@ func purgeUserSessionsTx(tx *gorm.DB, userID string, at time.Time) error {
 }
 
 // purgeUserPersonalDataTx 清理账号级的个人数据。顺序无关，任一失败都
-// 会让整个事务回滚。
+// 会让整个事务回滚。可选表在轻量库/测试夹具中可能不存在，此时跳过该步
+// （生产库始终具备全部表）。
 func purgeUserPersonalDataTx(tx *gorm.DB, userID string) error {
-	steps := []func(*gorm.DB) error{
-		func(tx *gorm.DB) error {
+	migrator := tx.Migrator()
+	steps := []struct {
+		table string
+		del   func(*gorm.DB) error
+	}{
+		{"tenant_members", func(tx *gorm.DB) error {
 			// tenant_members 保留行供审计/资产引用，只做软删。
 			return tx.Where("user_id = ?", userID).Delete(&types.TenantMember{}).Error
-		},
-		func(tx *gorm.DB) error {
+		}},
+		{"tenant_invitations", func(tx *gorm.DB) error {
 			// 目标收到的邀请（invitee_user_id）与目标发出的邀请 /
 			// 分享链接（invited_by）都要清理，避免墓碑后仍留下可用的
 			// pending 邀请（AC-19 / AC-25）。
 			return tx.Where("invitee_user_id = ? OR invited_by = ?", userID, userID).
 				Delete(&types.TenantInvitation{}).Error
-		},
-		func(tx *gorm.DB) error {
+		}},
+		{"auth_tokens", func(tx *gorm.DB) error {
 			return tx.Unscoped().Where("user_id = ?", userID).
 				Delete(&types.AuthToken{}).Error
-		},
-		func(tx *gorm.DB) error {
+		}},
+		{"user_resource_favorites", func(tx *gorm.DB) error {
 			return tx.Where("user_id = ?", userID).
 				Delete(&types.UserResourceFavorite{}).Error
-		},
-		func(tx *gorm.DB) error {
+		}},
+		{"user_kb_pins", func(tx *gorm.DB) error {
 			return tx.Where("user_id = ?", userID).Delete(&userKBPinRow{}).Error
-		},
-		func(tx *gorm.DB) error {
+		}},
+		{"mcp_oauth_tokens", func(tx *gorm.DB) error {
 			return tx.Where("user_id = ?", userID).Delete(&types.MCPOAuthToken{}).Error
-		},
-		func(tx *gorm.DB) error {
+		}},
+		{"tenant_user_env_vars", func(tx *gorm.DB) error {
 			return tx.Where("principal_id = ?", userID).
 				Delete(&types.TenantUserEnvVar{}).Error
-		},
-		func(tx *gorm.DB) error {
+		}},
+		{"notifications", func(tx *gorm.DB) error {
 			return tx.Where("user_id = ?", userID).Delete(&types.Notification{}).Error
-		},
+		}},
 	}
 	for _, step := range steps {
-		if err := step(tx); err != nil {
+		if !migrator.HasTable(step.table) {
+			continue
+		}
+		if err := step.del(tx); err != nil {
 			return err
 		}
 	}

@@ -85,6 +85,19 @@ type UserManagementService interface {
 		ctx context.Context, tenantID uint64, targetUserID, confirmEmail, reason string,
 	) error
 
+	// PlatformBanUser 是账号级的平台封禁：按 users.id 直接定位目标，不要求
+	// 调用者当前工作区与目标存在成员关系；仅系统管理员可用（服务层自证，
+	// 非系统管理员 403）。复用 SetUserActive 的「不能操作自己」「最后活跃
+	// 系统管理员」保护并吊销全部 token；成功后写 tenant_id=0 的系统审计。
+	PlatformBanUser(ctx context.Context, targetUserID, reason string) (*types.User, error)
+	// PlatformUnbanUser 是账号级的平台解封：不受「最近一次 ban 必须在本空间」
+	// 限制，仅系统管理员可用；成功后写 tenant_id=0 的系统审计。
+	PlatformUnbanUser(ctx context.Context, targetUserID, reason string) (*types.User, error)
+	// PlatformPurgeUser 是账号级的平台注销：跨空间/无成员关系账号均可，
+	// 但仍要求目标先完成 owner 交接、撤销系统管理员/跨空间特权。confirmEmail
+	// 必须与目标当前邮箱一致（400）。仅系统管理员可用。
+	PlatformPurgeUser(ctx context.Context, targetUserID, confirmEmail, reason string) error
+
 	// TransferOwner 把空间 owner 交给目标成员：先把目标提为 owner，
 	// 再把源 owner 降为 admin。owner 只能交出自己的身份；系统管理员
 	// 可交接任意 owner。目标必须是本空间 active 成员。

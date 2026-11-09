@@ -142,6 +142,17 @@ func renderManagementError(c *gin.Context, err error) {
 		_ = c.Error(apperrors.NewForbiddenError(
 			"owner accounts can only be managed by a system administrator"))
 		return
+	case errors.Is(err, service.ErrMembershipChanged):
+		_ = c.Error(apperrors.NewConflictError(
+			"membership role changed, refresh and retry"))
+		return
+	case errors.Is(err, service.ErrOwnerDemotionRequiresTransfer):
+		_ = c.Error(apperrors.NewForbiddenError(
+			"an owner cannot be demoted directly; complete the space handover via transfer-owner first"))
+		return
+	case errors.Is(err, service.ErrLastOwner):
+		_ = c.Error(apperrors.NewConflictError(err.Error()))
+		return
 	}
 	var appErr *apperrors.AppError
 	if errors.As(err, &appErr) {

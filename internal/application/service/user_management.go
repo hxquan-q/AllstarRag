@@ -27,6 +27,9 @@ type userManagementService struct {
 	// purgeRepo 提供墓碑化事务。由真实 user repository 实现；缺失时
 	// PurgeUser 直接报错，不做"删一半"的降级路径。
 	purgeRepo userPurgeTx
+	// unbanRepo 提供"事务内复核最新 ban + 解封"。由真实 user repository
+	// 实现；缺失时回退旧的预检查路径（测试替身兼容），生产必须走事务。
+	unbanRepo userUnbanTx
 	// listRepo 提供用户管理列表的分页/计数窄查询。由真实 tenant member
 	// 仓储实现；缺失时 ListUsers 直接报内部错误，不返回空列表冒充成功。
 	listRepo userManagementListRepo
@@ -66,6 +69,9 @@ func NewUserManagementService(
 	if purge, ok := userRepo.(userPurgeTx); ok {
 		svc.purgeRepo = purge
 	}
+	if unban, ok := userRepo.(userUnbanTx); ok {
+		svc.unbanRepo = unban
+	}
 	// 列表窄查询挂在 tenant member 仓储上，同样自动探测以保持三参构造。
 	if listRepo, ok := memberRepo.(userManagementListRepo); ok {
 		svc.listRepo = listRepo
@@ -81,6 +87,18 @@ func NewUserManagementService(
 // lookup 为 nil 时普通 owner 的解封一律 403（失败关闭）。
 func (s *userManagementService) WithLatestBanLookup(lookup interfaces.LatestBanAuditLookup) {
 	s.latestBan = lookup
+}
+
+// userUnbanTx 是"事务内复核最新 ban + 解封"的窄接口，由真实 user
+// repository 实现。测试替身可不实现，服务会回退旧路径。
+type userUnbanTx interface {
+	UnbanUserTx(
+		ctx context.Context,
+		tenantID uint64,
+		targetUserID string,
+		actorID string,
+		isSystemAdmin bool,
+	) (*types.User, error)
 }
 
 // managedTarget 是一次状态变更的目标快照：用户行 + 本租户的成员关系。
@@ -135,7 +153,31 @@ func (s *userManagementService) UnbanUser(
 		return nil, err
 	}
 
-	if !types.IsSystemAdminFromContext(ctx) {
+	isSystemAdmin := types.IsSystemAdminFromContext(ctx)
+
+	// 生产路径：检查与解封在同一事务内完成，避免并发新 ban 被旧来源的
+	// 解封覆盖。事务内还会再查一次最新 ban，不能依赖事务外的预检查。
+	if s.unbanRepo != nil {
+		user, err := s.unbanRepo.UnbanUserTx(
+			ctx, tenantID, target.user.ID, auditActor(ctx), isSystemAdmin)
+		if err != nil {
+			switch {
+			case errors.Is(err, apprepo.ErrUnbanNotLatestTenant):
+				return nil, apperrors.NewForbiddenError(
+					"this account was banned in another workspace; ask a system administrator")
+			case errors.Is(err, apprepo.ErrUserNotFound):
+				return nil, apperrors.NewNotFoundError("user not found")
+			default:
+				return nil, err
+			}
+		}
+		s.emitStatusAudit(ctx, tenantID, target,
+			types.AuditActionMemberUnbanned, reason)
+		return user, nil
+	}
+
+	// 测试替身/无事务能力时的兼容路径（生产仓储始终实现 UnbanUserTx）。
+	if !isSystemAdmin {
 		// 只有"最近一次 ban 发生在本租户"才允许普通 owner 解封。
 		// 查询缺失、报错或无记录都按失败关闭处理。
 		if !s.latestBanIsInTenant(ctx, tenantID, target.user.ID) {

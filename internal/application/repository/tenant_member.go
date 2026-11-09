@@ -18,6 +18,16 @@ import (
 // semantic; just kept separate so the repo doesn't import service).
 var ErrLastOwner = errors.New("repository: last active owner")
 
+// ErrRoleChanged is returned by UpdateRoleGuarded when the membership's
+// role no longer matches the caller's expected (pre-read) role. It lets
+// the service reject a stale "check role then update" sequence (T32).
+var ErrRoleChanged = errors.New("repository: membership role changed")
+
+// ErrOwnerDemotionRequiresTransfer is returned by UpdateRoleGuarded when
+// a direct owner -> non-owner transition is attempted without the
+// transfer-owner handover path (T32 / AC-13 / AC-20).
+var ErrOwnerDemotionRequiresTransfer = errors.New("repository: owner demotion requires transfer")
+
 // forUpdateClause returns the gorm SELECT ... FOR UPDATE clause. Kept
 // in one place so we can swap it out for `clause.Locking{Strength: "UPDATE"}`
 // on databases that don't support row-level locking (none in our matrix,
@@ -163,6 +173,63 @@ func (r *tenantMemberRepository) UpdateRole(ctx context.Context, userID string, 
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+// UpdateRoleGuarded performs a compare-and-swap role change in a single
+// transaction (T32): it locks the target membership row, verifies the
+// current role still equals expectedRole, and only then updates. Direct
+// owner -> non-owner changes require allowOwnerDemotion=true, which is
+// reserved for the transfer-owner flow; the last-owner invariant is
+// re-checked under the same lock.
+func (r *tenantMemberRepository) UpdateRoleGuarded(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	expectedRole, newRole types.TenantRole,
+	allowOwnerDemotion bool,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current types.TenantMember
+		err := tx.Clauses(forUpdateClause()).
+			Where("user_id = ? AND tenant_id = ? AND status = ?",
+				userID, tenantID, types.TenantMemberStatusActive).
+			First(&current).Error
+		if err != nil {
+			return err
+		}
+		if current.Role != expectedRole {
+			return ErrRoleChanged
+		}
+		if current.Role == types.TenantRoleOwner && newRole != types.TenantRoleOwner {
+			if !allowOwnerDemotion {
+				return ErrOwnerDemotionRequiresTransfer
+			}
+			var otherOwners []types.TenantMember
+			err := tx.Clauses(forUpdateClause()).
+				Where("tenant_id = ? AND user_id <> ? AND role = ? AND status = ?",
+					tenantID, userID, types.TenantRoleOwner, types.TenantMemberStatusActive).
+				Find(&otherOwners).Error
+			if err != nil {
+				return err
+			}
+			if len(otherOwners) == 0 {
+				return ErrLastOwner
+			}
+		}
+		res := tx.Model(&types.TenantMember{}).
+			Where("user_id = ? AND tenant_id = ? AND role = ?", userID, tenantID, expectedRole).
+			Updates(map[string]any{
+				"role":       newRole,
+				"updated_at": time.Now(),
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrRoleChanged
+		}
+		return nil
+	})
 }
 
 // SoftDelete marks the membership row as deleted. GORM's soft-delete

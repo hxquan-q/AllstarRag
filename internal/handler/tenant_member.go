@@ -545,6 +545,12 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 			_ = c.Error(apperrors.NewForbiddenError("your role cannot reset this member's password"))
 			return
 		}
+		if errors.Is(err, service.ErrCannotResetElsewhereOwner) {
+			logger.Warnf(ctx, "ResetMemberPassword denied: target owns another workspace user=%s tenant=%d actor_role=%s",
+				targetUserID, tenantID, actorRole)
+			_ = c.Error(apperrors.NewForbiddenError("this member owns another workspace; ask a system administrator to reset the password"))
+			return
+		}
 		if service.IsPasswordPolicyError(err) {
 			_ = c.Error(apperrors.NewValidationError("password does not meet the password policy"))
 			return
@@ -672,8 +678,28 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 		}
 	}
 
-	if err := h.memberService.UpdateRole(ctx, userID, tenantID, req.Role); err != nil {
+	var updateErr error
+	if guarded, ok := h.memberService.(interface {
+		UpdateRoleGuarded(
+			ctx context.Context,
+			userID string,
+			tenantID uint64,
+			expectedRole, newRole types.TenantRole,
+			allowOwnerDemotion bool,
+		) error
+	}); ok {
+		updateErr = guarded.UpdateRoleGuarded(ctx, userID, tenantID, current.Role, req.Role, false)
+	} else {
+		updateErr = h.memberService.UpdateRole(ctx, userID, tenantID, req.Role)
+	}
+	if err := updateErr; err != nil {
 		switch {
+		case errors.Is(err, service.ErrMembershipChanged):
+			c.Error(apperrors.NewConflictError(
+				"membership role changed, refresh and retry"))
+		case errors.Is(err, service.ErrOwnerDemotionRequiresTransfer):
+			c.Error(apperrors.NewForbiddenError(
+				"an owner cannot be demoted directly; complete the space handover via transfer-owner first"))
 		case errors.Is(err, service.ErrMembershipNotFound):
 			c.Error(apperrors.NewNotFoundError("membership not found"))
 		case errors.Is(err, service.ErrLastOwner):

@@ -71,14 +71,14 @@ func (s *userManagementService) TransferOwner(
 
 	previousTargetRole := target.Role
 	if previousTargetRole != types.TenantRoleOwner {
-		if err := s.memberService.UpdateRole(ctx, to, tenantID, types.TenantRoleOwner); err != nil {
+		if err := s.updateRoleGuarded(ctx, to, tenantID, previousTargetRole, types.TenantRoleOwner, false); err != nil {
 			return err
 		}
 	}
-	if err := s.memberService.UpdateRole(ctx, from, tenantID, types.TenantRoleAdmin); err != nil {
+	if err := s.updateRoleGuarded(ctx, from, tenantID, types.TenantRoleOwner, types.TenantRoleAdmin, true); err != nil {
 		// 降级失败时把目标恢复原角色，避免留下"交接了一半"的状态。
 		if previousTargetRole != types.TenantRoleOwner {
-			_ = s.memberService.UpdateRole(ctx, to, tenantID, previousTargetRole)
+			_ = s.updateRoleGuarded(ctx, to, tenantID, types.TenantRoleOwner, previousTargetRole, true)
 		}
 		return err
 	}
@@ -88,4 +88,24 @@ func (s *userManagementService) TransferOwner(
 		"to_user_id":   to,
 	})
 	return nil
+}
+
+// updateRoleGuarded uses the CAS-capable role update when the concrete
+// member service supports it; test doubles without the capability fall
+// back to the legacy UpdateRole path.
+func (s *userManagementService) updateRoleGuarded(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	expectedRole, newRole types.TenantRole,
+	allowOwnerDemotion bool,
+) error {
+	if guarded, ok := s.memberService.(interface {
+		UpdateRoleGuarded(
+			context.Context, string, uint64, types.TenantRole, types.TenantRole, bool,
+		) error
+	}); ok {
+		return guarded.UpdateRoleGuarded(ctx, userID, tenantID, expectedRole, newRole, allowOwnerDemotion)
+	}
+	return s.memberService.UpdateRole(ctx, userID, tenantID, newRole)
 }
