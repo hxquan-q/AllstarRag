@@ -90,9 +90,8 @@ func (s *userManagementService) TransferOwner(
 	return nil
 }
 
-// updateRoleGuarded uses the CAS-capable role update when the concrete
-// member service supports it; test doubles without the capability fall
-// back to the legacy UpdateRole path.
+// updateRoleGuarded 在成员服务支持时走带 CAS 的角色更新；不支持该能力的
+// 测试替身回退到旧的 UpdateRole 路径。
 func (s *userManagementService) updateRoleGuarded(
 	ctx context.Context,
 	userID string,

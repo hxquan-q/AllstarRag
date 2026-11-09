@@ -61,6 +61,21 @@ func (s *userManagementService) PlatformBanUser(
 		return nil, err
 	}
 
+	// 生产路径：状态变更与 ban 审计同事务提交（与租户级共用 BanUserTx），
+	// 保证解封事务读到的最新 ban 是完整记录。
+	if s.banRepo != nil {
+		var audit *types.AuditLog
+		if s.audit != nil {
+			audit = platformAuditEntry(ctx, target.ID, types.AuditActionMemberBanned, reason)
+		}
+		user, err := s.banRepo.BanUserTx(ctx, target.ID, auditActor(ctx), audit)
+		if err != nil {
+			return nil, mapUserStatusError(err)
+		}
+		return user, nil
+	}
+
+	// 测试替身/无事务能力时的兼容路径（生产仓储始终实现 BanUserTx）。
 	wasActive := target.IsActive
 	user, err := s.userRepo.SetUserActive(ctx, target.ID, auditActor(ctx), false)
 	if err != nil {
@@ -173,9 +188,12 @@ func platformAuditEntry(
 ) *types.AuditLog {
 	details, _ := json.Marshal(map[string]string{"reason": reason})
 	return &types.AuditLog{
-		TenantID:     0, // 平台 / 系统作用域
-		ActorUserID:  auditActor(ctx),
-		ActorRole:    auditActorRole(ctx),
+		TenantID:    0, // 平台 / 系统作用域
+		ActorUserID: auditActor(ctx),
+		// 平台接口只有系统管理员可用（路由组 g.SystemAdmin()），审计口径
+		// 与既有 tenant_id=0 系统审计一致，固定为 system_admin，而不是取
+		// 租户角色（无角色时会落成 viewer）。
+		ActorRole:    "system_admin",
 		Action:       action,
 		ScopeID:      targetUserID,
 		TargetType:   "user",

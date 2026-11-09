@@ -127,14 +127,11 @@ func lockPurgeMemberRows(tx *gorm.DB) *gorm.DB {
 	}
 }
 
-// purgeUserSessionsTx 退役并删除账号会话。只有当沙箱分配表存在时才走
-// RetireSessionsTx（Lite/测试库可能没有沙箱表），否则直接删会话行。
+// purgeUserSessionsTx 退役并删除账号会话。sessions 是彻底删除的必备表：
+// 缺表即报错并回滚整单事务（fail-closed），不允许“删了一半”静默成功。
+// 只有沙箱分配表是可选的（Lite/测试库可能没有），缺表时直接删会话行。
 func purgeUserSessionsTx(tx *gorm.DB, userID string, at time.Time) error {
 	migrator := tx.Migrator()
-	// 轻量库/部分测试夹具可能没有会话表，与消息表/沙箱表缺失时一样跳过。
-	if !migrator.HasTable("sessions") {
-		return nil
-	}
 	if migrator.HasTable("session_sandbox_assignments") &&
 		migrator.HasTable("sandbox_user_machines") {
 		ids, err := ownerSessionIDs(tx, userID)
@@ -149,53 +146,46 @@ func purgeUserSessionsTx(tx *gorm.DB, userID string, at time.Time) error {
 	return tx.Unscoped().Where("user_id = ?", userID).Delete(&types.Session{}).Error
 }
 
-// purgeUserPersonalDataTx 清理账号级的个人数据。顺序无关，任一失败都
-// 会让整个事务回滚。可选表在轻量库/测试夹具中可能不存在，此时跳过该步
-// （生产库始终具备全部表）。
+// purgeUserPersonalDataTx 清理账号级的个人数据。这些表都是彻底删除的
+// 必备表：顺序无关，任一表缺失或写入失败都会让整个事务回滚（fail-closed），
+// 不允许“墓碑化成功、PII 未清”的静默半成功。
 func purgeUserPersonalDataTx(tx *gorm.DB, userID string) error {
-	migrator := tx.Migrator()
-	steps := []struct {
-		table string
-		del   func(*gorm.DB) error
-	}{
-		{"tenant_members", func(tx *gorm.DB) error {
+	steps := []func(*gorm.DB) error{
+		func(tx *gorm.DB) error {
 			// tenant_members 保留行供审计/资产引用，只做软删。
 			return tx.Where("user_id = ?", userID).Delete(&types.TenantMember{}).Error
-		}},
-		{"tenant_invitations", func(tx *gorm.DB) error {
+		},
+		func(tx *gorm.DB) error {
 			// 目标收到的邀请（invitee_user_id）与目标发出的邀请 /
 			// 分享链接（invited_by）都要清理，避免墓碑后仍留下可用的
 			// pending 邀请（AC-19 / AC-25）。
 			return tx.Where("invitee_user_id = ? OR invited_by = ?", userID, userID).
 				Delete(&types.TenantInvitation{}).Error
-		}},
-		{"auth_tokens", func(tx *gorm.DB) error {
+		},
+		func(tx *gorm.DB) error {
 			return tx.Unscoped().Where("user_id = ?", userID).
 				Delete(&types.AuthToken{}).Error
-		}},
-		{"user_resource_favorites", func(tx *gorm.DB) error {
+		},
+		func(tx *gorm.DB) error {
 			return tx.Where("user_id = ?", userID).
 				Delete(&types.UserResourceFavorite{}).Error
-		}},
-		{"user_kb_pins", func(tx *gorm.DB) error {
+		},
+		func(tx *gorm.DB) error {
 			return tx.Where("user_id = ?", userID).Delete(&userKBPinRow{}).Error
-		}},
-		{"mcp_oauth_tokens", func(tx *gorm.DB) error {
+		},
+		func(tx *gorm.DB) error {
 			return tx.Where("user_id = ?", userID).Delete(&types.MCPOAuthToken{}).Error
-		}},
-		{"tenant_user_env_vars", func(tx *gorm.DB) error {
+		},
+		func(tx *gorm.DB) error {
 			return tx.Where("principal_id = ?", userID).
 				Delete(&types.TenantUserEnvVar{}).Error
-		}},
-		{"notifications", func(tx *gorm.DB) error {
+		},
+		func(tx *gorm.DB) error {
 			return tx.Where("user_id = ?", userID).Delete(&types.Notification{}).Error
-		}},
+		},
 	}
 	for _, step := range steps {
-		if !migrator.HasTable(step.table) {
-			continue
-		}
-		if err := step.del(tx); err != nil {
+		if err := step(tx); err != nil {
 			return err
 		}
 	}

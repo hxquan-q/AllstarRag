@@ -18,14 +18,13 @@ import (
 // semantic; just kept separate so the repo doesn't import service).
 var ErrLastOwner = errors.New("repository: last active owner")
 
-// ErrRoleChanged is returned by UpdateRoleGuarded when the membership's
-// role no longer matches the caller's expected (pre-read) role. It lets
-// the service reject a stale "check role then update" sequence (T32).
+// ErrRoleChanged 由 UpdateRoleGuarded 返回：成员行当前的 role 已与调用方
+// 预读的 expectedRole 不一致。服务层据此拒绝“先查角色、再更新”的过期序列
+// （T32）。
 var ErrRoleChanged = errors.New("repository: membership role changed")
 
-// ErrOwnerDemotionRequiresTransfer is returned by UpdateRoleGuarded when
-// a direct owner -> non-owner transition is attempted without the
-// transfer-owner handover path (T32 / AC-13 / AC-20).
+// ErrOwnerDemotionRequiresTransfer 由 UpdateRoleGuarded 返回：试图把 owner
+// 直接降为非 owner，但没有走 transfer-owner 交接路径（T32 / AC-13 / AC-20）。
 var ErrOwnerDemotionRequiresTransfer = errors.New("repository: owner demotion requires transfer")
 
 // forUpdateClause returns the gorm SELECT ... FOR UPDATE clause. Kept
@@ -175,12 +174,10 @@ func (r *tenantMemberRepository) UpdateRole(ctx context.Context, userID string, 
 	return nil
 }
 
-// UpdateRoleGuarded performs a compare-and-swap role change in a single
-// transaction (T32): it locks the target membership row, verifies the
-// current role still equals expectedRole, and only then updates. Direct
-// owner -> non-owner changes require allowOwnerDemotion=true, which is
-// reserved for the transfer-owner flow; the last-owner invariant is
-// re-checked under the same lock.
+// UpdateRoleGuarded 在单事务内做带比较交换（CAS）的角色变更（T32）：
+// 先锁目标成员行，复核当前 role 仍等于 expectedRole，才执行更新。
+// 直接把 owner 降为非 owner 需要 allowOwnerDemotion=true，该参数只给
+// transfer-owner 交接流程使用；“最后一个 owner”约束也在同一把锁内复核。
 func (r *tenantMemberRepository) UpdateRoleGuarded(
 	ctx context.Context,
 	userID string,

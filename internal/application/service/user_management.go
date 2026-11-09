@@ -30,6 +30,9 @@ type userManagementService struct {
 	// unbanRepo 提供"事务内复核最新 ban + 解封"。由真实 user repository
 	// 实现；缺失时回退旧的预检查路径（测试替身兼容），生产必须走事务。
 	unbanRepo userUnbanTx
+	// banRepo 提供"状态变更 + ban 审计同事务"。由真实 user repository
+	// 实现；缺失时回退旧的 SetUserActive 路径（测试替身兼容）。
+	banRepo userBanTx
 	// listRepo 提供用户管理列表的分页/计数窄查询。由真实 tenant member
 	// 仓储实现；缺失时 ListUsers 直接报内部错误，不返回空列表冒充成功。
 	listRepo userManagementListRepo
@@ -72,6 +75,9 @@ func NewUserManagementService(
 	if unban, ok := userRepo.(userUnbanTx); ok {
 		svc.unbanRepo = unban
 	}
+	if ban, ok := userRepo.(userBanTx); ok {
+		svc.banRepo = ban
+	}
 	// 列表窄查询挂在 tenant member 仓储上，同样自动探测以保持三参构造。
 	if listRepo, ok := memberRepo.(userManagementListRepo); ok {
 		svc.listRepo = listRepo
@@ -101,6 +107,17 @@ type userUnbanTx interface {
 	) (*types.User, error)
 }
 
+// userBanTx 是"状态变更与 ban 审计同事务"的窄接口，由真实 user
+// repository 实现。测试替身可不实现，服务会回退旧路径。
+type userBanTx interface {
+	BanUserTx(
+		ctx context.Context,
+		targetUserID string,
+		actorID string,
+		audit *types.AuditLog,
+	) (*types.User, error)
+}
+
 // managedTarget 是一次状态变更的目标快照：用户行 + 本租户的成员关系。
 type managedTarget struct {
 	user   *types.User
@@ -122,6 +139,22 @@ func (s *userManagementService) BanUser(
 		return nil, err
 	}
 
+	// 生产路径：状态变更与 ban 审计在同一事务内提交，解封事务读到的
+	// “最近一次 ban”因此一定是完整、已提交的记录。
+	if s.banRepo != nil {
+		var audit *types.AuditLog
+		if s.audit != nil {
+			audit = statusAuditEntry(ctx, tenantID, target,
+				types.AuditActionMemberBanned, reason)
+		}
+		user, err := s.banRepo.BanUserTx(ctx, target.user.ID, auditActor(ctx), audit)
+		if err != nil {
+			return nil, mapUserStatusError(err)
+		}
+		return user, nil
+	}
+
+	// 测试替身/无事务能力时的兼容路径（生产仓储始终实现 BanUserTx）。
 	wasActive := target.user.IsActive
 	user, err := s.userRepo.SetUserActive(ctx, target.user.ID, auditActor(ctx), false)
 	if err != nil {
@@ -300,11 +333,23 @@ func (s *userManagementService) emitStatusAudit(
 	if s.audit == nil {
 		return
 	}
+	_ = s.audit.Log(ctx, statusAuditEntry(ctx, tenantID, target, action, reason))
+}
+
+// statusAuditEntry 组装租户级封禁/解封审计行。封禁事务会把同一份条目
+// 与状态变更一起提交。
+func statusAuditEntry(
+	ctx context.Context,
+	tenantID uint64,
+	target *managedTarget,
+	action types.AuditAction,
+	reason string,
+) *types.AuditLog {
 	details, _ := json.Marshal(map[string]string{
 		"target_role": string(target.member.Role),
 		"reason":      reason,
 	})
-	_ = s.audit.Log(ctx, &types.AuditLog{
+	return &types.AuditLog{
 		TenantID:    tenantID,
 		ActorUserID: auditActor(ctx),
 		ActorRole:   auditActorRole(ctx),
@@ -317,7 +362,7 @@ func (s *userManagementService) emitStatusAudit(
 		TargetUserID: target.user.ID,
 		Outcome:      types.AuditOutcomeSuccess,
 		Details:      types.JSON(details),
-	})
+	}
 }
 
 // mapUserStatusError 把仓储层的账号状态保护错误翻译成 AppError，

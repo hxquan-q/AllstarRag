@@ -436,9 +436,8 @@ func (s *tenantMemberService) UpdateRole(
 	return nil
 }
 
-// guardedRoleUpdater is the optional repository capability used by
-// UpdateRoleGuarded. Kept as a narrow interface so existing repository
-// doubles that only implement TenantMemberRepository keep compiling.
+// guardedRoleUpdater 是 UpdateRoleGuarded 依赖的可选仓储能力。单独定义
+// 窄接口，让只实现 TenantMemberRepository 的既有测试替身继续可编译。
 type guardedRoleUpdater interface {
 	UpdateRoleGuarded(
 		ctx context.Context,
@@ -449,11 +448,10 @@ type guardedRoleUpdater interface {
 	) error
 }
 
-// UpdateRoleGuarded performs the role change with a transaction-time CAS
-// on expectedRole (T32). Direct owner -> non-owner transitions are
-// rejected unless allowOwnerDemotion is set, and only transfer-owner may
-// set it. The last-owner invariant is enforced inside the repository
-// transaction; a stale expectedRole returns ErrMembershipChanged.
+// UpdateRoleGuarded 在事务内按 expectedRole 做 CAS 角色变更（T32）。
+// 直接把 owner 降为非 owner 一律拒绝，除非 allowOwnerDemotion 为真，
+// 而该参数只允许 transfer-owner 交接流程设置。“最后一个 owner”约束在
+// 仓储事务内执行；expectedRole 过期时返回 ErrMembershipChanged。
 func (s *tenantMemberService) UpdateRoleGuarded(
 	ctx context.Context,
 	userID string,
@@ -497,8 +495,8 @@ func (s *tenantMemberService) UpdateRoleGuarded(
 		}
 	}
 
-	// Fallback for repository doubles without the guarded capability
-	// (test-only paths). Real repositories always take the branch above.
+	// 仓储替身不支持 guarded 能力时的回退（仅测试路径）。
+	// 真实仓储始终走上面的分支。
 	current, err := s.repo.Get(ctx, userID, tenantID)
 	if err != nil {
 		return err

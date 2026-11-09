@@ -65,6 +65,21 @@ func purgeUserChatDataTx(tx *gorm.DB, userID string) error {
 		return err
 	}
 
+	// 会话派生的追问缓存与消息产物同样按 session 清理，避免“彻底删除”
+	// 后留下无法再通过 API 访问、但仍存在的孤儿行（T33 残留）。
+	if migrator.HasTable("message_suggestion_sets") {
+		if err := tx.Where("session_id IN ?", sessionIDs).
+			Delete(&types.MessageSuggestionSet{}).Error; err != nil {
+			return err
+		}
+	}
+	if migrator.HasTable("message_artifacts") {
+		if err := tx.Where("session_id IN ?", sessionIDs).
+			Delete(&types.MessageArtifactRecord{}).Error; err != nil {
+			return err
+		}
+	}
+
 	if len(attachmentIDs) > 0 && migrator.HasTable("temporary_documents") {
 		if err := deleteUnreferencedTemporaryDocumentsTx(tx, attachmentIDs); err != nil {
 			return err
