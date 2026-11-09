@@ -75,9 +75,12 @@ type AutomationService struct {
 	models   interfaces.ModelService
 
 	sessions interfaces.SessionService
-	broker   *hitl.Broker
-	runs     *SuspendedRunService
-	streams  interfaces.StreamManager
+	// sessionCreator 建 automation 会话：先锁 live web 用户行再幂等插入，
+	// 与账号注销的 users 行锁串行化（R6 F46）。
+	sessionCreator sessionIdempotentCreator
+	broker         *hitl.Broker
+	runs           *SuspendedRunService
+	streams        interfaces.StreamManager
 	// Events publishes a run to its message's event stream; see
 	// AgentCollaboration.ChildEvents.
 	Events func(context.Context, *types.Session, *types.Message, *event.EventBus) func(context.Context) error
@@ -109,10 +112,11 @@ func NewAutomationService(
 	s := &AutomationService{
 		db: db, agents: agents, users: users, members: members, tenants: tenants,
 		messages: messages, grants: grants, notices: notices, models: models,
-		instance: uuid.NewString(),
-		now:      time.Now,
-		wake:     make(chan struct{}, 1),
-		running:  map[string]context.CancelFunc{},
+		sessionCreator: newSessionIdempotentCreator(db),
+		instance:       uuid.NewString(),
+		now:            time.Now,
+		wake:           make(chan struct{}, 1),
+		running:        map[string]context.CancelFunc{},
 	}
 	s.Configure(AutomationConfig{})
 	return s

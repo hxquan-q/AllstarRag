@@ -20,7 +20,6 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // AgentCollaboration owns durable work and binds SessionService after DI has
@@ -36,12 +35,15 @@ type AgentCollaboration struct {
 	members       interfaces.TenantMemberService
 	tenants       interfaces.TenantService
 	sessions      interfaces.SessionService
-	broker        *hitl.Broker
-	gate          approval.BuiltinApproval
-	streams       interfaces.StreamManager
-	ParentSteer   func(context.Context, *types.Session, *types.Message) types.SteerSink
-	ParentEvents  func(context.Context, *types.Session, *types.Message, *event.EventBus) func(context.Context) error
-	ChildEvents   func(context.Context, *types.Session, *types.Message, *event.EventBus) func(context.Context) error
+	// sessionCreator 建委托会话：先锁 live web 用户行再幂等插入，与账号
+	// 注销的 users 行锁串行化（R6 F46）。
+	sessionCreator sessionIdempotentCreator
+	broker         *hitl.Broker
+	gate           approval.BuiltinApproval
+	streams        interfaces.StreamManager
+	ParentSteer    func(context.Context, *types.Session, *types.Message) types.SteerSink
+	ParentEvents   func(context.Context, *types.Session, *types.Message, *event.EventBus) func(context.Context) error
+	ChildEvents    func(context.Context, *types.Session, *types.Message, *event.EventBus) func(context.Context) error
 }
 
 // NewAgentCollaboration constructs the service and its durable execution runtime.
@@ -54,12 +56,13 @@ func NewAgentCollaboration(
 	tenants interfaces.TenantService,
 ) *AgentCollaboration {
 	s := &AgentCollaboration{
-		db:       db,
-		agents:   agents,
-		messages: messages,
-		users:    users,
-		members:  members,
-		tenants:  tenants,
+		db:             db,
+		agents:         agents,
+		messages:       messages,
+		users:          users,
+		members:        members,
+		tenants:        tenants,
+		sessionCreator: newSessionIdempotentCreator(db),
 	}
 	s.Runtime = collaboration.New(collaboration.NewStore(db), s.run)
 	s.Runtime.WakeParent = s.resumeParent
@@ -469,11 +472,7 @@ func (s *AgentCollaboration) run(ctx context.Context, w collaboration.Work) (col
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	if err = s.db.WithContext(ctx).Session(&gorm.Session{
-		SkipHooks: true,
-	}).Clauses(clause.OnConflict{
-		DoNothing: true,
-	}).Create(session).Error; err != nil {
+	if _, err = s.sessionCreator.CreateIdempotent(ctx, session); err != nil {
 		return result, err
 	}
 	session, err = s.sessions.GetSession(ctx, session.ID)

@@ -11,6 +11,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // sessionRepository implements the SessionRepository interface
@@ -42,6 +43,37 @@ func (r *sessionRepository) Create(ctx context.Context, session *types.Session) 
 			return err
 		}
 		return tx.Create(session).Error
+	}); err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+// CreateIdempotent inserts a session for automation and delegated-agent runs.
+// It keeps the caller-assigned ID (the BeforeCreate hook would rewrite it, so
+// hooks are skipped) and treats a duplicate ID as success instead of an error.
+// The canonical web owner is locked first with the same fence as Create, so
+// account deletion and this insert serialize on the users row: a tombstoned
+// owner is rejected before any row is written.
+func (r *sessionRepository) CreateIdempotent(
+	ctx context.Context, session *types.Session,
+) (*types.Session, error) {
+	if session.CreatedAt.IsZero() || session.UpdatedAt.IsZero() {
+		now := time.Now()
+		if session.CreatedAt.IsZero() {
+			session.CreatedAt = now
+		}
+		if session.UpdatedAt.IsZero() {
+			session.UpdatedAt = now
+		}
+	}
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockLiveWebUser(tx, session.UserID); err != nil {
+			return err
+		}
+		return tx.Session(&gorm.Session{SkipHooks: true}).
+			Clauses(clause.OnConflict{DoNothing: true}).
+			Create(session).Error
 	}); err != nil {
 		return nil, err
 	}

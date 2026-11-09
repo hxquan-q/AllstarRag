@@ -237,21 +237,41 @@ func (r *tenantMemberRepository) UpdateRoleGuarded(
 
 // TransferOwnershipTx 在单个事务内完成空间 owner 交接（T40）。
 //
-// 锁序：先把 from/to 两个 user_id 排序，再按升序逐行 SELECT ... FOR UPDATE。
-// 并发交接因此按相同顺序加锁，避免旧实现“先锁源行、再锁其他 owner”的
-// 交叉等待死锁（A→C 与 B→D）。SQLite 没有行锁，先对两条成员行做一次
-// 空更新拿到库级写锁，让并发交接串行化，避免读后升级写时的 SQLITE_BUSY。
+// 锁序：先锁目标 users 行，再把 from/to 两个 user_id 排序，按升序逐行对
+// 成员行 SELECT ... FOR UPDATE。这与 PurgeUserTx / ResetPasswordTx 的
+// users→members 全局锁序一致，避免并发注销/重置密码与交接互相等待形成
+// 锁环（R6 F45）。成员行仍按 user_id 升序加锁，并发交接（A→C 与 B→D）
+// 因此按相同顺序加锁，不会交叉等待。SQLite 没有行锁，先对目标 users 行
+// 做一次空更新拿到库级写锁，再在同一事务里继续，避免读后升级写时的
+// SQLITE_BUSY。
 //
-// 事务内复核（不依赖服务层预检）：from 必须是 active owner；to 必须是
-// active 成员；to 用户必须存在且 is_active=true。任一不满足即返回 error
-// 且零改动。随后先把 to 提升为 owner，再把 from 降为 admin；任一 UPDATE
-// 未命中返回 ErrRoleChanged，整单回滚，不做跨事务补偿。
+// 事务内复核（不依赖服务层预检）：to 用户必须存在且 is_active=true；
+// from 必须是 active owner；to 必须是 active 成员。任一不满足即返回
+// error 且零改动。随后先把 to 提升为 owner，再把 from 降为 admin；任一
+// UPDATE 未命中返回 ErrRoleChanged，整单回滚，不做跨事务补偿。
 func (r *tenantMemberRepository) TransferOwnershipTx(
 	ctx context.Context,
 	tenantID uint64,
 	fromUserID, toUserID string,
 ) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if tx.Name() == "sqlite" {
+			if err := tx.Unscoped().Model(&types.User{}).
+				Where("id = ?", toUserID).
+				UpdateColumn("updated_at", gorm.Expr("updated_at")).Error; err != nil {
+				return err
+			}
+		}
+		var targetUser types.User
+		if err := lockUserRows(tx).
+			Where("id = ?", toUserID).
+			First(&targetUser).Error; err != nil {
+			return err
+		}
+		if !targetUser.IsActive {
+			return ErrTargetBanned
+		}
+
 		lockIDs := []string{fromUserID, toUserID}
 		sort.Strings(lockIDs)
 		if tx.Name() == "sqlite" {
@@ -285,16 +305,6 @@ func (r *tenantMemberRepository) TransferOwnershipTx(
 		to := locked[toUserID]
 		if to == nil || to.Status != types.TenantMemberStatusActive {
 			return ErrRoleChanged
-		}
-
-		var targetUser types.User
-		if err := lockUserRows(tx).
-			Where("id = ?", toUserID).
-			First(&targetUser).Error; err != nil {
-			return err
-		}
-		if !targetUser.IsActive {
-			return ErrTargetBanned
 		}
 
 		now := time.Now()

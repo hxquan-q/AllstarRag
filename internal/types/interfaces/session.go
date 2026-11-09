@@ -81,6 +81,11 @@ type SessionService interface {
 type SessionRepository interface {
 	// Create creates a session
 	Create(ctx context.Context, session *types.Session) (*types.Session, error)
+	// CreateIdempotent creates a session while preserving the caller-assigned
+	// ID. It locks the canonical web user first (a tombstoned owner is
+	// rejected before any row is written) and inserts with ON CONFLICT DO
+	// NOTHING, so repeating the same ID is a no-op instead of an error.
+	CreateIdempotent(ctx context.Context, session *types.Session) (*types.Session, error)
 	// Get gets a session visible to the tenant/user scope.
 	Get(ctx context.Context, tenantID uint64, userID string, id string) (*types.Session, error)
 	// GetByID loads a session by tenant and id without user scoping. Callers
