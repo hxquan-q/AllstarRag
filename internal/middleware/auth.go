@@ -853,9 +853,11 @@ func tenantHasActiveOwner(
 //     becomes Owner of the tenant their own user record points to. A
 //     space with non-owner members but no active owner is also healed
 //     (degraded data); a space that already has an active owner is left
-//     untouched. Any other path (cross-tenant switch, JWT minted for a
-//     foreign tenant, etc.) is intentionally excluded to avoid silent
-//     ownership grabs.
+//     untouched. 一号一空间（T04）：非超管已属于其他空间（active/invited）
+//     时跳过自愈并 fail-closed，不能补成第二个空间的 owner；超管豁免。
+//     Any other path (cross-tenant switch, JWT minted for a foreign
+//     tenant, etc.) is intentionally excluded to avoid silent ownership
+//     grabs.
 //  4. Otherwise → return ok=false. Caller decides:
 //     - When EnableRBAC=true (or cfg unavailable): treat as 403.
 //     - When EnableRBAC=false: fail open with Admin so existing deployments
@@ -924,21 +926,8 @@ func resolveTenantRole(
 	//    唯一索引，AddMember 会失败，此时只记录 warn 并 fail-closed。
 	isHomeTenant := !crossTenantSwitch && targetTenantID == user.TenantID
 	if isHomeTenant {
-		if hasActiveOwner, checkErr := tenantHasActiveOwner(ctx, memberService, targetTenantID); checkErr != nil {
-			logger.Warnf(ctx, "tenant owner check failed tenant=%d: %v", targetTenantID, checkErr)
-		} else if !hasActiveOwner {
-			if _, e := memberService.AddMember(
-				ctx, user.ID, targetTenantID, types.TenantRoleOwner, nil,
-			); e == nil {
-				logger.Infof(ctx,
-					"[audit] Auto-promoted user %s to Owner of orphan tenant %d (home_tenant=true)",
-					user.ID, targetTenantID,
-				)
-				return types.TenantRoleOwner, true
-			} else {
-				logger.Warnf(ctx, "Failed to auto-promote user %s in tenant %d: %v",
-					user.ID, targetTenantID, e)
-			}
+		if role, healed := tryHealOrphanTenant(ctx, memberService, user, targetTenantID); healed {
+			return role, true
 		}
 	}
 

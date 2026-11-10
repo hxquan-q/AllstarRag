@@ -104,6 +104,9 @@ func renderManagementError(c *gin.Context, err error) {
 	case errors.Is(err, service.ErrLastOwner):
 		_ = c.Error(apperrors.NewConflictError(err.Error()))
 		return
+	case errors.Is(err, service.ErrUserAlreadyInSpace):
+		_ = c.Error(apperrors.NewConflictError(err.Error()))
+		return
 	}
 	var appErr *apperrors.AppError
 	if errors.As(err, &appErr) {

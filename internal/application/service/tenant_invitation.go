@@ -164,6 +164,14 @@ func (s *tenantInvitationService) Create(
 	if existing != nil && existing.Status == types.TenantMemberStatusActive {
 		return nil, ErrAlreadyMember
 	}
+	// 一号一空间（T04 / AC-16）：邀请对象已属于其他空间（active/invited）
+	// 时拒绝，避免发出注定无法接受的跨空间邀请。分享链接没有 invitee，
+	// 不做用户级校验。
+	if checker, ok := s.memberSvc.(singleSpaceMemberChecker); ok {
+		if err := checker.assertSingleSpaceMembership(ctx, inviteeUserID, tenantID); err != nil {
+			return nil, err
+		}
+	}
 
 	now := s.now()
 	inv := &types.TenantInvitation{
@@ -234,19 +242,41 @@ func (s *tenantInvitationService) Accept(
 		return nil, ErrInvitationExpired
 	}
 
-	now := s.now()
-	if err := s.repo.MarkStatusIfPending(ctx, invID, types.TenantInvitationStatusAccepted, now); err != nil {
+	// 一号一空间（T04 / AC-15/16）：真实会员服务能共享按用户锁时，
+	// 归属校验与邀请状态更新、成员写入必须在同一把锁内完成，且校验
+	// 必须先于 MarkStatusIfPending（拒绝时邀请保持 pending）。
+	if writer, ok := s.memberSvc.(singleSpaceMemberWriter); ok {
+		return s.acceptUnderUserLock(ctx, inv, writer)
+	}
+	return s.acceptWithoutUserLock(ctx, inv)
+}
+
+// acceptUnderUserLock 是 Accept 的加锁路径。调用方已确认会员服务支持
+// 锁内写入，避免在 PG advisory lock 上重复加锁自锁。
+func (s *tenantInvitationService) acceptUnderUserLock(
+	ctx context.Context,
+	inv *types.TenantInvitation,
+	writer singleSpaceMemberWriter,
+) (*types.TenantMember, error) {
+	release, err := writer.lockUser(ctx, inv.InviteeUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	if err := writer.assertSingleSpaceMembership(ctx, inv.InviteeUserID, inv.TenantID); err != nil {
+		return nil, err
+	}
+	if err := s.repo.MarkStatusIfPending(
+		ctx, inv.ID, types.TenantInvitationStatusAccepted, s.now(),
+	); err != nil {
 		// Another goroutine (concurrent click) won the race. Honour
 		// the state machine.
 		return nil, ErrInvitationNotPending
 	}
 
-	// Create the actual tenant_members row. Cross-service hop: the
-	// member service handles its own audit (rbac.member_added) and
-	// also enforces the (user, tenant) uniqueness invariant via the
-	// repo. If it fails here the invitation is already accepted —
-	// see comment above for why we don't rollback the invitation.
-	member, err := s.memberSvc.AddMember(ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy)
+	member, err := writer.addMemberLocked(
+		ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy)
 	if err != nil {
 		// Special-case "already a member": that's the idempotent
 		// outcome we want. Return the existing membership instead of
@@ -260,7 +290,38 @@ func (s *tenantInvitationService) Accept(
 		}
 		logger.Errorf(ctx,
 			"invitation %d accepted but tenant_members insert failed: %v",
-			invID, err)
+			inv.ID, err)
+		return nil, err
+	}
+
+	s.emitInvitationAccepted(ctx, inv)
+	return member, nil
+}
+
+// acceptWithoutUserLock 是会员服务替身不支持锁内写入时的回退路径，
+// 行为与 T04 之前保持一致（先标记 accepted，再建成员行）。
+func (s *tenantInvitationService) acceptWithoutUserLock(
+	ctx context.Context,
+	inv *types.TenantInvitation,
+) (*types.TenantMember, error) {
+	if err := s.repo.MarkStatusIfPending(
+		ctx, inv.ID, types.TenantInvitationStatusAccepted, s.now(),
+	); err != nil {
+		return nil, ErrInvitationNotPending
+	}
+
+	member, err := s.memberSvc.AddMember(ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy)
+	if err != nil {
+		if errors.Is(err, ErrMembershipAlreadyExists) {
+			existing, getErr := s.memberSvc.GetMembership(ctx, inv.InviteeUserID, inv.TenantID)
+			if getErr == nil && existing != nil {
+				s.emitInvitationAccepted(ctx, inv)
+				return existing, nil
+			}
+		}
+		logger.Errorf(ctx,
+			"invitation %d accepted but tenant_members insert failed: %v",
+			inv.ID, err)
 		return nil, err
 	}
 
@@ -590,9 +651,36 @@ func (s *tenantInvitationService) AcceptByToken(
 	if err != nil {
 		return nil, err
 	}
+	// 一号一空间（T04 / AC-15/16）：分享链接加入同样在按用户锁内做归属
+	// 校验再写成员行；拒绝时不产生成员关系。
+	if writer, ok := s.memberSvc.(singleSpaceMemberWriter); ok {
+		release, lockErr := writer.lockUser(ctx, newUserID)
+		if lockErr != nil {
+			return nil, lockErr
+		}
+		defer release()
+		if err := writer.assertSingleSpaceMembership(ctx, newUserID, inv.TenantID); err != nil {
+			return nil, err
+		}
+		member, addErr := writer.addMemberLocked(
+			ctx, newUserID, inv.TenantID, inv.Role, inv.InvitedBy)
+		return s.finishTokenAccept(ctx, inv, newUserID, member, addErr)
+	}
 	member, err := s.memberSvc.AddMember(ctx, newUserID, inv.TenantID, inv.Role, inv.InvitedBy)
-	if err != nil {
-		if errors.Is(err, ErrMembershipAlreadyExists) {
+	return s.finishTokenAccept(ctx, inv, newUserID, member, err)
+}
+
+// finishTokenAccept 收敛分享链接加入成功/失败后的簿记：幂等返回已有
+// 成员、用量计数、关闭 direct invitation、审计。
+func (s *tenantInvitationService) finishTokenAccept(
+	ctx context.Context,
+	inv *types.TenantInvitation,
+	newUserID string,
+	member *types.TenantMember,
+	addErr error,
+) (*types.TenantMember, error) {
+	if addErr != nil {
+		if errors.Is(addErr, ErrMembershipAlreadyExists) {
 			existing, getErr := s.memberSvc.GetMembership(ctx, newUserID, inv.TenantID)
 			if getErr == nil && existing != nil {
 				s.reconcilePendingInvitation(ctx, inv.TenantID, newUserID)
@@ -601,8 +689,8 @@ func (s *tenantInvitationService) AcceptByToken(
 		}
 		logger.Errorf(ctx,
 			"share-link %d accept failed for user %s: %v",
-			inv.ID, newUserID, err)
-		return nil, err
+			inv.ID, newUserID, addErr)
+		return nil, addErr
 	}
 	// Bump usage counter so the management UI can show "N 人已加入".
 	// Best-effort: a failure here doesn't undo the membership the user

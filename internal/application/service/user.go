@@ -184,6 +184,20 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 		return nil, fmt.Errorf("invalid tenant provisioning mode %q", provisioning)
 	}
 
+	// T04 一号一空间：先生成用户 ID，并在建空间之前拿同一把按用户锁，
+	// 保证注册与 AddMember / 邀请接受 / 超管开通 owner 空间按 user_id
+	// 串行化。真实会员服务提供锁内 ensureOwnerLocked；测试替身没有时走
+	// 原路径（公开 EnsureOwner 自己加锁）。
+	userID := uuid.New().String()
+	lockedEnsurer, lockMemberWrites := s.memberService.(singleSpaceMemberWriter)
+	if lockMemberWrites {
+		releaseUserLock, lockErr := acquireUserProvisionLock(ctx, s.userRepo, userID)
+		if lockErr != nil {
+			return nil, lockErr
+		}
+		defer releaseUserLock()
+	}
+
 	var createdTenant *types.Tenant
 	if provisioning == types.TenantProvisioningCreatePersonal {
 		// Note: RetrieverEngines is left empty - system will use defaults
@@ -203,7 +217,7 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 
 	// Create user
 	user := &types.User{
-		ID:           uuid.New().String(),
+		ID:           userID,
 		Username:     req.Username,
 		Email:        req.Email,
 		PasswordHash: string(hashedPassword),
@@ -232,9 +246,15 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	// user record exists and the auth middleware's orphan-tenant recovery
 	// path will recreate the membership on next login.
 	if createdTenant != nil && s.memberService != nil {
-		if _, err := s.memberService.EnsureOwner(ctx, user.ID, createdTenant.ID); err != nil {
+		var ensureErr error
+		if lockMemberWrites {
+			_, ensureErr = lockedEnsurer.ensureOwnerLocked(ctx, user.ID, createdTenant.ID)
+		} else {
+			_, ensureErr = s.memberService.EnsureOwner(ctx, user.ID, createdTenant.ID)
+		}
+		if ensureErr != nil {
 			logger.Errorf(ctx, "Failed to create owner membership for user %s tenant %d: %v",
-				user.ID, createdTenant.ID, err)
+				user.ID, createdTenant.ID, ensureErr)
 			_ = s.userRepo.DeleteUser(ctx, user.ID)
 			_ = s.tenantService.DeleteTenant(ctx, createdTenant.ID)
 			return nil, errors.New("failed to finalise workspace ownership")

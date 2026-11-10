@@ -24,13 +24,9 @@ func (s *userManagementService) lockUserProvision(
 	ctx context.Context,
 	userID string,
 ) (func(), error) {
-	if locker, ok := s.userRepo.(userProvisionLocker); ok {
-		return locker.LockUserProvision(ctx, userID)
-	}
-	value, _ := provisionFallbackLocks.LoadOrStore(userID, &sync.Mutex{})
-	mu := value.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock, nil
+	// 与 TenantMemberService 的成员写入共用同一把按用户锁，保证
+	// ProvisionOwnerSpace 与 AddMember / 邀请接受互相串行化。
+	return acquireUserProvisionLock(ctx, s.userRepo, userID)
 }
 
 // ProvisionOwnerSpace 由系统管理员把已有账号设为 owner。
@@ -86,13 +82,20 @@ func (s *userManagementService) ProvisionOwnerSpace(
 		return tenant, nil
 	}
 
+	// 一号一空间（T04）：非超管目标若已以 admin/viewer/invited 身份属于
+	// 其他空间，必须在 CreateTenant 之前拒绝，不能「先建空间再回滚」
+	// （AC-15/AC-16/AC-20）。owner 场景已在上面幂等复用。
+	if err := s.assertTargetCanOwnNewSpace(ctx, target, targetUserID); err != nil {
+		return nil, err
+	}
+
 	tenant, err := s.tenantService.CreateTenant(ctx, &types.Tenant{
 		Name: defaultOwnerSpaceName(spaceName, target.Username),
 	})
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.memberService.EnsureOwner(ctx, targetUserID, tenant.ID); err != nil {
+	if _, err := s.ensureOwnerForProvision(ctx, targetUserID, tenant.ID); err != nil {
 		// 空间刚建、还没有任何成员，删除不会留下悬挂引用。
 		_ = s.tenantService.DeleteTenant(ctx, tenant.ID)
 		return nil, err
@@ -103,6 +106,47 @@ func (s *userManagementService) ProvisionOwnerSpace(
 	s.emitOwnerAudit(ctx, tenant.ID, types.AuditActionOwnerProvisioned,
 		targetUserID, map[string]string{"space_name": tenant.Name})
 	return tenant, nil
+}
+
+// assertTargetCanOwnNewSpace 校验非超管目标尚未属于任何空间。
+// 只有 active/invited 计入归属；suspended/deleted 不阻挡（AC-18）。
+// 超管豁免（AC-17）。
+func (s *userManagementService) assertTargetCanOwnNewSpace(
+	ctx context.Context,
+	target *types.User,
+	userID string,
+) error {
+	if target == nil || target.IsSystemAdmin || target.CanAccessAllTenants {
+		return nil
+	}
+	members, err := s.memberRepo.ListByUser(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, member := range members {
+		if member == nil || member.DeletedAt.Valid || member.TenantID == 0 {
+			continue
+		}
+		if member.Status == types.TenantMemberStatusActive ||
+			member.Status == types.TenantMemberStatusInvited {
+			return ErrUserAlreadyInSpace
+		}
+	}
+	return nil
+}
+
+// ensureOwnerForProvision 在已持锁的 ProvisionOwnerSpace 内创建 owner 成员。
+// 真实会员服务实现锁内版本（避免 PG advisory lock 自锁）；测试替身没有
+// 时退化为公开的 EnsureOwner。
+func (s *userManagementService) ensureOwnerForProvision(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+) (*types.TenantMember, error) {
+	if locked, ok := s.memberService.(singleSpaceMemberWriter); ok {
+		return locked.ensureOwnerLocked(ctx, userID, tenantID)
+	}
+	return s.memberService.EnsureOwner(ctx, userID, tenantID)
 }
 
 // compile-time 断言：T04 依赖注入契约需要具体实现暴露该 setter。

@@ -169,7 +169,28 @@ func rejectAPIKeyOwnerAssignment(ctx context.Context, role types.TenantRole) err
 // AddMember inserts a new active membership row. Returns
 // ErrMembershipAlreadyExists if the user is already an active member of
 // the tenant, and ErrInvalidTenantRole for unknown roles.
+//
+// 一号一空间（T04）：整个「查归属 + 写成员 + 回填 home」在同一把按用户
+// 的锁内完成，避免并发的 AddMember / 邀请接受 / 开通 owner 空间互相
+// 越过归属检查。锁与 ProvisionOwnerSpace 同名（LockUserProvision）。
 func (s *tenantMemberService) AddMember(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	role types.TenantRole,
+	invitedBy *string,
+) (*types.TenantMember, error) {
+	release, err := s.lockUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.addMemberLocked(ctx, userID, tenantID, role, invitedBy)
+}
+
+// addMemberLocked 是 AddMember 的锁内实现。调用方必须已持有 userID 的
+// 用户级锁；邀请接受等路径借此避免重复加锁（PG advisory lock 自锁）。
+func (s *tenantMemberService) addMemberLocked(
 	ctx context.Context,
 	userID string,
 	tenantID uint64,
@@ -188,6 +209,11 @@ func (s *tenantMemberService) AddMember(
 	}
 	if existing != nil {
 		return nil, ErrMembershipAlreadyExists
+	}
+	// 同租户已有成员关系不触发跨空间拒绝（幂等/重复错误交给上面）；这里
+	// 只拦「已属于其他空间」。
+	if err := s.assertSingleSpaceMembership(ctx, userID, tenantID); err != nil {
+		return nil, err
 	}
 	member := &types.TenantMember{
 		UserID:    userID,
@@ -217,6 +243,7 @@ func (s *tenantMemberService) AddMember(
 		TargetUserID: userID,
 		Outcome:      types.AuditOutcomeSuccess,
 	})
+	s.adoptHomeTenantIfEmpty(ctx, userID, tenantID)
 	return member, nil
 }
 
@@ -224,7 +251,25 @@ func (s *tenantMemberService) AddMember(
 // in the tenant it is returned unchanged; otherwise a new owner row is
 // created. Used by Register/OIDC paths so re-running Register on an
 // existing user (e.g. after a partial failure) does not double-insert.
+//
+// 一号一空间（T04）：整段逻辑在按用户锁内执行；ProvisionOwnerSpace 等
+// 已持锁路径改用 ensureOwnerLocked，避免重复加锁。
 func (s *tenantMemberService) EnsureOwner(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+) (*types.TenantMember, error) {
+	release, err := s.lockUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.ensureOwnerLocked(ctx, userID, tenantID)
+}
+
+// ensureOwnerLocked 是 EnsureOwner 的锁内实现。调用方必须已持有 userID
+// 的用户级锁。
+func (s *tenantMemberService) ensureOwnerLocked(
 	ctx context.Context,
 	userID string,
 	tenantID uint64,
@@ -234,7 +279,15 @@ func (s *tenantMemberService) EnsureOwner(
 		return nil, err
 	}
 	if existing != nil {
+		// 同租户已有成员关系原样返回；只有 active 才作为 home。
+		if existing.Status == types.TenantMemberStatusActive {
+			s.adoptHomeTenantIfEmpty(ctx, userID, tenantID)
+		}
 		return existing, nil
+	}
+	// 非超管已属于其他空间时拒绝，不能把 owner 身份发到第二个空间。
+	if err := s.assertSingleSpaceMembership(ctx, userID, tenantID); err != nil {
+		return nil, err
 	}
 	// 唯一 owner 模型：空间已有任意未删除 owner 行（不限 status）时不再
 	// 创建第二个 owner，直接返回已有 owner。suspended owner 仍占唯一索引
@@ -275,6 +328,7 @@ func (s *tenantMemberService) EnsureOwner(
 		}
 		return nil, err
 	}
+	s.adoptHomeTenantIfEmpty(ctx, userID, tenantID)
 	logger.Infof(ctx, "Bootstrapped owner membership for user=%s tenant=%d", userID, tenantID)
 	return member, nil
 }

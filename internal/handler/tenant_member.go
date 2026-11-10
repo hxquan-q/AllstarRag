@@ -409,6 +409,9 @@ func writeAddMemberError(
 		// 409 reads better than 400 here: the request was syntactically
 		// fine, the conflict is semantic ("already a member").
 		_ = c.Error(apperrors.NewConflictError(err.Error()))
+	case errors.Is(err, service.ErrUserAlreadyInSpace):
+		// 一号一空间（T04）：非超管已属于其他空间，不能加入第二个。
+		_ = c.Error(apperrors.NewConflictError(err.Error()))
 	default:
 		// 500 只回笼统信息：err.Error() 可能带出仓储层细节（F6），完整错误
 		// 已在上面记日志。
