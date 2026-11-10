@@ -486,12 +486,13 @@ func TestT03EnsureOwnerDoesNotCreateSecondOwner(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// 现有邀请链路的 owner 角色回归
+// 现有邀请链路的普通管理员角色回归
 // ---------------------------------------------------------------------------
 
-// AC-9 / AC-30b：现有 share link 支持 role=owner；接受前无成员关系，
-// 接受时创建 owner 成员；重复接受幂等，不产生重复成员。
-func TestOwnerExistingShareLinkSupportsOwnerRole(t *testing.T) {
+// AC-11 / T05：share link 只分配 admin/viewer；owner 只能由 transfer /
+// Provision 产生。本用例保留 share-link 接受路径覆盖：admin 链接接受前无
+// 成员关系，接受后创建 admin 成员；重复接受幂等，不产生重复成员。
+func TestOwnerExistingShareLinkSupportsAdminRole(t *testing.T) {
 	env := newOMOwnerEnv(t)
 	tenant := omOwnerSeedTenant(t, env, "A")
 	omOwnerSeedUser(t, env, "owner1", nil)
@@ -501,12 +502,12 @@ func TestOwnerExistingShareLinkSupportsOwnerRole(t *testing.T) {
 	ctx := umCallerCtx("owner1", tenant.ID, types.TenantRoleOwner, false)
 	inviter := "owner1"
 	inv, token, err := env.inviteSvc.CreateShareLink(
-		ctx, tenant.ID, types.TenantRoleOwner, &inviter, "",
+		ctx, tenant.ID, types.TenantRoleAdmin, &inviter, "",
 	)
 	require.NoError(t, err)
 	require.NotNil(t, inv)
 	require.NotEmpty(t, token)
-	require.Equal(t, types.TenantRoleOwner, inv.Role)
+	require.Equal(t, types.TenantRoleAdmin, inv.Role)
 
 	require.Nil(t, omOwnerLoadMember(t, env, "invitee", tenant.ID),
 		"share links must not pre-create membership before accept")
@@ -514,7 +515,7 @@ func TestOwnerExistingShareLinkSupportsOwnerRole(t *testing.T) {
 	member, err := env.inviteSvc.AcceptByToken(ctx, token, "invitee")
 	require.NoError(t, err)
 	require.NotNil(t, member)
-	require.Equal(t, types.TenantRoleOwner, member.Role)
+	require.Equal(t, types.TenantRoleAdmin, member.Role)
 
 	again, err := env.inviteSvc.AcceptByToken(ctx, token, "invitee")
 	require.NoError(t, err)
