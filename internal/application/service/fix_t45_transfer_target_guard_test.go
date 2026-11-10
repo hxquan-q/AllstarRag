@@ -66,7 +66,8 @@ func TestT45TransferOwnerRejectsSystemAdminTarget(t *testing.T) {
 	omOwnerSeedUser(t, env.omOwnerEnv, "target", func(u *types.User) {
 		u.IsSystemAdmin = true
 	})
-	omOwnerSeedMembership(t, env.omOwnerEnv, "target", tenantA.ID, types.TenantRoleViewer)
+	// 目标先满足 T03 的「active admin」前提，才能验证 T45 的特权目标保护。
+	omOwnerSeedMembership(t, env.omOwnerEnv, "target", tenantA.ID, types.TenantRoleAdmin)
 
 	auditsBefore := t45AuditCount(t, env)
 	ctx := umCallerCtx("owner1", tenantA.ID, types.TenantRoleOwner, false)
@@ -76,7 +77,7 @@ func TestT45TransferOwnerRejectsSystemAdminTarget(t *testing.T) {
 
 	require.Equal(t, types.TenantRoleOwner,
 		omOwnerLoadMember(t, env.omOwnerEnv, "owner1", tenantA.ID).Role)
-	require.Equal(t, types.TenantRoleViewer,
+	require.Equal(t, types.TenantRoleAdmin,
 		omOwnerLoadMember(t, env.omOwnerEnv, "target", tenantA.ID).Role)
 	require.Zero(t, env.transferRepo.callCount())
 	require.Equal(t, auditsBefore, t45AuditCount(t, env))
@@ -144,7 +145,9 @@ func TestT45TransferOwnerSystemAdminCallerUnrestricted(t *testing.T) {
 		omOwnerSeedUser(t, env.omOwnerEnv, "target", func(u *types.User) {
 			u.IsSystemAdmin = true
 		})
-		omOwnerSeedMembership(t, env.omOwnerEnv, "target", tenantA.ID, types.TenantRoleViewer)
+		// 目标先满足 T03 的「active admin」前提，才能验证超管对特权目标
+		// 的豁免。
+		omOwnerSeedMembership(t, env.omOwnerEnv, "target", tenantA.ID, types.TenantRoleAdmin)
 
 		ctx := umCallerCtx("sysadmin", tenantA.ID, types.TenantRoleViewer, true)
 		require.NoError(t, env.svc.TransferOwner(ctx, tenantA.ID, "owner1", "target"))

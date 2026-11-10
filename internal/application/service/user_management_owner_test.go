@@ -2,9 +2,9 @@ package service
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -370,10 +370,11 @@ func TestOwnerTransferOwnerBySystemAdmin(t *testing.T) {
 	omOwnerSeedUser(t, env, "owner1", nil)
 	omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
 	omOwnerSeedUser(t, env, "successor", nil)
-	omOwnerSeedMembership(t, env, "successor", tenant.ID, types.TenantRoleContributor)
+	omOwnerSeedMembership(t, env, "successor", tenant.ID, types.TenantRoleAdmin)
 
 	ctx := umCallerCtx("sysadmin", tenant.ID, types.TenantRoleViewer, true)
-	require.NoError(t, env.svc.TransferOwner(ctx, tenant.ID, "owner1", "successor"))
+	require.NoError(t, env.svc.TransferOwner(ctx, tenant.ID, "owner1", "successor"),
+		"a system administrator may hand the space to an active admin")
 
 	require.Equal(t, types.TenantRoleOwner, omOwnerLoadMember(t, env, "successor", tenant.ID).Role)
 	require.Equal(t, types.TenantRoleAdmin, omOwnerLoadMember(t, env, "owner1", tenant.ID).Role)
@@ -426,271 +427,62 @@ func TestOwnerTransferOwnerRejectsNonOwnerCaller(t *testing.T) {
 	require.Equal(t, types.TenantRoleOwner, omOwnerLoadMember(t, env, "owner1", tenant.ID).Role)
 }
 
-// ---------------------------------------------------------------------------
-// CreateCoOwnerAccount
-// ---------------------------------------------------------------------------
-
-func omOwnerPasswordPtr() *string {
-	pwd := "Passw0rd!123"
-	return &pwd
-}
-
-// AC-9 / AC-10 / T04-3：owner 新建 co-owner 账号；账号 tenant_id=0，
-// 只属于当前空间，角色 owner，写 rbac.member_added 审计。
-func TestOwnerCreateCoOwnerAccountCreatesTenantlessOwner(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	tenant := omOwnerSeedTenant(t, env, "A")
-	omOwnerSeedUser(t, env, "owner1", nil)
-	omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
-
-	ctx := umCallerCtx("owner1", tenant.ID, types.TenantRoleOwner, false)
-	user, err := env.svc.CreateCoOwnerAccount(ctx, tenant.ID, &interfaces.CreateCoOwnerRequest{
-		Username: "coowner",
-		Email:    "coowner@example.com",
-		Password: omOwnerPasswordPtr(),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, user)
-	require.NotEmpty(t, user.ID)
-	require.Zero(t, user.TenantID, "AC-10: an account created by an owner must have users.tenant_id = 0")
-	require.True(t, user.IsActive)
-
-	member := omOwnerLoadMember(t, env, user.ID, tenant.ID)
-	require.NotNil(t, member)
-	require.Equal(t, types.TenantRoleOwner, member.Role)
-	require.Equal(t, types.TenantMemberStatusActive, member.Status)
-
-	audits := omOwnerAuditsByAction(t, env, types.AuditAction("rbac.member_added"))
-	require.NotEmpty(t, audits, "adding a co-owner must write rbac.member_added")
-	found := false
-	for _, row := range audits {
-		if row.TenantID == tenant.ID && row.TargetUserID == user.ID {
-			found = true
-		}
-	}
-	require.True(t, found, "rbac.member_added must target the new co-owner in this tenant")
-}
-
-// T04-3：重复邮箱 → 409，且不产生第二个账号/成员关系。
-func TestOwnerCreateCoOwnerAccountRejectsDuplicateEmail(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	tenant := omOwnerSeedTenant(t, env, "A")
-	omOwnerSeedUser(t, env, "owner1", nil)
-	omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
-	omOwnerSeedUser(t, env, "existing", func(u *types.User) { u.Email = "taken@example.com" })
-
-	beforeUsers := omOwnerCountUsers(t, env)
-	ctx := umCallerCtx("owner1", tenant.ID, types.TenantRoleOwner, false)
-	_, err := env.svc.CreateCoOwnerAccount(ctx, tenant.ID, &interfaces.CreateCoOwnerRequest{
-		Username: "another",
-		Email:    "taken@example.com",
-		Password: omOwnerPasswordPtr(),
-	})
-	omOwnerRequireAppStatus(t, err, http.StatusConflict)
-	require.Equal(t, beforeUsers, omOwnerCountUsers(t, env), "duplicate identity must not create a user")
-
-	members, err := env.memberRepo.ListByTenant(context.Background(), tenant.ID)
-	require.NoError(t, err)
-	require.Len(t, members, 1)
-}
-
-// T04-3：重复用户名 → 409。
-func TestOwnerCreateCoOwnerAccountRejectsDuplicateUsername(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	tenant := omOwnerSeedTenant(t, env, "A")
-	omOwnerSeedUser(t, env, "owner1", nil)
-	omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
-	omOwnerSeedUser(t, env, "existing", nil) // username = "existing"
-
-	ctx := umCallerCtx("owner1", tenant.ID, types.TenantRoleOwner, false)
-	_, err := env.svc.CreateCoOwnerAccount(ctx, tenant.ID, &interfaces.CreateCoOwnerRequest{
-		Username: "existing",
-		Email:    "brand-new@example.com",
-		Password: omOwnerPasswordPtr(),
-	})
-	omOwnerRequireAppStatus(t, err, http.StatusConflict)
-}
-
-// T04-3：参数缺失 → 400。
-func TestOwnerCreateCoOwnerAccountValidatesRequest(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	tenant := omOwnerSeedTenant(t, env, "A")
-	omOwnerSeedUser(t, env, "owner1", nil)
-	omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
-	ctx := umCallerCtx("owner1", tenant.ID, types.TenantRoleOwner, false)
-
-	for name, req := range map[string]*interfaces.CreateCoOwnerRequest{
-		"missing_username": {Email: "x@example.com", Password: omOwnerPasswordPtr()},
-		"missing_email":    {Username: "coowner", Password: omOwnerPasswordPtr()},
-		"nil_request":      nil,
+// T03：交接目标必须是本空间 active 普通管理员（admin）；viewer /
+// contributor 必须先提升为 admin。拒绝时零角色变化、零事务。
+func TestT03TransferOwnerRejectsNonAdminTarget(t *testing.T) {
+	for _, targetRole := range []types.TenantRole{
+		types.TenantRoleViewer,
+		types.TenantRoleContributor,
 	} {
-		t.Run(name, func(t *testing.T) {
-			_, err := env.svc.CreateCoOwnerAccount(ctx, tenant.ID, req)
+		targetRole := targetRole
+		t.Run(string(targetRole), func(t *testing.T) {
+			env := newOMOwnerEnv(t)
+			tenant := omOwnerSeedTenant(t, env, "A")
+			omOwnerSeedUser(t, env, "owner1", nil)
+			omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
+			omOwnerSeedUser(t, env, "target", nil)
+			omOwnerSeedMembership(t, env, "target", tenant.ID, targetRole)
+
+			ctx := umCallerCtx("owner1", tenant.ID, types.TenantRoleOwner, false)
+			err := env.svc.TransferOwner(ctx, tenant.ID, "owner1", "target")
 			omOwnerRequireAppStatus(t, err, http.StatusBadRequest)
+
+			msg := strings.ToLower(err.Error())
+			require.True(t,
+				strings.Contains(msg, "admin") || strings.Contains(msg, "promote") ||
+					strings.Contains(err.Error(), "提升"),
+				"the rejection must tell the caller to promote the target to admin first; got %q", err.Error())
+
+			require.Equal(t, types.TenantRoleOwner,
+				omOwnerLoadMember(t, env, "owner1", tenant.ID).Role)
+			require.Equal(t, targetRole,
+				omOwnerLoadMember(t, env, "target", tenant.ID).Role,
+				"a rejected transfer must not change the target role")
 		})
 	}
 }
 
-// AC-38 / T04-3：非 owner（admin/contributor/viewer）不能新建 co-owner → 403。
-func TestOwnerCreateCoOwnerAccountRejectsNonOwner(t *testing.T) {
+// T03：空间已有 active owner 时，EnsureOwner 不能再产生第二个 owner。
+func TestT03EnsureOwnerDoesNotCreateSecondOwner(t *testing.T) {
 	env := newOMOwnerEnv(t)
 	tenant := omOwnerSeedTenant(t, env, "A")
+	omOwnerSeedUser(t, env, "owner1", nil)
+	omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
+	omOwnerSeedUser(t, env, "second", nil)
 
-	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin, types.TenantRoleContributor, types.TenantRoleViewer,
-	} {
-		t.Run(string(role), func(t *testing.T) {
-			callerID := "caller-" + string(role)
-			omOwnerSeedUser(t, env, callerID, nil)
-			omOwnerSeedMembership(t, env, callerID, tenant.ID, role)
-			ctx := umCallerCtx(callerID, tenant.ID, role, false)
-			before := omOwnerCountUsers(t, env)
-			_, err := env.svc.CreateCoOwnerAccount(ctx, tenant.ID, &interfaces.CreateCoOwnerRequest{
-				Username: "co-" + string(role),
-				Email:    "co-" + string(role) + "@example.com",
-				Password: omOwnerPasswordPtr(),
-			})
-			omOwnerRequireAppStatus(t, err, http.StatusForbidden)
-			require.Equal(t, before, omOwnerCountUsers(t, env), "rejected callers must not create users")
-		})
+	// 不强制返回 error：实现可以返回错误，也可以把 second 落为 admin；
+	// 唯一不变量是每空间最多 1 条 active owner。
+	_, _ = env.memberSvc.EnsureOwner(context.Background(), "second", tenant.ID)
+
+	owners, err := env.memberRepo.CountActiveOwners(context.Background(), tenant.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, owners,
+		"EnsureOwner must not create a second active owner when the space already has one")
+
+	if member, getErr := env.memberRepo.Get(context.Background(), "second", tenant.ID); getErr == nil && member != nil {
+		require.NotEqual(t, types.TenantRoleOwner, member.Role,
+			"a second member must never be promoted to owner in a space that already has one")
 	}
-}
-
-// omFailingMemberService 让 AddMember/EnsureOwner 必然失败，用于验证回滚。
-type omFailingMemberService struct {
-	interfaces.TenantMemberService
-}
-
-func (s *omFailingMemberService) AddMember(
-	context.Context, string, uint64, types.TenantRole, *string,
-) (*types.TenantMember, error) {
-	return nil, errors.New("injected membership failure")
-}
-
-func (s *omFailingMemberService) EnsureOwner(
-	context.Context, string, uint64,
-) (*types.TenantMember, error) {
-	return nil, errors.New("injected membership failure")
-}
-
-// T04-3：入组失败必须回滚刚建的账号（硬删或软删都算），不留孤儿账号。
-func TestOwnerCreateCoOwnerAccountRollsBackWhenMembershipFails(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	tenant := omOwnerSeedTenant(t, env, "A")
-	omOwnerSeedUser(t, env, "owner1", nil)
-	omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
-
-	setter := env.svc.(omOwnerDepsSetter)
-	setter.SetOwnerManagementDeps(
-		env.tenantSvc,
-		&omFailingMemberService{TenantMemberService: env.memberSvc},
-		env.inviteSvc,
-		env.userSvc,
-	)
-
-	ctx := umCallerCtx("owner1", tenant.ID, types.TenantRoleOwner, false)
-	_, err := env.svc.CreateCoOwnerAccount(ctx, tenant.ID, &interfaces.CreateCoOwnerRequest{
-		Username: "rollback",
-		Email:    "rollback@example.com",
-		Password: omOwnerPasswordPtr(),
-	})
-	require.Error(t, err, "membership failure must surface as an error")
-
-	// 仓库对不存在的行返回 (nil, ErrUserNotFound)，因此回滚成功时 lookupErr
-	// 必然非空；这里按「查不到即已删除」断言，避免要求 NoError + Nil 的矛盾组合。
-	orphan, lookupErr := env.userRepo.GetUserByEmail(context.Background(), "rollback@example.com")
-	require.ErrorIs(t, lookupErr, apprepo.ErrUserNotFound,
-		"a failed membership must roll back the newly created user")
-	require.Nil(t, orphan)
-
-	members, listErr := env.memberRepo.ListByTenant(context.Background(), tenant.ID)
-	require.NoError(t, listErr)
-	require.Len(t, members, 1, "no membership may be left behind")
-}
-
-// ---------------------------------------------------------------------------
-// CreateOwnerInvite
-// ---------------------------------------------------------------------------
-
-// AC-9 / AC-11 / T04-2：创建 pending 租户 + role=owner 的 share link，
-// 邀请时只建租户与 token，不预建成员关系，写 system.owner_invite_created。
-func TestOwnerCreateOwnerInviteCreatesPendingTenantAndShareLink(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	omOwnerSeedUser(t, env, "sysadmin", func(u *types.User) { u.IsSystemAdmin = true })
-
-	ctx := umCallerCtx("sysadmin", 0, types.TenantRoleViewer, true)
-	before := time.Now()
-	result, err := env.svc.CreateOwnerInvite(ctx, "invitee@example.com", "邀请空间", 7)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.NotZero(t, result.TenantID)
-	require.NotZero(t, result.InvitationID)
-	require.NotEmpty(t, result.Token, "the invite URL token must be returned")
-
-	require.WithinDuration(t, before.Add(7*24*time.Hour), result.ExpiresAt, 2*time.Hour,
-		"default owner invite must expire in 7 days")
-
-	tenant, err := env.tenantRepo.GetTenantByID(context.Background(), result.TenantID)
-	require.NoError(t, err)
-	require.NotNil(t, tenant)
-	require.Equal(t, "pending", tenant.Status, "owner invite must create a pending tenant")
-	require.Equal(t, "邀请空间", tenant.Name)
-
-	inv, err := env.inviteRepo.GetByID(context.Background(), result.InvitationID)
-	require.NoError(t, err)
-	require.NotNil(t, inv)
-	require.Equal(t, result.TenantID, inv.TenantID)
-	require.Equal(t, types.TenantRoleOwner, inv.Role, "the share link must grant the owner role")
-	require.Equal(t, types.TenantInvitationStatusPending, inv.Status)
-	require.Equal(t, result.Token, inv.Token)
-
-	members, err := env.memberRepo.ListByTenant(context.Background(), result.TenantID)
-	require.NoError(t, err)
-	require.Empty(t, members,
-		"T04-2: inviting must NOT pre-create any tenant_members row; membership is created on accept")
-
-	audits := omOwnerAuditsByAction(t, env, types.AuditAction("system.owner_invite_created"))
-	require.Len(t, audits, 1)
-	require.Equal(t, result.TenantID, audits[0].TenantID)
-	require.Equal(t, "sysadmin", audits[0].ActorUserID)
-	require.Equal(t, types.AuditOutcomeSuccess, audits[0].Outcome)
-}
-
-// T04-2：自定义有效期（例如 3 天）生效。
-func TestOwnerCreateOwnerInviteCustomExpiry(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	omOwnerSeedUser(t, env, "sysadmin", func(u *types.User) { u.IsSystemAdmin = true })
-
-	ctx := umCallerCtx("sysadmin", 0, types.TenantRoleViewer, true)
-	before := time.Now()
-	result, err := env.svc.CreateOwnerInvite(ctx, "", "空间", 3)
-	require.NoError(t, err)
-	require.WithinDuration(t, before.Add(3*24*time.Hour), result.ExpiresAt, 2*time.Hour)
-}
-
-// T04-2：expiresDays <= 0 时回落到 7 天。
-func TestOwnerCreateOwnerInviteDefaultsToSevenDays(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	omOwnerSeedUser(t, env, "sysadmin", func(u *types.User) { u.IsSystemAdmin = true })
-
-	ctx := umCallerCtx("sysadmin", 0, types.TenantRoleViewer, true)
-	before := time.Now()
-	result, err := env.svc.CreateOwnerInvite(ctx, "", "空间", 0)
-	require.NoError(t, err)
-	require.WithinDuration(t, before.Add(7*24*time.Hour), result.ExpiresAt, 2*time.Hour)
-}
-
-// AC-38 服务层自证：非超管不能生成 owner 邀请 → 403，且不建租户。
-func TestOwnerCreateOwnerInviteRejectsNonSystemAdmin(t *testing.T) {
-	env := newOMOwnerEnv(t)
-	tenant := omOwnerSeedTenant(t, env, "A")
-	omOwnerSeedUser(t, env, "owner1", nil)
-	omOwnerSeedMembership(t, env, "owner1", tenant.ID, types.TenantRoleOwner)
-
-	ctx := umCallerCtx("owner1", tenant.ID, types.TenantRoleOwner, false)
-	_, err := env.svc.CreateOwnerInvite(ctx, "x@example.com", "空间", 7)
-	omOwnerRequireAppStatus(t, err, http.StatusForbidden)
-	require.EqualValues(t, 1, omOwnerCountTenants(t, env), "rejection must not create a tenant")
 }
 
 // ---------------------------------------------------------------------------

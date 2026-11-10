@@ -12,7 +12,7 @@ package router
 //
 // 覆盖票面验收：
 //   1. 纯系统管理员（IsSystemAdmin、无成员关系）经 X-Tenant-ID 调用
-//      platform ban/unban/purge、transfer-owner、owners/create、
+//      platform ban/unban/purge、transfer-owner、
 //      user-management 不被 403；普通用户仍 403。
 //   2. API Key 网关：manage_members scoped key 改角色成功；无 scope 403；
 //      目标保护仍生效。
@@ -205,12 +205,6 @@ func (s *t37UserManagementSvc) TransferOwner(
 	return nil
 }
 
-func (s *t37UserManagementSvc) CreateCoOwnerAccount(
-	_ context.Context, _ uint64, req *interfaces.CreateCoOwnerRequest,
-) (*types.User, error) {
-	return &types.User{ID: "u-new-owner", Username: req.Username, Email: req.Email, IsActive: true}, nil
-}
-
 func (s *t37UserManagementSvc) ListUsers(
 	_ context.Context, tenantID uint64, _ types.TenantRole, _ string, _, _ int,
 ) (*interfaces.UserManagementListResult, error) {
@@ -392,7 +386,6 @@ func t37ManagementRequests() []t37Request {
 		{method: http.MethodPost, path: "/api/v1/system/admin/users/u-target/unban", body: `{}`},
 		{method: http.MethodPost, path: "/api/v1/system/admin/users/u-target/purge", body: `{"confirm_email":"target@example.com"}`},
 		{method: http.MethodPost, path: "/api/v1/tenants/7/transfer-owner", body: `{"to_user_id":"u-target"}`},
-		{method: http.MethodPost, path: "/api/v1/tenants/7/owners/create", body: `{"username":"newowner","email":"newowner@example.com","password":"Secret123!"}`},
 		{method: http.MethodGet, path: "/api/v1/tenants/7/user-management"},
 	}
 }
@@ -403,12 +396,11 @@ func TestT37SystemAdminWithoutMembershipReachesEveryManagementRoute(t *testing.T
 	token := f.issue(t, "u-sys", 1) // home tenant=1，请求空间经 X-Tenant-ID=7
 
 	wantCodes := []int{
-		http.StatusOK,      // platform ban
-		http.StatusOK,      // platform unban
-		http.StatusOK,      // platform purge
-		http.StatusOK,      // transfer-owner
-		http.StatusCreated, // owners/create
-		http.StatusOK,      // user-management
+		http.StatusOK, // platform ban
+		http.StatusOK, // platform unban
+		http.StatusOK, // platform purge
+		http.StatusOK, // transfer-owner
+		http.StatusOK, // user-management
 	}
 	requests := t37ManagementRequests()
 	require.Len(t, requests, len(wantCodes))

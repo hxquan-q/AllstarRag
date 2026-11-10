@@ -244,6 +244,40 @@ func TestT40TransferOwnershipTxRejectsInactiveTargetMembership(t *testing.T) {
 	require.Equal(t, types.TenantRoleAdmin, t40LoadRole(t, db, "B", tenantID))
 }
 
+// T03：交接目标必须是本空间 active 普通管理员（admin）；viewer 与
+// contributor 目标必须在事务内被拒绝，且不产生任何角色变化。
+func TestT03TransferOwnershipTxRejectsNonAdminTarget(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		role     types.TenantRole
+		tenantID uint64
+	}{
+		{name: "viewer", role: types.TenantRoleViewer, tenantID: 103},
+		{name: "contributor", role: types.TenantRoleContributor, tenantID: 104},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			db, transfer := t40NewRepoDB(t)
+			ctx := context.Background()
+
+			t40SeedTenant(t, db, tc.tenantID)
+			t40SeedUser(t, db, "A", true)
+			t40SeedUser(t, db, "B", true)
+			t40SeedMember(t, db, "A", tc.tenantID, types.TenantRoleOwner, types.TenantMemberStatusActive)
+			t40SeedMember(t, db, "B", tc.tenantID, tc.role, types.TenantMemberStatusActive)
+
+			err := transfer.TransferOwnershipTx(ctx, tc.tenantID, "A", "B")
+			require.Error(t, err, "transfer target must be an active admin, got %s", tc.role)
+
+			require.Equal(t, types.TenantRoleOwner, t40LoadRole(t, db, "A", tc.tenantID),
+				"source must stay owner after a rejected transfer")
+			require.Equal(t, tc.role, t40LoadRole(t, db, "B", tc.tenantID),
+				"a rejected target must keep its original role")
+			require.EqualValues(t, 1, t40CountActiveOwners(t, db, tc.tenantID))
+		})
+	}
+}
+
 // E5：并发 A→C 与 B→D。两个 goroutine 必须限时结束；允许一方返回
 // 角色已变化类错误，但不允许双方都失败或卡死；最终状态一致（每对
 // from/to 要么完整交换，要么保持不变）。

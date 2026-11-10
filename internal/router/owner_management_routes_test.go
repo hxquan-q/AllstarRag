@@ -17,13 +17,9 @@ import (
 
 // T04 路由注册 + 守卫红阶段用例（T04-1/2/3/4、AC-38、C4）。
 //
-// 假定契约（02-plan §3.1/§3.2）：
-//   - RegisterUserManagementRoutes 增加
-//     POST /tenants/:id/transfer-owner 与 POST /tenants/:id/owners/create，
-//     均挂 g.OwnerOrSystemAdmin()；
-//   - 新 RegisterOwnerManagementRoutes(r, ownerManagementHandler, g) 注册
-//     POST /system/admin/users/:user_id/owner-space 与
-//     POST /system/admin/owners/invite，沿用 /system/admin 组的 SystemAdmin()。
+// T03 起：唯一 owner 模型不允许再通过路由创建第二个 owner，
+// POST /tenants/:id/owners/create 与 POST /system/admin/owners/invite
+// 必须移除（请求将得到 404，属于验收允许的 4xx）。
 //
 // 守卫放行 → 请求到达 handler，故意发非法 JSON → 400；守卫拒绝 → 403；
 // 未认证 → 401。
@@ -113,84 +109,84 @@ func TestOwnerManagementRoutesAreRegistered(t *testing.T) {
 
 	require.True(t, registered["POST /api/v1/tenants/:id/transfer-owner"],
 		"POST /tenants/:id/transfer-owner must be registered")
-	require.True(t, registered["POST /api/v1/tenants/:id/owners/create"],
-		"POST /tenants/:id/owners/create must be registered")
 	require.True(t, registered["POST /api/v1/system/admin/users/:user_id/owner-space"],
 		"POST /system/admin/users/:user_id/owner-space must be registered")
-	require.True(t, registered["POST /api/v1/system/admin/owners/invite"],
-		"POST /system/admin/owners/invite must be registered")
+}
+
+// T03：第二 owner 创建路径必须移除（请求得到 404，属验收允许的 4xx）。
+func TestT03RemovedOwnerCreationRoutes(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	g := omRBACGuards()
+
+	tenantEngine := gin.New()
+	RegisterUserManagementRoutes(tenantEngine.Group("/api/v1"), &handler.UserManagementHandler{}, g)
+	systemEngine := gin.New()
+	RegisterOwnerManagementRoutes(systemEngine.Group("/api/v1"), &handler.OwnerManagementHandler{}, g)
+
+	registered := map[string]bool{}
+	for _, route := range tenantEngine.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	for _, route := range systemEngine.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+
+	for _, path := range []string{
+		"POST /api/v1/tenants/:id/owners/create",
+		"POST /api/v1/system/admin/owners/invite",
+	} {
+		require.Falsef(t, registered[path],
+			"%s must be removed; second-owner creation is no longer a valid path", path)
+	}
 }
 
 func TestOwnerTenantRoutesOwnerPassesGuard(t *testing.T) {
-	for _, path := range []string{
-		"/api/v1/tenants/7/transfer-owner",
-		"/api/v1/tenants/7/owners/create",
-	} {
-		path := path
-		t.Run(path, func(t *testing.T) {
+	path := "/api/v1/tenants/7/transfer-owner"
+	code := postOMTenantRoute(t, omRouteSession{
+		role: types.TenantRoleOwner, userID: "u-owner",
+	}, path)
+	require.Equal(t, http.StatusBadRequest, code,
+		"workspace owner must pass the OwnerOrSystemAdmin guard and reach the handler")
+}
+
+func TestOwnerTenantRoutesSystemAdminPassesGuardRegardlessOfRole(t *testing.T) {
+	path := "/api/v1/tenants/7/transfer-owner"
+	for _, role := range []types.TenantRole{types.TenantRoleViewer, types.TenantRoleContributor} {
+		role := role
+		t.Run(string(role), func(t *testing.T) {
 			code := postOMTenantRoute(t, omRouteSession{
-				role: types.TenantRoleOwner, userID: "u-owner",
+				role: role, userID: "u-sysadmin", systemAdmin: true,
 			}, path)
 			require.Equal(t, http.StatusBadRequest, code,
-				"workspace owner must pass the OwnerOrSystemAdmin guard and reach the handler")
+				"system admin with workspace role %s must pass (普通 g.Owner() 会误拒)", role)
 		})
 	}
 }
 
-func TestOwnerTenantRoutesSystemAdminPassesGuardRegardlessOfRole(t *testing.T) {
-	for _, role := range []types.TenantRole{types.TenantRoleViewer, types.TenantRoleContributor} {
-		for _, path := range []string{
-			"/api/v1/tenants/7/transfer-owner",
-			"/api/v1/tenants/7/owners/create",
-		} {
-			role, path := role, path
-			t.Run(string(role)+"_"+path, func(t *testing.T) {
-				code := postOMTenantRoute(t, omRouteSession{
-					role: role, userID: "u-sysadmin", systemAdmin: true,
-				}, path)
-				require.Equal(t, http.StatusBadRequest, code,
-					"system admin with workspace role %s must pass (普通 g.Owner() 会误拒)", role)
-			})
-		}
-	}
-}
-
 func TestOwnerTenantRoutesNonOwnerRejected(t *testing.T) {
+	path := "/api/v1/tenants/7/transfer-owner"
 	for _, role := range []types.TenantRole{
 		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {
-		for _, path := range []string{
-			"/api/v1/tenants/7/transfer-owner",
-			"/api/v1/tenants/7/owners/create",
-		} {
-			role, path := role, path
-			t.Run(string(role)+"_"+path, func(t *testing.T) {
-				code := postOMTenantRoute(t, omRouteSession{
-					role: role, userID: "u-ordinary",
-				}, path)
-				require.Equal(t, http.StatusForbidden, code,
-					"ordinary %s must be rejected by the OwnerOrSystemAdmin guard", role)
-			})
-		}
+		role := role
+		t.Run(string(role), func(t *testing.T) {
+			code := postOMTenantRoute(t, omRouteSession{
+				role: role, userID: "u-ordinary",
+			}, path)
+			require.Equal(t, http.StatusForbidden, code,
+				"ordinary %s must be rejected by the OwnerOrSystemAdmin guard", role)
+		})
 	}
 }
 
 func TestOwnerTenantRoutesRejectPathTenantMismatch(t *testing.T) {
-	for _, path := range []string{
-		"/api/v1/tenants/8/transfer-owner",
-		"/api/v1/tenants/8/owners/create",
-	} {
-		path := path
-		t.Run(path, func(t *testing.T) {
-			code := postOMTenantRoute(t, omRouteSession{
-				role: types.TenantRoleOwner, userID: "u-owner", tenantID: 7,
-			}, path)
-			require.Equal(t, http.StatusForbidden, code,
-				"an owner of workspace 7 must not drive workspace 8 by URL")
-		})
-	}
+	code := postOMTenantRoute(t, omRouteSession{
+		role: types.TenantRoleOwner, userID: "u-owner", tenantID: 7,
+	}, "/api/v1/tenants/8/transfer-owner")
+	require.Equal(t, http.StatusForbidden, code,
+		"an owner of workspace 7 must not drive workspace 8 by URL")
 }
 
 func TestOwnerTenantRoutesRequireAuthentication(t *testing.T) {
@@ -203,52 +199,31 @@ func TestOwnerTenantRoutesRequireAuthentication(t *testing.T) {
 	engine.Use(middleware.Auth(nil, nil, nil, nil, cfg))
 	RegisterUserManagementRoutes(engine.Group("/api/v1"), &handler.UserManagementHandler{}, g)
 
-	for _, path := range []string{
-		"/api/v1/tenants/7/transfer-owner",
-		"/api/v1/tenants/7/owners/create",
-	} {
-		path := path
-		t.Run(path, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"to_user_id":"x"}`))
-			req.Header.Set("Content-Type", "application/json")
-			engine.ServeHTTP(w, req)
-			require.Equal(t, http.StatusUnauthorized, w.Code,
-				"unauthenticated owner management must be rejected by backend auth, not only hidden in the UI")
-		})
-	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tenants/7/transfer-owner",
+		strings.NewReader(`{"to_user_id":"x"}`))
+	req.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnauthorized, w.Code,
+		"unauthenticated owner management must be rejected by backend auth, not only hidden in the UI")
 }
 
 func TestOwnerSystemAdminRoutesNonAdminRejected(t *testing.T) {
-	for _, path := range []string{
-		"/api/v1/system/admin/users/u-target/owner-space",
-		"/api/v1/system/admin/owners/invite",
-	} {
-		path := path
-		t.Run(path, func(t *testing.T) {
-			code := postOMSystemAdminRoute(t, omRouteSession{
-				role: types.TenantRoleOwner, userID: "u-owner",
-			}, path)
-			require.Equal(t, http.StatusForbidden, code,
-				"a workspace owner without system-admin privileges must be rejected")
-		})
-	}
+	path := "/api/v1/system/admin/users/u-target/owner-space"
+	code := postOMSystemAdminRoute(t, omRouteSession{
+		role: types.TenantRoleOwner, userID: "u-owner",
+	}, path)
+	require.Equal(t, http.StatusForbidden, code,
+		"a workspace owner without system-admin privileges must be rejected")
 }
 
 func TestOwnerSystemAdminRoutesSystemAdminPassesGuard(t *testing.T) {
-	for _, path := range []string{
-		"/api/v1/system/admin/users/u-target/owner-space",
-		"/api/v1/system/admin/owners/invite",
-	} {
-		path := path
-		t.Run(path, func(t *testing.T) {
-			code := postOMSystemAdminRoute(t, omRouteSession{
-				role: types.TenantRoleViewer, userID: "u-sysadmin", systemAdmin: true,
-			}, path)
-			require.Equal(t, http.StatusBadRequest, code,
-				"a system administrator must pass the SystemAdmin guard and reach the handler")
-		})
-	}
+	path := "/api/v1/system/admin/users/u-target/owner-space"
+	code := postOMSystemAdminRoute(t, omRouteSession{
+		role: types.TenantRoleViewer, userID: "u-sysadmin", systemAdmin: true,
+	}, path)
+	require.Equal(t, http.StatusBadRequest, code,
+		"a system administrator must pass the SystemAdmin guard and reach the handler")
 }
 
 func TestOwnerSystemAdminRoutesRequireAuthentication(t *testing.T) {
@@ -261,17 +236,10 @@ func TestOwnerSystemAdminRoutesRequireAuthentication(t *testing.T) {
 	engine.Use(middleware.Auth(nil, nil, nil, nil, cfg))
 	RegisterOwnerManagementRoutes(engine.Group("/api/v1"), &handler.OwnerManagementHandler{}, g)
 
-	for _, path := range []string{
-		"/api/v1/system/admin/users/u-target/owner-space",
-		"/api/v1/system/admin/owners/invite",
-	} {
-		path := path
-		t.Run(path, func(t *testing.T) {
-			w := httptest.NewRecorder()
-			req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
-			req.Header.Set("Content-Type", "application/json")
-			engine.ServeHTTP(w, req)
-			require.Equal(t, http.StatusUnauthorized, w.Code)
-		})
-	}
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/system/admin/users/u-target/owner-space",
+		strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	engine.ServeHTTP(w, req)
+	require.Equal(t, http.StatusUnauthorized, w.Code)
 }

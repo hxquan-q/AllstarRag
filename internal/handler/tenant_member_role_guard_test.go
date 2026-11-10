@@ -113,11 +113,11 @@ func putMemberRole(
 }
 
 // TestUpdateMemberRole_SystemAdminManagesNonOwnerTargets 覆盖 AC-8：
-// 超管即使在本空间只是 viewer/contributor 也要能改非 owner 成员角色，
-// 包括把 viewer 提升为 admin 以及提升为 owner。
+// 超管即使在本空间只是 viewer/contributor 也要能改非 owner 成员角色；
+// 但「提升为 owner」在唯一 owner 模型下必须走交接，不能走改角色。
 func TestUpdateMemberRole_SystemAdminManagesNonOwnerTargets(t *testing.T) {
 	for _, workspaceRole := range []types.TenantRole{types.TenantRoleViewer, types.TenantRoleContributor} {
-		for _, newRole := range []types.TenantRole{types.TenantRoleAdmin, types.TenantRoleOwner} {
+		for _, newRole := range []types.TenantRole{types.TenantRoleAdmin} {
 			workspaceRole, newRole := workspaceRole, newRole
 			t.Run(string(workspaceRole)+"_to_"+string(newRole), func(t *testing.T) {
 				var gotRole types.TenantRole
@@ -155,42 +155,44 @@ func TestUpdateMemberRole_SystemAdminManagesNonOwnerTargets(t *testing.T) {
 	}
 }
 
-// TestUpdateMemberRole_OwnerPromotesNonOwnerToCoOwner 覆盖 Q17 B / AC-12：
-// owner 可以把 viewer/contributor/admin 提升为 owner。
-func TestUpdateMemberRole_OwnerPromotesNonOwnerToCoOwner(t *testing.T) {
-	for _, sourceRole := range []types.TenantRole{
-		types.TenantRoleViewer,
-		types.TenantRoleContributor,
-		types.TenantRoleAdmin,
-	} {
-		sourceRole := sourceRole
-		t.Run("from_"+string(sourceRole), func(t *testing.T) {
-			called := false
-			ms := &roleGuardMemberService{
-				getMembership: func(context.Context, string, uint64) (*types.TenantMember, error) {
-					return activeMember("u-target", 1, sourceRole), nil
-				},
-				updateRole: func(_ context.Context, _ string, _ uint64, newRole types.TenantRole) error {
-					called = true
-					if newRole != types.TenantRoleOwner {
-						t.Fatalf("expected promotion to owner, got %s", newRole)
-					}
-					return nil
-				},
-			}
+// TestT03UpdateMemberRole_PromotionToOwnerRejected 覆盖 AC-2/AC-4：
+// 唯一 owner 模型下，改角色接口不能把任何人提升为 owner（包括 owner 与
+// 系统管理员调用者）；owner 只能由 ProvisionOwnerSpace 或交接产生。
+func TestT03UpdateMemberRole_PromotionToOwnerRejected(t *testing.T) {
+	sessions := map[string]memberRoleSession{
+		"owner_caller":    {callerID: "u-owner", role: types.TenantRoleOwner},
+		"sysadmin_caller": {callerID: "u-sysadmin", role: types.TenantRoleViewer, systemAdmin: true},
+	}
+	for name, session := range sessions {
+		session := session
+		for _, sourceRole := range []types.TenantRole{
+			types.TenantRoleViewer,
+			types.TenantRoleContributor,
+			types.TenantRoleAdmin,
+		} {
+			sourceRole := sourceRole
+			t.Run(name+"_from_"+string(sourceRole), func(t *testing.T) {
+				called := false
+				ms := &roleGuardMemberService{
+					getMembership: func(context.Context, string, uint64) (*types.TenantMember, error) {
+						return activeMember("u-target", 1, sourceRole), nil
+					},
+					updateRole: func(context.Context, string, uint64, types.TenantRole) error {
+						called = true
+						return nil
+					},
+				}
 
-			w := putMemberRole(t, ms, memberRoleSession{
-				callerID: "u-owner", role: types.TenantRoleOwner,
-			}, 1, "u-target", types.TenantRoleOwner)
+				w := putMemberRole(t, ms, session, 1, "u-target", types.TenantRoleOwner)
 
-			if w.Code != http.StatusOK {
-				t.Fatalf("owner must be able to promote %s to co-owner, got %d body=%s",
-					sourceRole, w.Code, w.Body.String())
-			}
-			if !called {
-				t.Fatalf("service.UpdateRole must be called for a permitted promotion")
-			}
-		})
+				if w.Code != http.StatusForbidden {
+					t.Fatalf("promotion to owner must be 403, got %d body=%s", w.Code, w.Body.String())
+				}
+				if called {
+					t.Fatalf("service.UpdateRole must NOT run when promoting to a second owner")
+				}
+			})
+		}
 	}
 }
 

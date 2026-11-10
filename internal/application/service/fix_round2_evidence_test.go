@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
@@ -136,31 +135,4 @@ func (s *transferMemberStub) GetMembership(_ context.Context, userID string, ten
 
 func (s *transferMemberStub) UpdateRole(context.Context, string, uint64, types.TenantRole) error {
 	return nil
-}
-
-// F20：新建 co-owner 必须走密码策略，弱密码返回 400。
-func TestCreateCoOwnerRejectsWeakPassword(t *testing.T) {
-	env := newUMTestEnv(t)
-	umSeedUser(t, env, "actor", nil)
-	umSeedMembership(t, env, "actor", umTenantA, types.TenantRoleOwner)
-
-	svc := NewUserManagementService(env.userRepo, env.memberRepo, env.audit).(*userManagementService)
-	svc.SetOwnerManagementDeps(&emptyTenantService{}, &transferMemberStub{}, &emptyInvitationService{}, &weakPasswordUserService{})
-
-	weak := "weak"
-	_, err := svc.CreateCoOwnerAccount(umCallerCtx("actor", umTenantA, types.TenantRoleOwner, false), umTenantA,
-		&interfaces.CreateCoOwnerRequest{Username: "new-owner", Email: "new-owner@example.com", Password: &weak})
-	umRequireHTTPStatus(t, err, 400)
-}
-
-type weakPasswordUserService struct{ interfaces.UserService }
-
-func (s *weakPasswordUserService) ValidatePasswordAgainstPolicy(context.Context, string) error {
-	return errors.New("password does not satisfy policy")
-}
-
-type emptyTenantService struct{ interfaces.TenantService }
-
-type emptyInvitationService struct {
-	interfaces.TenantInvitationService
 }
