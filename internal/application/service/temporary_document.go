@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -308,6 +309,11 @@ func releaseTemporaryDocumentResource(
 	if catalog != nil {
 		remaining, err := catalog.Release(ctx, ref, types.ResourceOwnerTemporaryDocument, documentID)
 		if err != nil {
+			// 资源已标记删除说明上一轮清理删过字节：这里没有可删的文件，
+			// 视为释放成功，避免重试任务被“资源不存在”永久卡住。
+			if errors.Is(err, ErrResourceNotFound) {
+				return nil
+			}
 			return fmt.Errorf("release attachment resource: %w", err)
 		}
 		if remaining > 0 {

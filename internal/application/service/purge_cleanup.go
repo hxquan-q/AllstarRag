@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -184,6 +185,11 @@ func (s *purgeCleanupService) cleanupKnowledge(ctx context.Context, raw json.Raw
 	if err := s.chunkRepo.DeleteByKnowledgeList(ctx, payload.TenantID, knowledgeIDs); err != nil {
 		return fmt.Errorf("delete chunks: %w", err)
 	}
+	// 聊天历史 knowledge 没有替代版本：软删的正文如果只留在库里会无限
+	// 累积，所以在软删后立即物理删除 chunks 与 chunk_revisions（F49）。
+	if err := s.chunkRepo.HardDeleteByKnowledgeList(ctx, payload.TenantID, knowledgeIDs); err != nil {
+		return fmt.Errorf("hard delete chunks: %w", err)
+	}
 
 	kb, err := s.kbLookup.GetKnowledgeBaseByID(ctx, payload.KnowledgeBaseID)
 	if err != nil {
@@ -249,6 +255,11 @@ func (s *purgeCleanupService) cleanupAttachments(ctx context.Context, raw json.R
 		refs := compactPurgeIDs(append([]string{document.ResourceRef}, document.ImageRefs...))
 		for _, ref := range refs {
 			if err := s.attachmentReleaser.ReleaseResource(ctx, documentID, ref); err != nil {
+				// 资源已删除是上一轮清理的幂等重放：跳过这个 ref 继续，
+				// 不能让部分成功后的重试永久卡住（T39 round=2，F48）。
+				if errors.Is(err, ErrResourceNotFound) {
+					continue
+				}
 				return fmt.Errorf("release attachment %s ref %s: %w", documentID, ref, err)
 			}
 		}
