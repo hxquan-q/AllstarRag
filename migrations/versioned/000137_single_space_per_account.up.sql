@@ -194,6 +194,58 @@ WHERE id IN (
     WHERE ranked.rn > 1
 );
 
+-- 5b. 撤销跨空间 pending 邀请：invitee 已在另一个空间 active。
+-- 只按 active 判定；invited-only 由接受时的服务层守卫负责（T04）。
+-- 先写审计，再更新邀请状态。
+INSERT INTO audit_logs (
+    tenant_id, actor_user_id, actor_role, action, target_type, target_id,
+    target_user_id, outcome, details, scope_type, scope_id
+)
+SELECT 0, 'system', 'system_admin', 'system.membership_migrated', 'tenant_invitation',
+       ti.id::text, ti.invitee_user_id, 'success',
+       jsonb_build_object(
+           'change', 'invitation_revoked',
+           'reason', 'cross_space',
+           'tenant_id', ti.tenant_id,
+           'before_status', 'pending',
+           'after_status', 'revoked'
+       ),
+       'platform', 'migration:single-space-per-account'
+FROM tenant_invitations ti
+JOIN users u ON u.id = ti.invitee_user_id
+WHERE ti.status = 'pending' AND ti.deleted_at IS NULL
+  AND ti.invitee_user_id <> ''
+  AND NOT (COALESCE(u.is_system_admin, FALSE)
+           OR COALESCE(u.can_access_all_tenants, FALSE))
+  AND EXISTS (
+      SELECT 1
+      FROM tenant_members tm
+      WHERE tm.user_id = ti.invitee_user_id
+        AND tm.status = 'active'
+        AND tm.deleted_at IS NULL
+        AND tm.tenant_id <> ti.tenant_id
+  );
+
+UPDATE tenant_invitations
+SET status = 'revoked', responded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE id IN (
+    SELECT ti.id
+    FROM tenant_invitations ti
+    JOIN users u ON u.id = ti.invitee_user_id
+    WHERE ti.status = 'pending' AND ti.deleted_at IS NULL
+      AND ti.invitee_user_id <> ''
+      AND NOT (COALESCE(u.is_system_admin, FALSE)
+               OR COALESCE(u.can_access_all_tenants, FALSE))
+      AND EXISTS (
+          SELECT 1
+          FROM tenant_members tm
+          WHERE tm.user_id = ti.invitee_user_id
+            AND tm.status = 'active'
+            AND tm.deleted_at IS NULL
+            AND tm.tenant_id <> ti.tenant_id
+      )
+);
+
 -- 6. users.tenant_id 指向保留下来的空间。
 -- 第 5 步挂起后，多空间账号只剩 1 条 active/invited 成员，这里按它修正 home；
 -- 单空间账号若 home 与唯一成员不一致也一并修正（AC-19）。

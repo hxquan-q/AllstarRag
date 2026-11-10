@@ -172,6 +172,53 @@ WHERE id IN (
     WHERE ranked.rn > 1
 );
 
+-- 5b. 撤销跨空间 pending 邀请：invitee 已在另一个空间 active。
+-- 只按 active 判定；invited-only 由接受时的服务层守卫负责（T04）。
+-- 先写审计，再更新邀请状态。
+INSERT INTO audit_logs (
+    tenant_id, actor_user_id, actor_role, action, target_type, target_id,
+    target_user_id, outcome, details, scope_type, scope_id
+)
+SELECT 0, 'system', 'system_admin', 'system.membership_migrated', 'tenant_invitation',
+       CAST(ti.id AS TEXT), ti.invitee_user_id, 'success',
+       '{"change":"invitation_revoked","reason":"cross_space","tenant_id":' || ti.tenant_id ||
+           ',"before_status":"pending","after_status":"revoked"}',
+       'platform', 'migration:single-space-per-account'
+FROM tenant_invitations ti
+JOIN users u ON u.id = ti.invitee_user_id
+WHERE ti.status = 'pending' AND ti.deleted_at IS NULL
+  AND ti.invitee_user_id <> ''
+  AND COALESCE(u.is_system_admin, 0) = 0
+  AND COALESCE(u.can_access_all_tenants, 0) = 0
+  AND EXISTS (
+      SELECT 1
+      FROM tenant_members tm
+      WHERE tm.user_id = ti.invitee_user_id
+        AND tm.status = 'active'
+        AND tm.deleted_at IS NULL
+        AND tm.tenant_id <> ti.tenant_id
+  );
+
+UPDATE tenant_invitations
+SET status = 'revoked', responded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+WHERE id IN (
+    SELECT ti.id
+    FROM tenant_invitations ti
+    JOIN users u ON u.id = ti.invitee_user_id
+    WHERE ti.status = 'pending' AND ti.deleted_at IS NULL
+      AND ti.invitee_user_id <> ''
+      AND COALESCE(u.is_system_admin, 0) = 0
+      AND COALESCE(u.can_access_all_tenants, 0) = 0
+      AND EXISTS (
+          SELECT 1
+          FROM tenant_members tm
+          WHERE tm.user_id = ti.invitee_user_id
+            AND tm.status = 'active'
+            AND tm.deleted_at IS NULL
+            AND tm.tenant_id <> ti.tenant_id
+      )
+);
+
 -- 6. users.tenant_id 指向保留下来的空间。
 -- SQLite 不允许在相关子查询的 ORDER BY 里引用被更新的表名，
 -- 因此用 UPDATE ... FROM 先算出每个账号保留的成员行。
