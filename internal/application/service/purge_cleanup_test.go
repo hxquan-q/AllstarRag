@@ -138,8 +138,10 @@ func (q *t39PendingQueue) ReleaseByIDs(_ context.Context, _ []int64) error {
 
 type t39ChunkRepo struct {
 	interfaces.ChunkRepository
-	calls []t39ChunkDeleteCall
-	err   error
+	calls     []t39ChunkDeleteCall
+	hardCalls []t39ChunkDeleteCall
+	err       error
+	hardErr   error
 }
 
 func (f *t39ChunkRepo) DeleteByKnowledgeList(
@@ -149,6 +151,17 @@ func (f *t39ChunkRepo) DeleteByKnowledgeList(
 		TenantID: tenantID, KnowledgeIDs: append([]string(nil), knowledgeIDs...),
 	})
 	return f.err
+}
+
+// HardDeleteByKnowledgeList 是 T39 round=2 新增的仓储契约；既有 worker 用例
+// 通过这个假实现记录物理删除调用，避免嵌入的 nil 接口在调用时 panic。
+func (f *t39ChunkRepo) HardDeleteByKnowledgeList(
+	_ context.Context, tenantID uint64, knowledgeIDs []string,
+) error {
+	f.hardCalls = append(f.hardCalls, t39ChunkDeleteCall{
+		TenantID: tenantID, KnowledgeIDs: append([]string(nil), knowledgeIDs...),
+	})
+	return f.hardErr
 }
 
 type t39KBLookup struct {
