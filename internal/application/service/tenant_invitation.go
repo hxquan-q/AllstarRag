@@ -54,6 +54,12 @@ var (
 	// a single sentinel so an attacker can't probe which slots used
 	// to exist.
 	ErrInvitationTokenInvalid = errors.New("invitation token is invalid or has been revoked")
+
+	// ErrInvitationRoleNotAssignable 表示邀请/分享链接使用了产品层不再分配
+	// 的角色（owner / contributor）。T05：只分配 admin / viewer；历史邀请
+	// 在接受时同样拒绝，并提示重新邀请。handler 映射为 400。
+	ErrInvitationRoleNotAssignable = errors.New(
+		"this invitation role is no longer assignable; invite the user as admin or viewer")
 )
 
 // defaultInvitationTTL is the lifetime of a pending invitation before
@@ -154,6 +160,10 @@ func (s *tenantInvitationService) Create(
 	if err := rejectAPIKeyOwnerAssignment(ctx, role); err != nil {
 		return nil, err
 	}
+	// T05：产品层只分配 admin / viewer。owner 走开通/交接，contributor 停用。
+	if !IsAssignableMemberRole(role) {
+		return nil, ErrInvitationRoleNotAssignable
+	}
 	// Reject early if the invitee is already an active member; the
 	// handler renders this as "they're already in" rather than the
 	// generic conflict.
@@ -240,6 +250,11 @@ func (s *tenantInvitationService) Accept(
 		// can age past expires_at between the sweep and this read.
 		// Treat it as expired regardless.
 		return nil, ErrInvitationExpired
+	}
+	// T05：历史 owner / contributor 邀请不能写入成员行。校验必须在
+	// MarkStatusIfPending 之前，拒绝时邀请保持 pending。
+	if !IsAssignableMemberRole(inv.Role) {
+		return nil, ErrInvitationRoleNotAssignable
 	}
 
 	// 一号一空间（T04 / AC-15/16）：真实会员服务能共享按用户锁时，
@@ -575,6 +590,10 @@ func (s *tenantInvitationService) CreateShareLink(
 	if err := rejectAPIKeyOwnerAssignment(ctx, role); err != nil {
 		return nil, "", err
 	}
+	// T05：分享链接同样只分配 admin / viewer。
+	if !IsAssignableMemberRole(role) {
+		return nil, "", ErrInvitationRoleNotAssignable
+	}
 	token, err := generateShareLinkToken()
 	if err != nil {
 		return nil, "", err
@@ -650,6 +669,10 @@ func (s *tenantInvitationService) AcceptByToken(
 	inv, err := s.LookupByToken(ctx, plainToken)
 	if err != nil {
 		return nil, err
+	}
+	// T05：历史 owner / contributor 分享链接不能写入成员行。
+	if !IsAssignableMemberRole(inv.Role) {
+		return nil, ErrInvitationRoleNotAssignable
 	}
 	// 一号一空间（T04 / AC-15/16）：分享链接加入同样在按用户锁内做归属
 	// 校验再写成员行；拒绝时不产生成员关系。

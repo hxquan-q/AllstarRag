@@ -86,7 +86,13 @@ func (h *TenantInvitationHandler) CreateInviteLink(c *gin.Context) {
 		return
 	}
 	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+		c.Error(apperrors.NewValidationError("invalid role"))
+		return
+	}
+	// T05：分享链接只分配 admin / viewer。
+	if !service.IsAssignableMemberRole(req.Role) {
+		c.Error(apperrors.NewForbiddenError(
+			"role must be admin or viewer; owner is assigned via provisioning or handover"))
 		return
 	}
 	if req.ExpiresAt != nil && !req.ExpiresAt.After(time.Now()) {
@@ -104,6 +110,10 @@ func (h *TenantInvitationHandler) CreateInviteLink(c *gin.Context) {
 	if err != nil {
 		if errors.Is(err, service.ErrAPIKeyCannotAssignOwner) {
 			c.Error(apperrors.NewForbiddenError(err.Error()))
+			return
+		}
+		if errors.Is(err, service.ErrInvitationRoleNotAssignable) {
+			c.Error(apperrors.NewValidationError(err.Error()))
 			return
 		}
 		logger.Errorf(ctx, "CreateShareLink failed: tenant=%d err=%v", tenantID, err)

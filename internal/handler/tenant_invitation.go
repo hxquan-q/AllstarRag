@@ -280,7 +280,13 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 		return
 	}
 	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+		c.Error(apperrors.NewValidationError("invalid role"))
+		return
+	}
+	// T05：产品层只分配 admin / viewer；owner 走开通/交接，contributor 停用。
+	if !service.IsAssignableMemberRole(req.Role) {
+		c.Error(apperrors.NewForbiddenError(
+			"role must be admin or viewer; owner is assigned via provisioning or handover"))
 		return
 	}
 
@@ -329,6 +335,8 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 			c.Error(apperrors.NewConflictError(err.Error()))
 		case errors.Is(err, service.ErrUserAlreadyInSpace):
 			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrInvitationRoleNotAssignable):
+			c.Error(apperrors.NewValidationError(err.Error()))
 		default:
 			logger.Errorf(ctx, "CreateInvitation failed: user=%s tenant=%d err=%v",
 				user.ID, tenantID, err)
@@ -552,6 +560,8 @@ func (h *TenantInvitationHandler) AcceptMyInvitation(c *gin.Context) {
 			c.Error(apperrors.NewConflictError(err.Error()))
 		case errors.Is(err, service.ErrUserAlreadyInSpace):
 			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrInvitationRoleNotAssignable):
+			c.Error(apperrors.NewValidationError(err.Error()))
 		default:
 			logger.Errorf(ctx, "AcceptMyInvitation failed: id=%d user=%s err=%v",
 				invID, caller, err)
@@ -634,6 +644,8 @@ func (h *TenantInvitationHandler) AcceptMyInvitationByToken(c *gin.Context) {
 			})
 		case errors.Is(err, service.ErrUserAlreadyInSpace):
 			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrInvitationRoleNotAssignable):
+			c.Error(apperrors.NewValidationError(err.Error()))
 		default:
 			logger.Errorf(ctx, "AcceptMyInvitationByToken failed: user=%s err=%v", caller, err)
 			c.Error(apperrors.NewInternalServerError("failed to accept invitation").WithDetails(err.Error()))

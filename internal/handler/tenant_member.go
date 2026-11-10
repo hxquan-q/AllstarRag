@@ -224,7 +224,13 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 	// gives the client a better error message than the generic service
 	// sentinel-mapped 400.
 	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+		c.Error(apperrors.NewValidationError("invalid role"))
+		return
+	}
+	// T05：POST /members 只分配 admin / viewer；owner/contributor 拒绝。
+	if !service.IsAssignableMemberRole(req.Role) {
+		c.Error(apperrors.NewForbiddenError(
+			"role must be admin or viewer; owner is assigned via provisioning or handover"))
 		return
 	}
 
@@ -626,7 +632,6 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 			"a member cannot be promoted to owner; use transfer-owner to hand over the space"))
 		return
 	}
-
 	// 路由守卫之外的第二道判权：只有本空间 owner 或系统管理员能改角色。
 	// 保留它是为了防止将来路由装配回退时静默 fail-open（红线 C4）。
 	if !canManageMemberRoles(ctx) {
@@ -658,6 +663,16 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 			userID, tenantID, current.Role, req.Role)
 		c.Error(apperrors.NewForbiddenError(
 			"an owner cannot be demoted directly; complete the space handover via transfer-owner first"))
+		return
+	}
+
+	// T05：contributor 不再分配；非 owner 目标改角色只能落到 admin / viewer。
+	// 放在 owner 降级保护之后，保持「降级 owner 必须先交接」的提示语义。
+	if !service.IsAssignableMemberRole(req.Role) {
+		logger.Warnf(ctx, "UpdateMemberRole denied: non-assignable role user=%s tenant=%d role=%s",
+			userID, tenantID, req.Role)
+		c.Error(apperrors.NewForbiddenError(
+			"role must be admin or viewer; contributor is no longer assignable"))
 		return
 	}
 
