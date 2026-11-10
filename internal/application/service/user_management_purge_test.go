@@ -512,10 +512,11 @@ func TestUserManagementPurgeProtectsPrivilegedTargets(t *testing.T) {
 		"rejected purges must not write a success audit row")
 }
 
-// TestUserManagementPurgeNonOwnerRejected：服务层自证防御，非 owner/超管 403。
+// TestUserManagementPurgeNonOwnerRejected：服务层自证防御，contributor/viewer
+// 403。T06 起普通管理员可 purge 游客，admin→viewer 成功与 admin→owner/同级
+// 403 由 TestT06PurgeTargetProtectionMatrix 覆盖。
 func TestUserManagementPurgeNonOwnerRejected(t *testing.T) {
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {

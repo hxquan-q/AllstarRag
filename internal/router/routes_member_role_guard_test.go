@@ -19,7 +19,7 @@ import (
 // 契约（T12-1、AC-38、AC-6）：
 //   - 该路由由 g.Owner() 改为 g.OwnerOrSystemAdmin()，系统管理员无需
 //     本空间 owner 角色即可进入 handler；
-//   - 普通 admin/contributor/viewer 仍 403；
+//   - contributor/viewer 仍 403；普通管理员（admin）T06 起放行；
 //   - 未认证 401；URL 租户与活动租户不一致 403。
 //
 // 放行探测：请求体用 {"role":"not-a-role"}（非法角色），handler 在

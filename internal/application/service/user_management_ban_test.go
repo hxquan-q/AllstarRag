@@ -354,10 +354,11 @@ func TestUserManagementSystemAdminCannotBanSelf(t *testing.T) {
 	require.True(t, umLoadUser(t, env, "sysadmin").IsActive)
 }
 
-// TestUserManagementNonOwnerRejected：服务层自证防御，非 owner/超管直接拒绝。
+// TestUserManagementNonOwnerRejected：服务层自证防御，contributor/viewer
+// 直接拒绝。T06 起普通管理员对游客可治理，admin→viewer 成功与
+// admin→owner/同级 403 由 TestT06BanTargetProtectionMatrix 覆盖。
 func TestUserManagementNonOwnerRejected(t *testing.T) {
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {

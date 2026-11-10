@@ -321,14 +321,15 @@ func TestUserManagementListUsersTenantIsolation(t *testing.T) {
 }
 
 // TestUserManagementListUsersNonOwnerRejected 锁定 AC-38/C4：服务层自证防御，
-// admin/contributor/viewer 一律 403（不能只靠前端隐藏）。
+// contributor/viewer 一律 403（不能只靠前端隐藏）。T06 起普通管理员可读
+// 当前空间列表，admin 可读与三桶计数由 TestT06TenantRoleCountsUseThreeBuckets
+// 覆盖。
 func TestUserManagementListUsersNonOwnerRejected(t *testing.T) {
 	env := newUMTestEnv(t)
 	umListSeedMember(t, env, "u-owner", "owner@example.com", "owner", umTenantA, types.TenantRoleOwner, true)
 	umListSeedMember(t, env, "u-target", "target@example.com", "target", umTenantA, types.TenantRoleViewer, true)
 
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {
