@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -124,13 +125,9 @@ func TestT32StaleExpectedRoleRejected(t *testing.T) {
 	}).EnsureOwner(ctx, "u-target", tenantID); err != nil {
 		t.Fatalf("seed target owner: %v", err)
 	}
-	if _, err := svc.(interface {
-		EnsureOwner(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error)
-	}).EnsureOwner(ctx, "u-other-owner", tenantID); err != nil {
-		t.Fatalf("seed other owner: %v", err)
-	}
 
 	// 调用方在并发前读到的是 viewer；目标已被提升为 owner。
+	// 场景 1 只依赖目标当前是 owner，不需要第二个 owner 造数。
 	err := svc.UpdateRoleGuarded(ctx, "u-target", tenantID,
 		types.TenantRoleViewer, types.TenantRoleAdmin, false)
 	if !errors.Is(err, ErrMembershipChanged) {
@@ -159,12 +156,9 @@ func TestT32DirectOwnerDemotionRejected(t *testing.T) {
 	}).EnsureOwner(ctx, "u-target", tenantID); err != nil {
 		t.Fatalf("seed target owner: %v", err)
 	}
-	if _, err := svc.(interface {
-		EnsureOwner(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error)
-	}).EnsureOwner(ctx, "u-other-owner", tenantID); err != nil {
-		t.Fatalf("seed other owner: %v", err)
-	}
 
+	// 场景 2 只依赖「目标是 owner」；allowOwnerDemotion=false 在计数前就拒绝，
+	// 不需要第二个 owner 造数。
 	err := svc.UpdateRoleGuarded(ctx, "u-target", tenantID,
 		types.TenantRoleOwner, types.TenantRoleAdmin, false)
 	if !errors.Is(err, ErrOwnerDemotionRequiresTransfer) {
@@ -191,9 +185,15 @@ func TestT32HandoverOwnerDemotionAllowed(t *testing.T) {
 	}).EnsureOwner(ctx, "u-target", tenantID); err != nil {
 		t.Fatalf("seed target owner: %v", err)
 	}
-	if _, err := svc.(interface {
-		EnsureOwner(ctx context.Context, userID string, tenantID uint64) (*types.TenantMember, error)
-	}).EnsureOwner(ctx, "u-successor", tenantID); err != nil {
+	// 唯一 owner 语义下 EnsureOwner 不会创建第二个 owner；交接内部路径
+	// 需要「另一名 owner 存在」，因此直接经仓储写入 successor 的 owner 行。
+	if err := repo.Create(ctx, &types.TenantMember{
+		UserID:   "u-successor",
+		TenantID: tenantID,
+		Role:     types.TenantRoleOwner,
+		Status:   types.TenantMemberStatusActive,
+		JoinedAt: time.Now(),
+	}); err != nil {
 		t.Fatalf("seed successor owner: %v", err)
 	}
 
