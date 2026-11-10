@@ -53,8 +53,16 @@ func (s *userManagementService) TransferOwner(
 	if source.Role != types.TenantRoleOwner {
 		return apperrors.NewNotFoundError("source owner membership not found")
 	}
-	if _, err := s.loadActiveMembership(ctx, to, tenantID); err != nil {
+	targetMember, err := s.loadActiveMembership(ctx, to, tenantID)
+	if err != nil {
 		return err
+	}
+	// 唯一 owner 模型（AC-7）：交接目标必须是本空间 active 普通管理员
+	// （admin）；viewer/contributor 需先提升为 admin，避免把空间直接交给
+	// 没有成员管理能力的账号。
+	if targetMember.Role != types.TenantRoleAdmin {
+		return apperrors.NewBadRequestError(
+			"transfer target must be an active admin; promote the target to admin first")
 	}
 	// 不能把空间交给被封禁的账号，否则交接后空间会立刻没有可登录的 owner（F30）。
 	targetUser, err := s.userRepo.GetUserByID(ctx, to)

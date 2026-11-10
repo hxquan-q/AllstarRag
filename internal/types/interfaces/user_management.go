@@ -111,19 +111,6 @@ type UserManagementService interface {
 	// owner。系统管理员本身不会成为该空间成员。
 	ProvisionOwnerSpace(ctx context.Context, targetUserID, spaceName string) (*types.Tenant, error)
 
-	// CreateOwnerInvite 由系统管理员创建 pending 空间 + role=owner 的
-	// 分享链接。邀请时只建租户与 token，不预建成员关系。
-	CreateOwnerInvite(
-		ctx context.Context, email, spaceName string, expiresDays int,
-	) (*OwnerInviteResult, error)
-
-	// CreateCoOwnerAccount 由本空间 owner（或系统管理员）新建 co-owner
-	// 账号：账号 tenant_id=0，仅通过成员关系属于当前空间。入组失败时
-	// 回滚刚建的账号。
-	CreateCoOwnerAccount(
-		ctx context.Context, tenantID uint64, req *CreateCoOwnerRequest,
-	) (*types.User, error)
-
 	// ListUsers 返回用户管理页的成员列表：role 为空表示全部，非法值
 	// 400；只含 active 成员关系且非墓碑用户，封禁用户出现在列表中并标记
 	// status="banned"；RoleCounts 为整空间目录计数。

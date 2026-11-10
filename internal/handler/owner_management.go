@@ -13,9 +13,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// OwnerManagementHandler 负责超管的 owner 管理接口（设 owner 空间 /
-// 生成 owner 邀请）。权限与业务规则在 service 层完成；本层只做参数解析、
-// 错误映射、邀请 URL 组装和响应包裹。
+// OwnerManagementHandler 负责超管的 owner 管理接口（设 owner 空间）。
+// 权限与业务规则在 service 层完成；本层只做参数解析、错误映射和响应包裹。
 type OwnerManagementHandler struct {
 	userManagementService interfaces.UserManagementService
 	config                *config.Config
@@ -38,13 +37,6 @@ func (h *OwnerManagementHandler) WithConfig(cfg *config.Config) *OwnerManagement
 // provisionOwnerSpaceRequest 是设 owner 空间的请求体；space_name 可选。
 type provisionOwnerSpaceRequest struct {
 	SpaceName string `json:"space_name"`
-}
-
-// createOwnerInviteRequest 是生成 owner 邀请的请求体，三个字段都可选。
-type createOwnerInviteRequest struct {
-	Email         string `json:"email"`
-	SpaceName     string `json:"space_name"`
-	ExpiresInDays int    `json:"expires_in_days"`
 }
 
 // ProvisionOwnerSpace 把已有账号设为 owner（无空间则新建，有则复用）。
@@ -85,47 +77,6 @@ func (h *OwnerManagementHandler) ProvisionOwnerSpace(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"data":    gin.H{"tenant": tenant},
-	})
-}
-
-// CreateOwnerInvite 生成 owner 邀请：pending 空间 + role=owner 的分享链接。
-//
-//	@Summary      生成 owner 邀请链接
-//	@Description  创建一个 pending 空间与 owner 角色的分享链接；接受邀请后才创建成员关系
-//	@Tags         系统管理
-//	@Produce      json
-//	@Param        request  body  createOwnerInviteRequest  false  "邀请信息（全部可选）"
-//	@Success      201      {object}  map[string]interface{}
-//	@Failure      400      {object}  map[string]interface{}  "请求体非法或邀请有效期非法"
-//	@Failure      403      {object}  map[string]interface{}  "仅系统管理员可调用"
-//	@Failure      500      {object}  map[string]interface{}  "内部错误"
-//	@Router       /system/admin/owners/invite [post]
-func (h *OwnerManagementHandler) CreateOwnerInvite(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	var req createOwnerInviteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
-		return
-	}
-
-	result, err := h.userManagementService.CreateOwnerInvite(
-		ctx,
-		strings.TrimSpace(req.Email),
-		strings.TrimSpace(req.SpaceName),
-		req.ExpiresInDays,
-	)
-	if err != nil {
-		renderManagementError(c, err)
-		return
-	}
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"data": gin.H{
-			"invite_url": buildInviteRegisterURL(h.config, result.Token),
-			"tenant_id":  result.TenantID,
-			"expires_at": result.ExpiresAt,
-		},
 	})
 }
 

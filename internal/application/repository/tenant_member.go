@@ -303,7 +303,10 @@ func (r *tenantMemberRepository) TransferOwnershipTx(
 			return ErrRoleChanged
 		}
 		to := locked[toUserID]
-		if to == nil || to.Status != types.TenantMemberStatusActive {
+		// 唯一 owner 模型：交接目标必须是本空间 active 普通管理员（admin）。
+		// viewer/contributor 需先提升为 admin；源 owner 同样只能降为 admin。
+		if to == nil || to.Status != types.TenantMemberStatusActive ||
+			to.Role != types.TenantRoleAdmin {
 			return ErrRoleChanged
 		}
 

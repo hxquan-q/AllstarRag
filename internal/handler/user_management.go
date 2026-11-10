@@ -223,13 +223,6 @@ type transferOwnerRequest struct {
 	ToUserID   string `json:"to_user_id"`
 }
 
-// createCoOwnerRequest 是 owner 新建 co-owner 账号的请求体。
-type createCoOwnerRequest struct {
-	Username string  `json:"username"`
-	Email    string  `json:"email"`
-	Password *string `json:"password"`
-}
-
 // TransferOwner 交接空间 owner 身份。
 //
 //	@Summary      交接空间 owner
@@ -269,51 +262,6 @@ func (h *UserManagementHandler) TransferOwner(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-// CreateCoOwnerAccount 由 owner 新建 co-owner 账号。
-//
-//	@Summary      新建 co-owner 账号
-//	@Description  创建一个 tenantless 账号并加入当前空间，角色为 owner；入组失败会回滚账号
-//	@Tags         空间成员
-//	@Produce      json
-//	@Param        id       path  string                true  "空间 ID"
-//	@Param        request  body  createCoOwnerRequest  true  "账号信息"
-//	@Success      201      {object}  map[string]interface{}
-//	@Failure      400      {object}  map[string]interface{}  "用户名/邮箱/密码缺失或非法"
-//	@Failure      403      {object}  map[string]interface{}  "非本空间 owner 或系统管理员"
-//	@Failure      409      {object}  map[string]interface{}  "邮箱/用户名已注册或已是本空间成员"
-//	@Failure      500      {object}  map[string]interface{}  "内部错误"
-//	@Router       /tenants/{id}/owners/create [post]
-func (h *UserManagementHandler) CreateCoOwnerAccount(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	var req createCoOwnerRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		_ = c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
-		return
-	}
-	tenantID, ok := parseTenantIDFromPath(c)
-	if !ok {
-		return
-	}
-
-	user, err := h.userManagementService.CreateCoOwnerAccount(
-		ctx, tenantID, &interfaces.CreateCoOwnerRequest{
-			Username: req.Username,
-			Email:    req.Email,
-			Password: req.Password,
-		},
-	)
-	if err != nil {
-		renderManagementError(c, err)
-		return
-	}
-	// types.User 的 PasswordHash 带 json:"-"，不会泄露哈希。
-	c.JSON(http.StatusCreated, gin.H{
-		"success": true,
-		"data":    gin.H{"user": user},
-	})
 }
 
 // UserManagementListData 是用户管理列表响应的 data 部分，仅用于 Swagger 文档。

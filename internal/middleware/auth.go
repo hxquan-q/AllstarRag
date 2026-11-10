@@ -797,6 +797,42 @@ func principalTenantIDFromClaims(claims jwt.MapClaims) uint64 {
 	}
 }
 
+// activeOwnerCounter 是认证层孤儿空间自愈依赖的可选窄接口。
+// 真实 TenantMemberService 与测试替身都可以提供；不扩进主接口，避免
+// 破坏既有的逐方法测试替身。
+type activeOwnerCounter interface {
+	CountActiveOwners(ctx context.Context, tenantID uint64) (int64, error)
+}
+
+// tenantHasActiveOwner 判断空间是否已有 active owner。
+// 优先用计数窄接口；没有时退回 ListByTenant 扫描（只算 active owner，
+// suspended/invited 不算）。查询失败返回错误，由调用方 fail-closed。
+func tenantHasActiveOwner(
+	ctx context.Context,
+	memberService interfaces.TenantMemberService,
+	tenantID uint64,
+) (bool, error) {
+	if counter, ok := memberService.(activeOwnerCounter); ok {
+		n, err := counter.CountActiveOwners(ctx, tenantID)
+		if err != nil {
+			return false, err
+		}
+		return n > 0, nil
+	}
+	members, err := memberService.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return false, err
+	}
+	for _, member := range members {
+		if member != nil &&
+			member.Role == types.TenantRoleOwner &&
+			member.Status == types.TenantMemberStatusActive {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // resolveTenantRole determines the caller's TenantRole inside targetTenantID.
 //
 // Order of resolution:
@@ -810,12 +846,14 @@ func principalTenantIDFromClaims(claims jwt.MapClaims) uint64 {
 //     临时角色不写入 tenant_members：org admin / 系统管理员只做管理，
 //     不成为该空间的持久 Owner（租户删除、API key 轮换仍应由空间内
 //     真实 Owner 执行）。直通也不会触发下面的孤儿空间自动晋升。
-//  3. No membership but the tenant currently has zero active members AND
+//  3. No membership but the tenant currently has zero active owners AND
 //     the caller is authenticating into their own home tenant (i.e.
 //     targetTenantID == user.TenantID and this is not a cross-tenant
-//     switch). This is the API-key-only orphan-tenant self-heal path:
-//     the registrant becomes Owner of the tenant their own user record
-//     points to. Any other path (cross-tenant switch, JWT minted for a
+//     switch). This is the orphan-tenant self-heal path: the registrant
+//     becomes Owner of the tenant their own user record points to. A
+//     space with non-owner members but no active owner is also healed
+//     (degraded data); a space that already has an active owner is left
+//     untouched. Any other path (cross-tenant switch, JWT minted for a
 //     foreign tenant, etc.) is intentionally excluded to avoid silent
 //     ownership grabs.
 //  4. Otherwise → return ok=false. Caller decides:
@@ -877,13 +915,18 @@ func resolveTenantRole(
 		return types.TenantRoleAdmin, true
 	}
 
-	// 3. 孤儿空间自愈：仅当用户登录的是自己的 home tenant、且该空间尚无任何活跃成员时
-	//    允许自动晋升为 Owner。跨空间 switch / JWT 指向他人空间的场景一律不进入此分支，
-	//    防止越权获得他人空间的 Owner 权限。
+	// 3. 孤儿空间自愈：仅当用户登录的是自己的 home tenant、且该空间没有
+	//    active owner 时允许自动晋升为 Owner。跨空间 switch / JWT 指向他人
+	//    空间的场景一律不进入此分支，防止越权获得他人空间的 Owner 权限。
+	//    注意这里按「active owner 数」判断，而不是「是否有任意成员」：
+	//    有 viewer/admin 但 0 owner 的降级空间需要补 owner；已有 owner 的
+	//    空间必须跳过，不能产生第二个 owner。suspended-only owner 仍占用
+	//    唯一索引，AddMember 会失败，此时只记录 warn 并 fail-closed。
 	isHomeTenant := !crossTenantSwitch && targetTenantID == user.TenantID
 	if isHomeTenant {
-		hasAny, anyErr := memberService.HasAnyMembers(ctx, targetTenantID)
-		if anyErr == nil && !hasAny {
+		if hasActiveOwner, checkErr := tenantHasActiveOwner(ctx, memberService, targetTenantID); checkErr != nil {
+			logger.Warnf(ctx, "tenant owner check failed tenant=%d: %v", targetTenantID, checkErr)
+		} else if !hasActiveOwner {
 			if _, e := memberService.AddMember(
 				ctx, user.ID, targetTenantID, types.TenantRoleOwner, nil,
 			); e == nil {

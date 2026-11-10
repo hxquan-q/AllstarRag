@@ -613,6 +613,17 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
+	// 唯一 owner 模型（AC-2/AC-4）：改角色接口不能把任何人提升为 owner，
+	// 包括 owner 与系统管理员调用者。owner 只能由 ProvisionOwnerSpace
+	// 或 transfer-owner 交接产生。
+	if req.Role == types.TenantRoleOwner {
+		logger.Warnf(ctx, "UpdateMemberRole denied: promotion to owner user=%s tenant=%d",
+			userID, tenantID)
+		c.Error(apperrors.NewForbiddenError(
+			"a member cannot be promoted to owner; use transfer-owner to hand over the space"))
+		return
+	}
+
 	// 路由守卫之外的第二道判权：只有本空间 owner 或系统管理员能改角色。
 	// 保留它是为了防止将来路由装配回退时静默 fail-open（红线 C4）。
 	if !canManageMemberRoles(ctx) {

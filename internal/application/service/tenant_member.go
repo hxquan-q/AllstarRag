@@ -236,6 +236,21 @@ func (s *tenantMemberService) EnsureOwner(
 	if existing != nil {
 		return existing, nil
 	}
+	// 唯一 owner 模型：空间已有任意未删除 owner 行（不限 status）时不再
+	// 创建第二个 owner，直接返回已有 owner。suspended owner 仍占唯一索引
+	// 的位，不能被绕过；需要恢复/交接时走对应流程。
+	members, err := s.repo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range members {
+		if m.Role == types.TenantRoleOwner {
+			logger.Infof(ctx,
+				"EnsureOwner skipped: tenant=%d already has owner user=%s status=%s",
+				tenantID, m.UserID, m.Status)
+			return m, nil
+		}
+	}
 	member := &types.TenantMember{
 		UserID:   userID,
 		TenantID: tenantID,
@@ -345,6 +360,12 @@ func (s *tenantMemberService) ListMembersPage(
 // HasAnyMembers proxies to the repository.
 func (s *tenantMemberService) HasAnyMembers(ctx context.Context, tenantID uint64) (bool, error) {
 	return s.repo.HasAnyMembers(ctx, tenantID)
+}
+
+// CountActiveOwners proxies to the repository。认证中间件的孤儿空间自愈
+// 按「active owner 数」判断，而不是「是否已有任意成员」。
+func (s *tenantMemberService) CountActiveOwners(ctx context.Context, tenantID uint64) (int64, error) {
+	return s.repo.CountActiveOwners(ctx, tenantID)
 }
 
 // HasRevokedAccess 判断用户是否被移出了所有曾加入的空间:

@@ -210,9 +210,8 @@ func RegisterUserManagementRoutes(
 	// 与 owner 交接前置在 UserManagementService.authorizePurge。
 	tenantByID.POST("/members/:user_id/purge", g.OwnerOrSystemAdmin(), h.PurgeMember)
 	// owner 空间交接：owner 只能传自己，系统管理员可传任意 owner。
+	// 唯一 owner 模型下这是 owner 身份变更的唯一入口。
 	tenantByID.POST("/transfer-owner", g.OwnerOrSystemAdmin(), h.TransferOwner)
-	// owner 新建 co-owner 账号：账号 tenant_id=0，只通过成员关系属于本空间。
-	tenantByID.POST("/owners/create", g.OwnerOrSystemAdmin(), h.CreateCoOwnerAccount)
 	// 用户管理列表（左目录计数 + 右列表）：owner 可见本空间全部成员，
 	// 系统管理员即使当前工作区角色低于 owner 也放行。业务判权在
 	// UserManagementService.ListUsers 再证一次（C4）。
@@ -247,11 +246,10 @@ func RegisterPlatformUserManagementRoutes(
 
 // RegisterOwnerManagementRoutes 注册仅系统管理员可用的 owner 分配接口：
 //   - POST /system/admin/users/:user_id/owner-space
-//   - POST /system/admin/owners/invite
 //
-// 拆成独立的 Register* 函数，避免改动 RegisterSystemAdminRoutes 的签名和
-// 既有调用点。组级统一挂 g.SystemAdmin()，与 /system/admin 下其他路由
-// 同一口径。
+// 唯一 owner 模型下不再提供 owner 邀请创建路径。拆成独立的 Register*
+// 函数，避免改动 RegisterSystemAdminRoutes 的签名和既有调用点。组级统一
+// 挂 g.SystemAdmin()，与 /system/admin 下其他路由同一口径。
 func RegisterOwnerManagementRoutes(
 	r *gin.RouterGroup,
 	h *handler.OwnerManagementHandler,
@@ -262,7 +260,6 @@ func RegisterOwnerManagementRoutes(
 	}
 	adminRoutes := r.Group("/system/admin", g.SystemAdmin())
 	adminRoutes.POST("/users/:user_id/owner-space", h.ProvisionOwnerSpace)
-	adminRoutes.POST("/owners/invite", h.CreateOwnerInvite)
 }
 
 // RegisterMyInvitationRoutes wires the per-user invitation inbox under
