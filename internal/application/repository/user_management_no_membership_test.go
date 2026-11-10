@@ -174,11 +174,15 @@ func TestT44UsersWithoutMembershipSearchByEmailOrUsername(t *testing.T) {
 	repo := &tenantMemberRepository{db: db}
 	ctx := context.Background()
 
-	for _, q := range []string{"LONER", "bannedloner@example.com"} {
+	// 注意搜索词选型：夹具里 u-loner 与 u-banned-loner 的邮箱/用户名都含
+	// 「loner」子串，q=loner/LONER 必然命中两人（service 层 S-2 用例正是这
+	// 么断言的）。这里要断言「只返回匹配者」，必须选唯一命中的词：BANNED
+	// 只出现在 u-banned-loner 的邮箱与用户名里。
+	for _, q := range []string{"BANNED", "bannedloner@example.com"} {
 		rows, err := repo.ListUserManagementUsersWithoutMembership(ctx, q, 0, 50)
 		require.NoError(t, err, "q=%s", q)
 		require.Equal(t, []string{"u-banned-loner"}, t44RowIDs(rows),
-			"q=%s 应同时命中邮箱与用户名（大小写不敏感）", q)
+			"q=%s 应只命中唯一匹配者（邮箱与用户名均含该词，大小写不敏感）", q)
 
 		total, err := repo.CountUserManagementUsersWithoutMembership(ctx, q)
 		require.NoError(t, err)

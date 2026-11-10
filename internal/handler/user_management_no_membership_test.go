@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -31,6 +32,7 @@ type umT44FakeService struct {
 
 	scopedCalls   int
 	noMemberCalls int
+	legacyCalls   int
 	gotTenantID   uint64
 	gotQuery      string
 	gotPage       int
@@ -47,6 +49,21 @@ func (s *umT44FakeService) ListUsersScoped(
 	s.gotPage = page
 	s.gotPageSize = pageSize
 	return umT44Result(), nil
+}
+
+// ListUsers 补缺省 scope（不带 scope 参数）路径的桩：handler 对该路径
+// 分派既有 ListUsers 而非 scoped/新方法，嵌入的 nil 接口会让它 panic
+// 成 500。返回不含无空间计数的既有成功结果。
+func (s *umT44FakeService) ListUsers(
+	_ context.Context, tenantID uint64, _ types.TenantRole,
+	query string, page, pageSize int,
+) (*interfaces.UserManagementListResult, error) {
+	s.legacyCalls++
+	s.gotTenantID = tenantID
+	s.gotQuery = query
+	s.gotPage = page
+	s.gotPageSize = pageSize
+	return umListSuccessResult(), nil
 }
 
 func (s *umT44FakeService) ListUsersWithoutMembership(
@@ -191,6 +208,15 @@ func TestT44NoMembershipCountInResponse(t *testing.T) {
 				data := umT44DataPayload(t, w.Body.Bytes())
 				require.NotContains(t, data, "no_membership_count",
 					"非 scope=all 不渲染无空间目录，键必须缺席（而不是 0）")
+				// 键缺席之外还要锁定分派路径：这两条路径绝不能走无空间新方法。
+				require.Zero(t, svc.noMemberCalls)
+				if strings.Contains(path, "scope=other") {
+					require.Equal(t, 1, svc.scopedCalls, "scope=other 走既有 scoped 路径")
+					require.Zero(t, svc.legacyCalls)
+				} else {
+					require.Equal(t, 1, svc.legacyCalls, "缺省 scope 走既有 ListUsers 路径")
+					require.Zero(t, svc.scopedCalls)
+				}
 			})
 		}
 	})
