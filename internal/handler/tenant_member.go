@@ -638,7 +638,7 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 		logger.Warnf(ctx, "UpdateMemberRole denied: caller_role=%s tenant=%d",
 			types.TenantRoleFromContext(ctx), tenantID)
 		c.Error(apperrors.NewForbiddenError(
-			"only workspace owners or system administrators can change member roles"))
+			"only workspace owners or administrators can change member roles"))
 		return
 	}
 
@@ -744,6 +744,13 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 			c.Error(apperrors.NewForbiddenError(
 				"owner accounts can only be managed by a system administrator"))
 		default:
+			// 服务层目标保护（owner/同级）返回带 403 语义的 AppError，
+			// 原样交给全局错误处理器，避免被下面笼统的 500 覆盖。
+			var appErr *apperrors.AppError
+			if errors.As(err, &appErr) {
+				c.Error(appErr)
+				return
+			}
 			logger.Errorf(ctx, "UpdateRole failed: user=%s tenant=%d err=%v",
 				userID, tenantID, err)
 			c.Error(apperrors.NewInternalServerError("failed to update member role").WithDetails(err.Error()))
@@ -754,16 +761,18 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-// canManageMemberRoles 判断调用方能否改本空间成员角色：本空间 owner，
-// 平台系统管理员（超管不受空间角色阶梯限制，与路由层
-// OwnerOrSystemAdmin 同一口径），或带 manage_members 能力的 API Key。
+// canManageMemberRoles 判断调用方能否改本空间成员角色：本空间 owner 或
+// 普通管理员（admin），平台系统管理员（超管不受空间角色阶梯限制，与
+// 路由层 AdminOrSystemAdmin 同一口径），或带 manage_members 能力的 API Key。
 //
-// API Key 是机器主体，不参与 JWT 角色阶梯：它的权限由路由层
-// APIKeyGate 按 manage_members 能力判定。这里放行只是避免 handler 的第二
-// 道判权误伤已有集成；目标级保护仍照常执行。
+// 普通管理员能否改「某个目标」由下方目标保护与服务层同级保护判定；
+// 这里只做调用者门槛。API Key 是机器主体，不参与 JWT 角色阶梯：它的
+// 权限由路由层 APIKeyGate 按 manage_members 能力判定。这里放行只是避免
+// handler 的第二道判权误伤已有集成；目标级保护仍照常执行。
 func canManageMemberRoles(ctx context.Context) bool {
+	role := types.TenantRoleFromContext(ctx)
 	if types.IsSystemAdminFromContext(ctx) ||
-		types.TenantRoleFromContext(ctx) == types.TenantRoleOwner {
+		role == types.TenantRoleOwner || role == types.TenantRoleAdmin {
 		return true
 	}
 	if scope, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
@@ -802,6 +811,13 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 		case errors.Is(err, service.ErrLastOwner):
 			c.Error(apperrors.NewConflictError(err.Error()))
 		default:
+			// T06 目标保护拒绝（admin→owner/同级）是 403 AppError，
+			// 原样透传，不落成 500。
+			var appErr *apperrors.AppError
+			if errors.As(err, &appErr) {
+				c.Error(appErr)
+				return
+			}
 			logger.Errorf(ctx, "RemoveMember failed: user=%s tenant=%d err=%v",
 				userID, tenantID, err)
 			c.Error(apperrors.NewInternalServerError("failed to remove member").WithDetails(err.Error()))

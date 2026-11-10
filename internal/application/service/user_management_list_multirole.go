@@ -30,7 +30,7 @@ func (s *userManagementService) ListUsersWithRoles(
 	query string,
 	page, pageSize int,
 ) (*interfaces.UserManagementListResult, error) {
-	if err := s.requireOwnerOrSystemAdmin(ctx, tenantID); err != nil {
+	if err := s.requireManagerOrSystemAdmin(ctx, tenantID); err != nil {
 		return nil, err
 	}
 	if err := validateUserManagementRoles(roles); err != nil {

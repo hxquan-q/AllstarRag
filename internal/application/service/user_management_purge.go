@@ -92,9 +92,12 @@ func purgeAuditEntry(
 // authorizePurge 是比封禁更严的目标保护：
 //   - 任何人都不能删除自己；
 //   - 系统管理员 / 跨空间超管必须先撤销特权；
-//   - 调用者必须是系统管理员或本空间 owner；
+//   - 调用者必须是系统管理员、本空间 owner 或普通管理员；
+//   - 普通管理员不能删 owner 或同级管理员；
 //   - 目标不得在任意空间持有 active owner（owner 必须先交接空间，
 //     系统管理员也不例外）。
+//
+// 角色/目标保护先于墓碑化事务；被拒绝的请求不会写成功审计。
 func (s *userManagementService) authorizePurge(
 	ctx context.Context,
 	target *managedTarget,
@@ -107,13 +110,17 @@ func (s *userManagementService) authorizePurge(
 		return apperrors.NewForbiddenError(
 			"revoke system administrator / cross-workspace privileges before purging this account")
 	}
-	if !types.IsSystemAdminFromContext(ctx) &&
-		types.TenantRoleFromContext(ctx) != types.TenantRoleOwner {
-		return apperrors.NewForbiddenError("only workspace owners can purge members")
-	}
-	// AC-19b：彻底删除是账号级的，会连带清掉目标在其他空间的数据。
-	// 非系统管理员不能跨空间删除，必须由超管处理。
 	if !types.IsSystemAdminFromContext(ctx) {
+		callerRole := types.TenantRoleFromContext(ctx)
+		if callerRole != types.TenantRoleOwner && callerRole != types.TenantRoleAdmin {
+			return apperrors.NewForbiddenError(
+				"only workspace owners or administrators can purge members")
+		}
+		if err := memberTargetProtection(ctx, target.user.ID, target.member.Role, false); err != nil {
+			return err
+		}
+		// AC-19b：彻底删除是账号级的，会连带清掉目标在其他空间的数据。
+		// 非系统管理员不能跨空间删除，必须由超管处理。
 		crossSpace, err := s.hasMembershipOutsideTenant(
 			ctx, target.user.ID, target.member.TenantID)
 		if err != nil {

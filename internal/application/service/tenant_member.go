@@ -540,6 +540,18 @@ func (s *tenantMemberService) UpdateRoleGuarded(
 	if err := rejectAPIKeyOwnerAssignment(ctx, newRole); err != nil {
 		return err
 	}
+	// T06 目标保护先于最后 owner 原子保护：普通管理员不能改 owner 或同级
+	// 管理员，拒绝返回 403 AppError（而不是 ErrLastOwner 的 409）。
+	current, err := s.repo.Get(ctx, userID, tenantID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrMembershipNotFound
+	}
+	if err := memberTargetProtection(ctx, userID, current.Role, false); err != nil {
+		return err
+	}
 	if expectedRole == types.TenantRoleOwner && newRole != types.TenantRoleOwner && !allowOwnerDemotion {
 		return ErrOwnerDemotionRequiresTransfer
 	}
@@ -571,14 +583,7 @@ func (s *tenantMemberService) UpdateRoleGuarded(
 	}
 
 	// 仓储替身不支持 guarded 能力时的回退（仅测试路径）。
-	// 真实仓储始终走上面的分支。
-	current, err := s.repo.Get(ctx, userID, tenantID)
-	if err != nil {
-		return err
-	}
-	if current == nil {
-		return ErrMembershipNotFound
-	}
+	// 真实仓储始终走上面的分支；此处复用上面已读到的 current。
 	if current.Role != expectedRole {
 		return ErrMembershipChanged
 	}
@@ -695,6 +700,15 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 	}
 	if current == nil {
 		return ErrMembershipNotFound
+	}
+	// T06 目标保护先于最后 owner 原子保护：普通管理员不能移除 owner
+	// 或同级管理员（403，而不是 ErrLastOwner 的 409）。自己移除自己
+	// 是 LEAVE 路径（POST /leave），保持既有行为，不套用调用者角色保护。
+	actorID, _ := types.UserIDFromContext(ctx)
+	if actorID == "" || actorID != userID {
+		if err := memberTargetProtection(ctx, userID, current.Role, false); err != nil {
+			return err
+		}
 	}
 	if current.Role == types.TenantRoleOwner {
 		err := s.repo.RemoveOwnerAtomically(ctx, userID, tenantID)

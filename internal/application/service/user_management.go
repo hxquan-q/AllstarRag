@@ -256,12 +256,15 @@ func (s *userManagementService) loadTarget(
 	return &managedTarget{user: user, member: member}, nil
 }
 
-// authorize 实现 T02 的目标保护矩阵：
+// authorize 实现 T06 的目标保护矩阵：
 //   - 任何人都不能操作自己（含系统管理员）；
 //   - 系统管理员可操作任何目标（含 owner）；
-//   - 只有本空间 owner 能继续；
-//   - owner 不能操作系统管理员 / 跨空间超管；
-//   - owner 不能操作在任意空间持有 owner 角色的账号。
+//   - 本空间 owner 与普通管理员都能继续，但普通管理员不能操作 owner/同级；
+//   - 目标不能是本空间 owner（owner 只能先交接）；
+//   - owner/admin 不能操作系统管理员 / 跨空间超管；
+//   - 不能操作在任意空间持有 owner 角色的账号。
+//
+// 角色/目标保护先于任何账号状态写入；被拒绝的请求不会写成功审计。
 func (s *userManagementService) authorize(ctx context.Context, target *managedTarget) error {
 	actorID, _ := types.UserIDFromContext(ctx)
 	if actorID != "" && actorID == target.user.ID {
@@ -270,8 +273,13 @@ func (s *userManagementService) authorize(ctx context.Context, target *managedTa
 	if types.IsSystemAdminFromContext(ctx) {
 		return nil
 	}
-	if types.TenantRoleFromContext(ctx) != types.TenantRoleOwner {
-		return apperrors.NewForbiddenError("only workspace owners can manage member status")
+	callerRole := types.TenantRoleFromContext(ctx)
+	if callerRole != types.TenantRoleOwner && callerRole != types.TenantRoleAdmin {
+		return apperrors.NewForbiddenError(
+			"only workspace owners or administrators can manage member status")
+	}
+	if err := memberTargetProtection(ctx, target.user.ID, target.member.Role, false); err != nil {
+		return err
 	}
 	if target.user.IsSystemAdmin || target.user.CanAccessAllTenants {
 		return apperrors.NewForbiddenError(

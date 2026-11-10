@@ -66,6 +66,38 @@ func (s *userManagementService) requireOwnerOrSystemAdmin(
 	return nil
 }
 
+// requireManagerOrSystemAdmin 要求调用者是系统管理员，或本空间 active
+// owner / 普通管理员（T06）。用于成员列表与用户管理目录读取；与
+// requireOwnerOrSystemAdmin 一样回查成员关系，不能只信 context 角色。
+func (s *userManagementService) requireManagerOrSystemAdmin(
+	ctx context.Context,
+	tenantID uint64,
+) error {
+	if types.IsSystemAdminFromContext(ctx) {
+		return nil
+	}
+	role := types.TenantRoleFromContext(ctx)
+	if role != types.TenantRoleOwner && role != types.TenantRoleAdmin {
+		return apperrors.NewForbiddenError(
+			"only workspace owners or administrators can manage members")
+	}
+	actorID, _ := types.UserIDFromContext(ctx)
+	if actorID == "" {
+		return apperrors.NewForbiddenError(
+			"only workspace owners or administrators can manage members")
+	}
+	member, err := s.memberRepo.Get(ctx, actorID, tenantID)
+	if err != nil {
+		return err
+	}
+	if member == nil || member.Status != types.TenantMemberStatusActive ||
+		(member.Role != types.TenantRoleOwner && member.Role != types.TenantRoleAdmin) {
+		return apperrors.NewForbiddenError(
+			"only workspace owners or administrators can manage members")
+	}
+	return nil
+}
+
 // activeOwnerMembership 返回目标在任意空间持有的 active owner 成员关系；
 // 没有则返回 (nil, nil)。用于 ProvisionOwnerSpace 的幂等复用。
 func (s *userManagementService) activeOwnerMembership(

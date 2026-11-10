@@ -41,8 +41,8 @@ type userManagementListRepo interface {
 
 // ListUsers 返回用户管理页的成员列表。
 //
-// 权限在服务层自证（AC-38/C4）：非 owner 且非系统管理员一律 403，不能
-// 只依赖路由守卫。系统管理员不需要在本空间持有 owner 角色。
+// 权限在服务层自证（AC-38/C4）：非 owner/普通管理员且非系统管理员一律
+// 403，不能只依赖路由守卫。系统管理员不需要在本空间持有空间角色。
 //
 // 列表口径：
 //   - 只含 active 成员关系，墓碑用户（users.deleted_at 非空）不出现；
@@ -56,7 +56,7 @@ func (s *userManagementService) ListUsers(
 	query string,
 	page, pageSize int,
 ) (*interfaces.UserManagementListResult, error) {
-	if err := s.requireOwnerOrSystemAdmin(ctx, tenantID); err != nil {
+	if err := s.requireManagerOrSystemAdmin(ctx, tenantID); err != nil {
 		return nil, err
 	}
 	if role != "" && !role.IsValid() {

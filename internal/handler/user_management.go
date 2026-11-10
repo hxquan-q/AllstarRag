@@ -265,8 +265,9 @@ func (h *UserManagementHandler) TransferOwner(c *gin.Context) {
 }
 
 // UserManagementListData 是用户管理列表响应的 data 部分，仅用于 Swagger 文档。
-// role_counts 始终包含 viewer/contributor/admin/owner 四个键。
-// no_membership_count 仅 scope=all 下发（运行时按条件写入，其他 scope 缺席）。
+// role_counts 始终包含 owner/admin/viewer 三个键（contributor 仅历史存储值，
+// 不进入目录）。no_membership_count 仅 scope=all 下发（运行时按条件写入，
+// 其他 scope 缺席）。
 type UserManagementListData struct {
 	Items             []interfaces.UserManagementListItem `json:"items"`
 	Total             int64                               `json:"total"`

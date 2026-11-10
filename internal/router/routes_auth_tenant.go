@@ -125,7 +125,10 @@ func RegisterTenantRoutes(
 			// the tenant without an Owner.
 			if memberHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.ListMembers)
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.AddMember)
+				// T06：普通管理员拿到 co-owner 能力集，成员治理入口放宽到
+				// Admin+；目标级保护（不能操作 owner/同级/自己）在 service
+				// 内判定，不靠路由守卫单独兜底（C4）。
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.AddMember)
 				// 建号接口：路由层只保证 Admin+/系统管理员，细粒度角色矩阵
 				// （owner 可建 admin/contributor/viewer，admin 只能建 viewer，
 				// 禁止建 owner）在 handler 内判定，见 service.CanCreateRole；
@@ -147,8 +150,8 @@ func RegisterTenantRoutes(
 				// 改角色：Owner 或系统管理员。超管不需要在本空间持有 owner
 				// 角色；目标级 owner 保护（不能直接降级 owner，必须走
 				// transfer-owner）在 handler.UpdateMemberRole 内兜底。
-				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.OwnerOrSystemAdmin(), memberHandler.UpdateMemberRole)
-				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.RemoveMember)
+				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.UpdateMemberRole)
+				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.RemoveMember)
 				tenantByID.POST("/leave", g.Viewer(), memberHandler.LeaveTenant)
 			}
 
@@ -163,21 +166,21 @@ func RegisterTenantRoutes(
 			// without the invitation dependency wired.
 			if invitationHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), invitationHandler.ListTenantInvitations)
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.OwnerOrSystemAdmin(), invitationHandler.CreateInvitation)
-				g.apiKeyRoute(tenantByID, http.MethodDelete, "/invitations/:inv_id", apiKeyManageMembers(apiKeyFullAccess()), g.OwnerOrSystemAdmin(), invitationHandler.RevokeInvitation)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.CreateInvitation)
+				g.apiKeyRoute(tenantByID, http.MethodDelete, "/invitations/:inv_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.RevokeInvitation)
 				// Share-link create lives under /invite-links so the URL
 				// reads as "create a link" rather than another flavour
 				// of /invitations; the underlying row still lives in the
 				// tenant_invitations table and shows up in the GET above.
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links", apiKeyManageMembers(apiKeyFullAccess()), g.OwnerOrSystemAdmin(), invitationHandler.CreateInviteLink)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.CreateInviteLink)
 			}
 
-			// 空间操作记录（上游 PR 6 of #1303）。只给本空间 owner 和系统管理员看
-			// （T27 由 Admin+ 收紧），admin/contributor/viewer 一律 403；跨空间读取
-			// 已由组级 PathTenantMatch 拦截。不声明 apiKeyRoute，API Key 走网关默认拒绝。
-			// auditLogHandler 为 nil 时跳过注册，与上面 memberHandler 的做法一致。
+			// 空间操作记录（上游 PR 6 of #1303）。T06 起本空间 owner / 普通
+			// 管理员与系统管理员可只读（contributor/viewer 仍 403）；跨空间
+			// 读取已由组级 PathTenantMatch 拦截。不声明 apiKeyRoute，API Key
+			// 走网关默认拒绝。auditLogHandler 为 nil 时跳过注册。
 			if auditLogHandler != nil {
-				tenantByID.GET("/audit-log", g.OwnerOrSystemAdmin(), auditLogHandler.ListTenantAuditLog)
+				tenantByID.GET("/audit-log", g.AdminOrSystemAdmin(), auditLogHandler.ListTenantAuditLog)
 			}
 		}
 	}
@@ -204,18 +207,18 @@ func RegisterUserManagementRoutes(
 		return
 	}
 	tenantByID := r.Group("/tenants/:id", g.PathTenantMatch())
-	tenantByID.POST("/members/:user_id/ban", g.OwnerOrSystemAdmin(), h.BanMember)
-	tenantByID.POST("/members/:user_id/unban", g.OwnerOrSystemAdmin(), h.UnbanMember)
-	// 彻底删除（墓碑化）不可恢复，仍由 OwnerOrSystemAdmin 守卫；目标保护
-	// 与 owner 交接前置在 UserManagementService.authorizePurge。
-	tenantByID.POST("/members/:user_id/purge", g.OwnerOrSystemAdmin(), h.PurgeMember)
+	// T06：封禁/解封/彻底删除/用户管理列表放宽到普通管理员；目标保护
+	// （owner/同级/自己）与跨空间规则在 UserManagementService 内判定。
+	tenantByID.POST("/members/:user_id/ban", g.AdminOrSystemAdmin(), h.BanMember)
+	tenantByID.POST("/members/:user_id/unban", g.AdminOrSystemAdmin(), h.UnbanMember)
+	tenantByID.POST("/members/:user_id/purge", g.AdminOrSystemAdmin(), h.PurgeMember)
 	// owner 空间交接：owner 只能传自己，系统管理员可传任意 owner。
-	// 唯一 owner 模型下这是 owner 身份变更的唯一入口。
+	// 唯一 owner 模型下这是 owner 身份变更的唯一入口，保持 owner-only。
 	tenantByID.POST("/transfer-owner", g.OwnerOrSystemAdmin(), h.TransferOwner)
-	// 用户管理列表（左目录计数 + 右列表）：owner 可见本空间全部成员，
-	// 系统管理员即使当前工作区角色低于 owner 也放行。业务判权在
+	// 用户管理列表（左目录计数 + 右列表）：普通管理员可见本空间成员，
+	// 系统管理员即使当前工作区角色低于 admin 也放行。业务判权在
 	// UserManagementService.ListUsers 再证一次（C4）。
-	tenantByID.GET("/user-management", g.OwnerOrSystemAdmin(), h.ListUsers)
+	tenantByID.GET("/user-management", g.AdminOrSystemAdmin(), h.ListUsers)
 }
 
 // RegisterPlatformUserManagementRoutes 注册平台级账号操作接口（T35）：

@@ -123,18 +123,17 @@ func (r *tenantMemberRepository) CountUserManagementScoped(
 
 // CountUserManagementScopedRoleCounts 返回多空间视图的角色计数：按
 // "视图内持有该角色的去重用户数"计，同一用户在多个空间持同一角色只算
-// 一次。四个角色键始终存在。other 视图只统计其它空间的关系，all 视图
-// 不限空间。
+// 一次。T06 起只暴露 owner/admin/viewer 三桶；contributor 历史行不计入。
+// other 视图只统计其它空间的关系，all 视图不限空间。
 func (r *tenantMemberRepository) CountUserManagementScopedRoleCounts(
 	ctx context.Context,
 	tenantID uint64,
 	scope interfaces.UserManagementListScope,
 ) (map[types.TenantRole]int64, error) {
 	counts := map[types.TenantRole]int64{
-		types.TenantRoleViewer:      0,
-		types.TenantRoleContributor: 0,
-		types.TenantRoleAdmin:       0,
-		types.TenantRoleOwner:       0,
+		types.TenantRoleViewer: 0,
+		types.TenantRoleAdmin:  0,
+		types.TenantRoleOwner:  0,
 	}
 	q := r.db.WithContext(ctx).Model(&types.TenantMember{}).
 		Joins("INNER JOIN users ON users.id = tenant_members.user_id AND users.deleted_at IS NULL").

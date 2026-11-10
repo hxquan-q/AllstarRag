@@ -91,16 +91,16 @@ func (r *tenantMemberRepository) CountUserManagement(
 }
 
 // CountUserManagementRoleCounts 返回整空间（不受 role/q 过滤影响）的
-// 角色目录计数。四个角色键始终存在，无成员时为 0。
+// 角色目录计数。T06 起只暴露 owner/admin/viewer 三桶（contributor 仅
+// 作为历史存储值保留，不进入目录）；无成员时三键为 0。
 func (r *tenantMemberRepository) CountUserManagementRoleCounts(
 	ctx context.Context,
 	tenantID uint64,
 ) (map[types.TenantRole]int64, error) {
 	counts := map[types.TenantRole]int64{
-		types.TenantRoleViewer:      0,
-		types.TenantRoleContributor: 0,
-		types.TenantRoleAdmin:       0,
-		types.TenantRoleOwner:       0,
+		types.TenantRoleViewer: 0,
+		types.TenantRoleAdmin:  0,
+		types.TenantRoleOwner:  0,
 	}
 	var rows []struct {
 		Role  types.TenantRole
