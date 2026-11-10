@@ -57,13 +57,20 @@ func (s *userManagementService) TransferOwner(
 		return err
 	}
 	// 不能把空间交给被封禁的账号，否则交接后空间会立刻没有可登录的 owner（F30）。
-	if targetUser, err := s.userRepo.GetUserByID(ctx, to); err != nil {
+	targetUser, err := s.userRepo.GetUserByID(ctx, to)
+	if err != nil {
 		if errors.Is(err, apprepo.ErrUserNotFound) {
 			return apperrors.NewNotFoundError("target user not found")
 		}
 		return apperrors.NewInternalServerError("failed to load target user")
-	} else if targetUser == nil || !targetUser.IsActive {
+	}
+	if targetUser == nil || !targetUser.IsActive {
 		return apperrors.NewBadRequestError("cannot transfer ownership to a banned account")
+	}
+	// T40 单事务化时丢掉了旧路径的目标保护，这里在进入事务前恢复：
+	// 普通 owner 不能把空间交给特权账号或在别处持有 owner 的账号。
+	if err := s.guardTransferTarget(ctx, tenantID, targetUser); err != nil {
+		return err
 	}
 
 	// 角色变更在仓储事务内完成；事务会再次复核角色与封禁状态，
@@ -76,6 +83,35 @@ func (s *userManagementService) TransferOwner(
 		"from_user_id": from,
 		"to_user_id":   to,
 	})
+	return nil
+}
+
+// guardTransferTarget 恢复交接的目标保护（T45），语义与改角色路径的
+// ValidateRoleChangeTarget 一致：系统管理员调用者不受限；其余调用者
+// 不能把空间交给系统管理员/跨空间超管，也不能交给在其他空间持有
+// active owner 的账号。查询失败一律失败关闭。
+func (s *userManagementService) guardTransferTarget(
+	ctx context.Context,
+	tenantID uint64,
+	target *types.User,
+) error {
+	if types.IsSystemAdminFromContext(ctx) {
+		return nil
+	}
+	if target.IsSystemAdmin || target.CanAccessAllTenants {
+		return ErrTargetPrivileged
+	}
+	members, err := s.memberRepo.ListByUser(ctx, target.ID)
+	if err != nil {
+		return err
+	}
+	for _, member := range members {
+		if member.Role == types.TenantRoleOwner &&
+			member.Status == types.TenantMemberStatusActive &&
+			member.TenantID != tenantID {
+			return ErrTargetOwnsWorkspace
+		}
+	}
 	return nil
 }
 
