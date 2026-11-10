@@ -35,12 +35,12 @@
       <span>{{ t('userManagement.states.loading') }}</span>
     </div>
 
-    <div v-else-if="visibleRows.length === 0" class="operation-log__state">
+    <div v-else-if="visibleRows.length === 0 && !hasMore" class="operation-log__state">
       <t-empty :description="t('userManagement.operations.empty')" />
     </div>
 
     <template v-else>
-      <t-table row-key="id" :data="visibleRows" :columns="columns" size="medium" hover>
+      <t-table v-if="visibleRows.length > 0" row-key="id" :data="visibleRows" :columns="columns" size="medium" hover>
         <template #created_at="{ row }">{{ formatTime(row.created_at) }}</template>
         <template #actor="{ row }">{{ displayUser(row.actor_user_id) }}</template>
         <template #action="{ row }">
@@ -68,7 +68,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listAuditLog, type AuditLog, type AuditOutcome } from '@/api/tenant/audit-log'
 import { listUsers, resolveUserManagementError } from '@/api/user-management'
@@ -165,6 +165,7 @@ function formatTime(value: string): string {
 async function loadUserNames(tenantId: number) {
   try {
     const resp = await listUsers(tenantId, { page: 1, page_size: 100 })
+    if (disposed) return
     const map: Record<string, string> = {}
     for (const item of resp.data?.items ?? []) {
       map[item.user_id] = item.email || item.username || item.user_id
@@ -178,6 +179,9 @@ async function loadUserNames(tenantId: number) {
 // 关键词/筛选/空间切换都会并发触发请求：用请求序号保证只有最新一轮的
 // 响应能写回。旧响应（包括错误）一律丢弃，避免新关键词被旧结果覆盖。
 let requestSeq = 0
+// 组件卸载后迟到的请求不得再写状态（KeepAlive 切走不等同卸载，这里只在
+// 真正 unmount 时置位）。
+let disposed = false
 
 function beginRequest(): number {
   requestSeq += 1
@@ -266,9 +270,22 @@ onMounted(() => {
   void load(true)
 })
 
+// KeepAlive 切走再切回时组件不重建，onMounted 不会重跑；首次激活与
+// onMounted 重叠，用标记跳过，避免首屏双请求。
+let activatedOnce = false
+onActivated(() => {
+  if (!activatedOnce) {
+    activatedOnce = true
+    return
+  }
+  if (!props.tenantId) return
+  void load(true)
+})
+
 onBeforeUnmount(() => {
   clearKeywordTimer()
   // 让飞行中的请求失效，避免卸载后写回状态。
+  disposed = true
   invalidateInFlight()
 })
 </script>

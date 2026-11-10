@@ -130,7 +130,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onActivated, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
 import type { TenantRole } from '@/api/tenant/members'
@@ -177,6 +177,9 @@ async function fetchAllInvitations(tenantId: number, includeTerminal: boolean): 
   return collected
 }
 
+// 组件卸载后迟到的请求不得再写状态。
+let disposed = false
+
 async function load() {
   if (props.tenantId == null) return
   loading.value = true
@@ -187,18 +190,34 @@ async function load() {
       fetchAllInvitations(props.tenantId, false),
       fetchAllInvitations(props.tenantId, true),
     ])
+    if (disposed) return
     shareLinks.value = pending.filter((row) => row.is_share_link)
     directInvites.value = all.filter((row) => !row.is_share_link)
   } catch (loadError) {
+    if (disposed) return
     error.value = resolveUserManagementError(loadError)
     shareLinks.value = []
     directInvites.value = []
   } finally {
-    loading.value = false
+    if (!disposed) loading.value = false
   }
 }
 
 onMounted(() => void load())
+onBeforeUnmount(() => {
+  disposed = true
+})
+
+// KeepAlive 切走再切回时组件不重建，onMounted 不会重跑；首次激活与
+// onMounted 重叠，用标记跳过，避免首屏双轮请求。
+let activatedOnce = false
+onActivated(() => {
+  if (!activatedOnce) {
+    activatedOnce = true
+    return
+  }
+  void load()
+})
 
 // Tab 停留期间切换空间时重新加载。
 watch(() => props.tenantId, () => void load())

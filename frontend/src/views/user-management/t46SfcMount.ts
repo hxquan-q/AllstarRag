@@ -98,8 +98,13 @@ function createStructRenderer(root: T46Node) {
     setElementText: (el: T46Node, text: string) => {
       el.children = [node('#text', text)]
     },
-    parentNode: () => null,
-    nextSibling: () => null,
+    parentNode: (n: T46Node) => n.parent ?? null,
+    nextSibling: (n: T46Node) => {
+      const parent = n.parent
+      if (!parent) return null
+      const index = parent.children.indexOf(n)
+      return index >= 0 ? (parent.children[index + 1] ?? null) : null
+    },
     insert: (child: T46Node, parent: T46Node | null) => {
       const container = parent ?? root
       if (child.parent) {
