@@ -10,11 +10,11 @@ type Capability string
 const (
 	// CapUserView 查看用户管理页与成员列表。
 	CapUserView Capability = "user.view"
-	// CapUserInvite 邀请新成员（含 co-owner）。
+	// CapUserInvite 邀请新成员（普通管理员 / 游客）。
 	CapUserInvite Capability = "user.invite"
-	// CapUserCreate 直接创建账号（含 co-owner）。
+	// CapUserCreate 直接创建账号（普通管理员 / 游客）。
 	CapUserCreate Capability = "user.create"
-	// CapUserRoleChange 在 viewer/contributor/admin 之间改角色。
+	// CapUserRoleChange 在 admin/viewer 之间改角色（contributor 不再分配）。
 	CapUserRoleChange Capability = "user.role.change"
 	// CapUserBan 封禁账号。
 	CapUserBan Capability = "user.ban"
@@ -23,6 +23,7 @@ const (
 	// CapUserPurge 彻底删除（墓碑化）账号。
 	CapUserPurge Capability = "user.purge"
 	// CapUserOwnerAdd 把成员加为 co-owner。
+	// 常量保留，但只授予系统管理员；owner/admin 都不能再加第二个 owner。
 	CapUserOwnerAdd Capability = "user.owner.add"
 	// CapUserOwnerRemove 降级/注销 owner（仅系统管理员，且须先完成空间交接）。
 	CapUserOwnerRemove Capability = "user.owner.remove"
@@ -32,11 +33,10 @@ const (
 	CapOwnerProvision Capability = "owner.provision"
 )
 
-// ownerCapabilities 是普通管理员（owner）的能力集合：可管理本空间的
-// viewer/contributor/admin，可加 co-owner、可交接空间；但降级/注销 owner
-// 与设立 owner 独立空间只属系统管理员，因此不含 CapUserOwnerRemove 和
-// CapOwnerProvision。
-var ownerCapabilities = []Capability{
+// adminCapabilities 是普通管理员（admin）的能力集合，等于 co-owner 能力集，
+// 仅少「交接空间」。admin 可以管理本空间普通成员，但不能新增/降级 owner，
+// 也不能设立 owner 独立空间。
+var adminCapabilities = []Capability{
 	CapUserView,
 	CapUserInvite,
 	CapUserCreate,
@@ -44,9 +44,12 @@ var ownerCapabilities = []Capability{
 	CapUserBan,
 	CapUserUnban,
 	CapUserPurge,
-	CapUserOwnerAdd,
-	CapSpaceTransfer,
 }
+
+// ownerCapabilities 是空间拥有者（owner）的能力集合：普通管理员能力集 +
+// 交接空间。唯一 owner 之后 owner 不能再加 co-owner，因此不含
+// CapUserOwnerAdd；降级/注销 owner 与设立 owner 独立空间只属系统管理员。
+var ownerCapabilities = append(append([]Capability{}, adminCapabilities...), CapSpaceTransfer)
 
 // allCapabilities 是系统管理员的完整能力集合。
 var allCapabilities = []Capability{
@@ -65,7 +68,9 @@ var allCapabilities = []Capability{
 
 // CapabilitiesFor 返回某工作区角色对应的能力集合。
 // 系统管理员旁路：无论当前工作区角色是什么都拿到全量能力。
-// admin/contributor/viewer 不进入用户管理，非系统管理员时返回空集合。
+// owner（空间拥有者）= 普通管理员能力集 + 交接空间；
+// admin（普通管理员）= co-owner 能力集，仅少 space.transfer；
+// contributor/viewer 不进入用户管理，返回空集合。
 //
 // 返回值是副本，调用方修改不会污染矩阵本身。
 func CapabilitiesFor(role TenantRole, isSystemAdmin bool) []Capability {
@@ -74,6 +79,8 @@ func CapabilitiesFor(role TenantRole, isSystemAdmin bool) []Capability {
 		return cloneCapabilities(allCapabilities)
 	case role == TenantRoleOwner:
 		return cloneCapabilities(ownerCapabilities)
+	case role == TenantRoleAdmin:
+		return cloneCapabilities(adminCapabilities)
 	default:
 		return []Capability{}
 	}
