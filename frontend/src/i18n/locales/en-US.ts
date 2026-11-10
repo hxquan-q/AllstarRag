@@ -9450,6 +9450,7 @@ export default {
       owner: 'Administrator',
       editor: 'Editor',
       viewer: 'Viewer',
+      noSpace: 'No workspace',
     },
     columns: {
       account: 'Account',

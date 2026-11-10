@@ -9444,6 +9444,7 @@ export default {
       owner: 'Администратор',
       editor: 'Редактор',
       viewer: 'Наблюдатель',
+      noSpace: 'Без пространства',
     },
     columns: {
       account: 'Учётная запись',

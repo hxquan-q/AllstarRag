@@ -13,8 +13,10 @@ import type {
  * 超管视图另加平台系统管理员。
  * editor 是前端展示口径：聚合后端的 contributor 与 admin 两类账号，
  * 后端 admin 角色保留不删，已有 admin 账号归入「编辑」栏且权限不变。
+ * no_space 是超管全平台视图（scope=all）专属的「无空间」目录（T44）：
+ * 无任何 active 成员关系的普通账号。
  */
-export type DirectoryRole = 'owner' | 'editor' | 'viewer' | 'system_admin'
+export type DirectoryRole = 'owner' | 'editor' | 'viewer' | 'system_admin' | 'no_space'
 
 /** 编辑类包含的后端角色；目录计数与列表查询都按这两个角色聚合。 */
 export const EDITOR_BACKEND_ROLES: TenantRole[] = ['contributor', 'admin']
@@ -32,11 +34,15 @@ export interface UserRow {
   memberships?: UserManagementMembership[]
 }
 
-/** 左目录一项：类别、当前语言下的文案、该类别成员数。 */
+/**
+ * 左目录一项：类别、当前语言下的文案、该类别成员数。
+ * count 为 null 表示该视图下计数不可信/不可用，不渲染徽标
+ * （如 other/all 视图的编辑目录会双计多空间账号，隐藏徽标）。
+ */
 export interface DirectoryEntry {
   key: DirectoryRole
   label: string
-  count: number
+  count: number | null
 }
 
 function normalizeStatus(status: string | undefined): UserManagementStatus {

@@ -37,6 +37,13 @@ type userManagementScopedListRepo interface {
 		ctx context.Context, tenantID uint64, scope interfaces.UserManagementListScope,
 		roles []types.TenantRole, search string,
 	) (int64, error)
+	// 「无空间」目录（T44）：无任何 active 成员关系的普通账号。
+	ListUserManagementUsersWithoutMembership(
+		ctx context.Context, search string, offset, limit int,
+	) ([]apprepo.UserManagementScopedRow, error)
+	CountUserManagementUsersWithoutMembership(
+		ctx context.Context, search string,
+	) (int64, error)
 }
 
 // ListUsersScoped 返回带空间筛选的用户管理列表。
@@ -97,6 +104,10 @@ func (s *userManagementService) ListUsersScoped(
 	if err != nil {
 		return nil, err
 	}
+	noMembership, err := s.noMembershipBadgeCount(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
 
 	userIDs := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -140,8 +151,9 @@ func (s *userManagementService) ListUsersScoped(
 		items = append(items, item)
 	}
 	return &interfaces.UserManagementListResult{
-		Items:      items,
-		Total:      total,
-		RoleCounts: counts,
+		Items:             items,
+		Total:             total,
+		RoleCounts:        counts,
+		NoMembershipCount: noMembership,
 	}, nil
 }

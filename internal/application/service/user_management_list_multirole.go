@@ -128,6 +128,10 @@ func (s *userManagementService) ListUsersScopedWithRoles(
 	if err != nil {
 		return nil, err
 	}
+	noMembership, err := s.noMembershipBadgeCount(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
 
 	userIDs := make([]string, 0, len(rows))
 	for _, row := range rows {
@@ -169,8 +173,9 @@ func (s *userManagementService) ListUsersScopedWithRoles(
 		items = append(items, item)
 	}
 	return &interfaces.UserManagementListResult{
-		Items:      items,
-		Total:      total,
-		RoleCounts: counts,
+		Items:             items,
+		Total:             total,
+		RoleCounts:        counts,
+		NoMembershipCount: noMembership,
 	}, nil
 }

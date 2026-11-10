@@ -9444,6 +9444,7 @@ export default {
       owner: '일반 관리자',
       editor: '편집자',
       viewer: '방문자',
+      noSpace: '소속 공간 없음',
     },
     columns: {
       account: '계정',

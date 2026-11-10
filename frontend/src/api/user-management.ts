@@ -53,6 +53,8 @@ export interface UserManagementListResponse {
     items: UserManagementItem[]
     total: number
     role_counts: WorkspaceRoleCounts
+    /** 仅 scope=all 返回：无任何空间成员关系的普通账号数（无空间目录徽标）。 */
+    no_membership_count?: number
   }
   message?: string
 }
@@ -62,22 +64,32 @@ export interface UserManagementListParams {
   scope?: UserManagementListScope
   /** 角色筛选；缺省表示全部角色。支持逗号分隔多值（如 contributor,admin）。 */
   role?: TenantRole | string
+  /**
+   * 仅 scope=all 且系统管理员：只返回无任何 active 成员关系的普通账号
+   * （「无空间」目录）。与 role 互斥；后端只接受 true/false。
+   */
+  without_membership?: boolean
   /** 按邮箱/用户名模糊筛选。 */
   q?: string
   page?: number
   page_size?: number
 }
 
+// 手工拼接查询串而不依赖 URLSearchParams：编码结果与前者一致
+// （空格编码为 %20 而非 +，后端两种都按空格解码），且不依赖宿主环境
+// 提供的额外全局，便于在受限沙箱里复用。
 function buildListQuery(params: UserManagementListParams): string {
-  const u = new URLSearchParams()
-  if (params.scope) u.set('scope', params.scope)
-  if (params.role) u.set('role', params.role)
+  const parts: string[] = []
+  if (params.scope) parts.push(`scope=${encodeURIComponent(params.scope)}`)
+  if (params.role) parts.push(`role=${encodeURIComponent(params.role)}`)
+  if (params.without_membership) parts.push('without_membership=true')
   const q = params.q?.trim()
-  if (q) u.set('q', q)
-  if (params.page != null && params.page > 0) u.set('page', String(params.page))
-  if (params.page_size != null && params.page_size > 0) u.set('page_size', String(params.page_size))
-  const qs = u.toString()
-  return qs ? `?${qs}` : ''
+  if (q) parts.push(`q=${encodeURIComponent(q)}`)
+  if (params.page != null && params.page > 0) parts.push(`page=${String(params.page)}`)
+  if (params.page_size != null && params.page_size > 0) {
+    parts.push(`page_size=${String(params.page_size)}`)
+  }
+  return parts.length > 0 ? `?${parts.join('&')}` : ''
 }
 
 export interface BanMemberRequest {

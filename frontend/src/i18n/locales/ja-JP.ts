@@ -9444,6 +9444,7 @@ export default {
       owner: '管理者',
       editor: '編集者',
       viewer: '閲覧者',
+      noSpace: '所属空間なし',
     },
     columns: {
       account: 'アカウント',

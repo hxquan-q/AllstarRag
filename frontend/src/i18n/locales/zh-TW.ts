@@ -9440,6 +9440,7 @@ export default {
       owner: '一般管理員',
       editor: '編輯',
       viewer: '訪客',
+      noSpace: '無空間',
     },
     columns: {
       account: '帳號',

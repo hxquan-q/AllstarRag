@@ -23802,7 +23802,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系",
+                "description": "返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系；scope=all 另下发 no_membership_count（无任何空间成员关系的普通账号数）",
                 "produces": [
                     "application/json"
                 ],
@@ -23828,6 +23828,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "角色筛选：viewer/contributor/admin/owner，缺省为全部；支持逗号分隔多值（如 contributor,admin），每个值必须合法；多空间视图匹配任意空间的成员关系角色",
                         "name": "role",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "仅 scope=all 且系统管理员：只返回无任何 active 成员关系的普通账号（无空间目录）；只接受 true/false，与 role 互斥",
+                        "name": "without_membership",
                         "in": "query"
                     },
                     {
@@ -23859,14 +23865,14 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "role/scope 非法或分页参数非法",
+                        "description": "role/scope 非法、分页参数非法、without_membership 非 true/false 或非 scope=all、role 与 without_membership 同用",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "403": {
-                        "description": "非本空间 owner 或系统管理员；scope=other/all 非系统管理员",
+                        "description": "非本空间 owner 或系统管理员；scope=other/all 及 without_membership 非系统管理员",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -42786,6 +42792,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementListItem"
                     }
+                },
+                "no_membership_count": {
+                    "type": "integer"
                 },
                 "role_counts": {
                     "type": "object",

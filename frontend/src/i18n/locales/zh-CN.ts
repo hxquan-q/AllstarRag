@@ -9443,6 +9443,7 @@ export default {
       owner: '普通管理员',
       editor: '编辑',
       viewer: '游客',
+      noSpace: '无空间',
     },
     columns: {
       account: '账号',

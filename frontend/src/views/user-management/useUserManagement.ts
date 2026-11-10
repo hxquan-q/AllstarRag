@@ -54,6 +54,8 @@ export function useUserManagement() {
   const total = ref(0)
   const roleCounts = ref<WorkspaceRoleCounts>({ ...EMPTY_ROLE_COUNTS })
   const systemAdminCount = ref(0)
+  /** 「无空间」目录徽标计数；仅 scope=all 响应携带该键。 */
+  const noMembershipCount = ref(0)
   const loading = ref(false)
   const error = ref('')
   const initialized = ref(false)
@@ -80,15 +82,27 @@ export function useUserManagement() {
   let searchTimer: ReturnType<typeof setTimeout> | null = null
 
   // 目录计数；scope=other/all 时后端按视图内去重用户数返回，键可能缺 0 值。
-  const directoryCount = (key: DirectoryRole): number => {
-    const counts = roleCounts.value
-    if (key === 'editor') return (counts.contributor ?? 0) + (counts.admin ?? 0)
+  // 编辑目录（contributor+admin 相加）在多空间视图会双计同一人的多空间
+  // 角色（与列表去重结果不一致），所以 other/all 隐藏徽标（count=null，
+  // Codex 复核 ③），仅 current 视图显示数字。
+  const directoryCount = (key: DirectoryRole): number | null => {
+    if (key === 'editor') {
+      return scope.value === 'current'
+        ? (roleCounts.value.contributor ?? 0) + (roleCounts.value.admin ?? 0)
+        : null
+    }
     if (key === 'system_admin') return systemAdminCount.value
-    return counts[key as 'owner' | 'viewer'] ?? 0
+    if (key === 'no_space') return noMembershipCount.value
+    return roleCounts.value[key as 'owner' | 'viewer'] ?? 0
   }
 
+  /** 「无空间」目录（T44）只在超管的全平台视图存在。 */
+  const canSeeNoSpaceDirectory = computed(
+    () => capabilities.isSystemAdmin && scope.value === 'all',
+  )
+
   // 左目录（Q37）：owner 视角三类，超管视角另加系统管理员共四类；
-  // 编辑 = contributor + admin 前端聚合。
+  // 编辑 = contributor + admin 前端聚合；超管 scope=all 再追加「无空间」。
   const directoryEntries = computed<DirectoryEntry[]>(() => {
     const entries: DirectoryEntry[] = []
     if (capabilities.isSystemAdmin) {
@@ -103,6 +117,13 @@ export function useUserManagement() {
       { key: 'editor', label: t('userManagement.directory.editor'), count: directoryCount('editor') },
       { key: 'viewer', label: t('userManagement.directory.viewer'), count: directoryCount('viewer') },
     )
+    if (canSeeNoSpaceDirectory.value) {
+      entries.push({
+        key: 'no_space',
+        label: t('userManagement.directory.noSpace'),
+        count: directoryCount('no_space'),
+      })
+    }
     return entries
   })
 
@@ -150,25 +171,36 @@ export function useUserManagement() {
   /**
    * 目录对应的列表请求。「编辑」目录一次请求 role=contributor,admin，
    * total/分页由后端按去重用户计算（T22），不再前端合并两页。
+   * 「无空间」目录（T44）只带 without_membership，不携带 role
+   * （无空间账号没有角色，两者互斥）。
    */
   async function fetchDirectoryList(
     tenantId: number | string,
-  ): Promise<{ items: UserRow[]; total: number; roleCounts?: WorkspaceRoleCounts }> {
-    const role =
-      selectedRole.value === 'editor'
-        ? EDITOR_BACKEND_ROLES.join(',')
-        : (selectedRole.value as TenantRole)
-    const data = parseListResponse(await listUsers(tenantId, {
+  ): Promise<{
+    items: UserRow[]
+    total: number
+    roleCounts?: WorkspaceRoleCounts
+    noMembershipCount?: number
+  }> {
+    const params: UserManagementListParams = {
       scope: scope.value,
       q: searchQuery.value.trim() || undefined,
       page: page.value,
       page_size: pageSize.value,
-      role,
-    }))
+    }
+    if (selectedRole.value === 'no_space') {
+      params.without_membership = true
+    } else {
+      params.role = selectedRole.value === 'editor'
+        ? EDITOR_BACKEND_ROLES.join(',')
+        : (selectedRole.value as TenantRole)
+    }
+    const data = parseListResponse(await listUsers(tenantId, params))
     return {
       items: (data.items ?? []).map(toUserRow),
       total: data.total ?? 0,
       roleCounts: data.role_counts,
+      noMembershipCount: data.no_membership_count,
     }
   }
 
@@ -199,6 +231,8 @@ export function useUserManagement() {
         if (result.roleCounts) {
           roleCounts.value = result.roleCounts
         }
+        // 仅 scope=all 响应带该键；其他视图不渲染无空间目录，0 无副作用。
+        noMembershipCount.value = result.noMembershipCount ?? 0
       }
       initialized.value = true
     } catch (loadError) {
@@ -226,6 +260,8 @@ export function useUserManagement() {
   function selectRole(role: DirectoryRole) {
     if (role === selectedRole.value) return
     if (role === 'system_admin' && !capabilities.isSystemAdmin) return
+    // 「无空间」目录只存在于超管的全平台视图；目录不存在时选中无效。
+    if (role === 'no_space' && !canSeeNoSpaceDirectory.value) return
     clearSearchTimer()
     selectedRole.value = role
     page.value = 1
@@ -238,6 +274,11 @@ export function useUserManagement() {
     if (next !== 'current' && !capabilities.isSystemAdmin) return
     clearSearchTimer()
     scope.value = next
+    // 离开 all 后「无空间」目录消失：选中态回退 owner，不能停留在
+    // no_space（否则会一直发 without_membership 请求而后端 400）。
+    if (next !== 'all' && selectedRole.value === 'no_space') {
+      selectedRole.value = 'owner'
+    }
     page.value = 1
     void load()
   }

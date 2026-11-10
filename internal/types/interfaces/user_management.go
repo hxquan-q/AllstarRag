@@ -44,11 +44,14 @@ type UserManagementListItem struct {
 
 // UserManagementListResult 是用户管理列表接口的返回体。RoleCounts 是整空间
 // 目录计数，始终包含 viewer/contributor/admin/owner 四个键（无成员为 0），
-// 不随 role 过滤缩小。
+// 不随 role 过滤缩小。NoMembershipCount 是「无空间」目录徽标计数（无任何
+// active 成员关系的普通账号数），仅 scope=all 路径填充，同样不随 q/role
+// 过滤缩小；其余 scope 恒为 0（handler 不下发该键）。
 type UserManagementListResult struct {
-	Items      []UserManagementListItem
-	Total      int64
-	RoleCounts map[types.TenantRole]int64
+	Items             []UserManagementListItem
+	Total             int64
+	RoleCounts        map[types.TenantRole]int64
+	NoMembershipCount int64
 }
 
 // OwnerInviteResult 是一次 owner 邀请创建结果。Token 是明文分享 token，
@@ -154,5 +157,15 @@ type UserManagementService interface {
 	ListUsersScopedWithRoles(
 		ctx context.Context, tenantID uint64, scope UserManagementListScope,
 		roles []types.TenantRole, query string, page, pageSize int,
+	) (*UserManagementListResult, error)
+
+	// ListUsersWithoutMembership 返回「无空间」目录：无任何 active 成员
+	// 关系（invited/suspended 不算）的非墓碑普通账号，排除系统管理员与
+	// 跨空间超管（他们在 system_admin 目录）。仅系统管理员可用（服务层
+	// 自证，非系统管理员 403）。items 的 Memberships 为空数组、Role 为
+	// 空串；total 随 q 缩小，NoMembershipCount 是目录徽标计数（空 search
+	// 口径）不随 q 缩小；RoleCounts 仍为 scope=all 的四键目录计数。
+	ListUsersWithoutMembership(
+		ctx context.Context, tenantID uint64, query string, page, pageSize int,
 	) (*UserManagementListResult, error)
 }

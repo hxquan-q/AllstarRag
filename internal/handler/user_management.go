@@ -318,10 +318,12 @@ func (h *UserManagementHandler) CreateCoOwnerAccount(c *gin.Context) {
 
 // UserManagementListData 是用户管理列表响应的 data 部分，仅用于 Swagger 文档。
 // role_counts 始终包含 viewer/contributor/admin/owner 四个键。
+// no_membership_count 仅 scope=all 下发（运行时按条件写入，其他 scope 缺席）。
 type UserManagementListData struct {
-	Items      []interfaces.UserManagementListItem `json:"items"`
-	Total      int64                               `json:"total"`
-	RoleCounts map[string]int64                    `json:"role_counts"`
+	Items             []interfaces.UserManagementListItem `json:"items"`
+	Total             int64                               `json:"total"`
+	RoleCounts        map[string]int64                    `json:"role_counts"`
+	NoMembershipCount int64                               `json:"no_membership_count"`
 }
 
 // UserManagementListResponse 是 GET /tenants/{id}/user-management 的完整响应体，
@@ -334,18 +336,19 @@ type UserManagementListResponse struct {
 // ListUsers 返回用户管理页的成员列表（owner / 系统管理员）。
 //
 //	@Summary      列出用户管理成员
-//	@Description  返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系
+//	@Description  返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系；scope=all 另下发 no_membership_count（无任何空间成员关系的普通账号数）
 //	@Tags         空间成员
 //	@Produce      json
-//	@Param        id         path   string  false  "空间 ID"
-//	@Param        scope      query  string  false  "空间筛选：current（默认，仅本空间）/other（其它空间有成员关系的用户）/all（全平台用户），other/all 仅系统管理员"  default(current)
-//	@Param        role       query  string  false  "角色筛选：viewer/contributor/admin/owner，缺省为全部；支持逗号分隔多值（如 contributor,admin），每个值必须合法；多空间视图匹配任意空间的成员关系角色"
-//	@Param        q          query  string  false  "按邮箱/用户名模糊筛选"
-//	@Param        page       query  int     false  "页码（从 1 起）"  default(1)
-//	@Param        page_size  query  int     false  "每页数量（最大 100）"  default(20)
+//	@Param        id                 path   string   false  "空间 ID"
+//	@Param        scope              query  string   false  "空间筛选：current（默认，仅本空间）/other（其它空间有成员关系的用户）/all（全平台用户），other/all 仅系统管理员"  default(current)
+//	@Param        role               query  string   false  "角色筛选：viewer/contributor/admin/owner，缺省为全部；支持逗号分隔多值（如 contributor,admin），每个值必须合法；多空间视图匹配任意空间的成员关系角色"
+//	@Param        without_membership query  boolean  false  "仅 scope=all 且系统管理员：只返回无任何 active 成员关系的普通账号（无空间目录）；只接受 true/false，与 role 互斥"
+//	@Param        q                  query  string   false  "按邮箱/用户名模糊筛选"
+//	@Param        page               query  int      false  "页码（从 1 起）"  default(1)
+//	@Param        page_size          query  int      false  "每页数量（最大 100）"  default(20)
 //	@Success      200  {object}  handler.UserManagementListResponse  "成员列表"
-//	@Failure      400  {object}  map[string]interface{}  "role/scope 非法或分页参数非法"
-//	@Failure      403  {object}  map[string]interface{}  "非本空间 owner 或系统管理员；scope=other/all 非系统管理员"
+//	@Failure      400  {object}  map[string]interface{}  "role/scope 非法、分页参数非法、without_membership 非 true/false 或非 scope=all、role 与 without_membership 同用"
+//	@Failure      403  {object}  map[string]interface{}  "非本空间 owner 或系统管理员；scope=other/all 及 without_membership 非系统管理员"
 //	@Failure      500  {object}  map[string]interface{}  "内部错误"
 //	@Security     Bearer
 //	@Router       /tenants/{id}/user-management [get]
@@ -381,6 +384,36 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 			"role must be one of viewer, contributor, admin, owner"))
 		return
 	}
+
+	// without_membership（T44「无空间」目录）严格布尔：只接受 true/false，
+	// 出现但为空串（?without_membership=）也算非法直接 400——用 GetQuery
+	// 区分「缺席」与「空值」，不宽容解析。true 仅 scope=all 可用，且与
+	// role 互斥（无空间账号没有角色）；false 等价缺席。
+	withoutMembership := false
+	if raw, present := c.GetQuery("without_membership"); present {
+		switch raw {
+		case "true":
+			withoutMembership = true
+		case "false":
+		default:
+			_ = c.Error(apperrors.NewValidationError(
+				"without_membership must be true or false"))
+			return
+		}
+	}
+	if withoutMembership {
+		if scope != interfaces.UserManagementScopeAll {
+			_ = c.Error(apperrors.NewValidationError(
+				"without_membership is only available with scope=all"))
+			return
+		}
+		if len(roles) > 0 {
+			_ = c.Error(apperrors.NewValidationError(
+				"role and without_membership are mutually exclusive"))
+			return
+		}
+	}
+
 	q := strings.TrimSpace(c.Query("q"))
 	page, pageSize, ok := parseListPagination(c)
 	if !ok {
@@ -389,7 +422,10 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 
 	var result *interfaces.UserManagementListResult
 	var err error
-	if len(roles) > 1 {
+	if withoutMembership {
+		result, err = h.userManagementService.ListUsersWithoutMembership(
+			ctx, tenantID, q, page, pageSize)
+	} else if len(roles) > 1 {
 		if scoped {
 			result, err = h.userManagementService.ListUsersScopedWithRoles(
 				ctx, tenantID, scope, roles, q, page, pageSize)
@@ -413,14 +449,17 @@ func (h *UserManagementHandler) ListUsers(c *gin.Context) {
 		h.renderServiceError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"data": gin.H{
-			"items":       result.Items,
-			"total":       result.Total,
-			"role_counts": result.RoleCounts,
-		},
-	})
+	data := gin.H{
+		"items":       result.Items,
+		"total":       result.Total,
+		"role_counts": result.RoleCounts,
+	}
+	// no_membership_count 只在全平台视图存在（其他视图不渲染无空间目录）：
+	// 仅 scope=all 下发该键，其余 scope 该键缺席（而非 0）。
+	if scope == interfaces.UserManagementScopeAll {
+		data["no_membership_count"] = result.NoMembershipCount
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": data})
 }
 
 // parseUserManagementRoles 解析 role 查询参数：空串 = 全部；否则按逗号
