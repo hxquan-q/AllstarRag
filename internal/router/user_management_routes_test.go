@@ -21,8 +21,8 @@ import (
 //   - internal/router/routes_auth_tenant.go 提供
 //     RegisterUserManagementRoutes(r, userManagementHandler, g)；
 //   - POST /api/v1/tenants/:id/members/:user_id/ban|unban；
-//   - /tenants/:id 组级 PathTenantMatch，逐路由 g.OwnerOrSystemAdmin()
-//     （RequireRoleOrSystemAdmin(Owner)：owner 或系统管理员，普通 g.Owner() 不认超管）。
+//   - /tenants/:id 组级 PathTenantMatch，逐路由 g.AdminOrSystemAdmin()
+//     （T06 起普通管理员与系统管理员均可进入 handler；contributor/viewer 仍 403）。
 //
 // 守卫放行 → 请求到达 handler，故意发非法 JSON，让 ShouldBindJSON 失败、
 // ErrorHandler 渲染 400（不触发 nil service）。守卫拒绝 → 403；未认证 → 401。

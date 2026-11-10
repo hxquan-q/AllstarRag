@@ -18,7 +18,7 @@ import (
 // T27 TDD 红阶段：GET /tenants/:id/audit-log 收紧到「owner + 系统管理员」。
 //
 // 契约（T27 AC 1–4、AC-34、AC-38、C4）：
-//   - 路由守卫由 g.Admin() 改为 g.OwnerOrSystemAdmin()；
+//   - 路由守卫 T06 起为 g.AdminOrSystemAdmin()（普通管理员只读放行）；
 //   - owner 放行；系统管理员不论工作区角色（viewer/contributor/无成员关系）放行；
 //   - contributor/viewer → 403；admin 只读放行（T06 起）；未认证 → 401；
 //     URL 空间与活动空间不一致 → 403；

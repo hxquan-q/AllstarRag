@@ -264,11 +264,12 @@ func TestUpdateMemberRole_SystemAdminCannotDemoteOwner(t *testing.T) {
 }
 
 // TestUpdateMemberRole_NonOwnerNonSystemAdminForbidden 覆盖 AC-6 / AC-38：
-// 路由守卫之外 handler 自身也拒绝普通角色，避免未来路由装配回退时
-// 静默 fail-open。
+// 路由守卫之外 handler 自身也拒绝 contributor/viewer，避免未来路由装配回退时
+// 静默 fail-open。T06 起普通管理员可管理游客，admin→viewer 成功与
+// admin→owner/同级保护由 TestT06UpdateMemberRoleAdminCanManageViewer 与
+// 服务层 TestT06UpdateRoleTargetProtectionMatrix 覆盖。
 func TestUpdateMemberRole_NonOwnerNonSystemAdminForbidden(t *testing.T) {
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {

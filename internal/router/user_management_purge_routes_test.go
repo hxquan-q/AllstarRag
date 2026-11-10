@@ -20,8 +20,8 @@ import (
 //   - RegisterUserManagementRoutes 新增
 //     POST /tenants/:id/members/:user_id/purge；
 //   - 与 ban/unban 相同的 /tenants/:id 组级 PathTenantMatch 与逐路由
-//     g.OwnerOrSystemAdmin()；
-//   - 未认证 → 401；非 owner 普通角色 → 403；路径租户与活动租户不一致 → 403。
+//     g.AdminOrSystemAdmin()（T06 起普通管理员可 purge 游客）；
+//   - 未认证 → 401；contributor/viewer → 403；路径租户与活动租户不一致 → 403。
 //
 // 复用 T02 的 umRouteSession / newUMRouteEngine / postUMRouteWithSession：
 // 守卫放行时请求到达 handler，故意发非法 JSON 让 ShouldBindJSON 返回 400。

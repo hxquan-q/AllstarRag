@@ -22,7 +22,8 @@ import (
 // 假定契约（02-plan §3.1）：
 //   - RegisterUserManagementRoutes 增加
 //     GET /api/v1/tenants/:id/user-management；
-//   - /tenants/:id 组级 PathTenantMatch，逐路由 g.OwnerOrSystemAdmin()；
+//   - /tenants/:id 组级 PathTenantMatch，逐路由 g.AdminOrSystemAdmin()
+//     （T06 起普通管理员可读当前空间列表）；
 //   - 现有 GET /tenants/:id/members（Viewer+）行为不变。
 //
 // 守卫放行 → 到达 handler；本轮用「非法 role/page → 400」作为可观察信号，
