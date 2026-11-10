@@ -350,7 +350,7 @@ func TestTenantMember_AddMember_HappyPath(t *testing.T) {
 	}
 	h := newTestMemberHandler(ms, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"email": "bob@x.com", "role": "admin"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, caller)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())
@@ -388,7 +388,7 @@ func TestTenantMember_AddMember_DuplicateMaps409(t *testing.T) {
 	}
 	h := newTestMemberHandler(ms, us)
 
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"email": "bob@x.com", "role": "admin"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "u-owner")
 	if w.Code != http.StatusConflict {
 		t.Fatalf("duplicate must surface as 409, got %d", w.Code)
@@ -635,7 +635,7 @@ func TestTenantMember_RejectsCrossTenantURL_Add(t *testing.T) {
 		},
 	}
 	h := newTestMemberHandler(ms, us)
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"email": "bob@x.com", "role": "admin"}
 	w := doJSONWithCtx(t, memberTestRouter(h), http.MethodPost, "/tenants/5/members", body,
 		memberCtxOpts{callerID: "u1", tenantID: 1})
 	if w.Code != http.StatusForbidden {
@@ -816,7 +816,7 @@ func TestTenantMember_AddMember_SyntheticCallerLeavesInvitedByNull(t *testing.T)
 		},
 	}
 	h := newTestMemberHandler(ms, us)
-	body := map[string]any{"email": "bob@x.com", "role": "contributor"}
+	body := map[string]any{"email": "bob@x.com", "role": "admin"}
 	w := doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/members", body, "system-1")
 	if w.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d body=%s", w.Code, w.Body.String())
