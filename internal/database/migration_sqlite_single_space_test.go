@@ -109,6 +109,19 @@ func TestT01SingleSpaceMigration(t *testing.T) {
 	).Scan(&invitationStatus))
 	require.Equal(t, "revoked", invitationStatus, "pending contributor 邀请必须置为 revoked")
 
+	// AC-23 补充：已在 A 空间 active 的 u-viewer，收到 B 空间的 pending 邀请，
+	// 属于跨空间邀请，迁移后必须撤销并记录响应时间。
+	var crossSpaceStatus string
+	var crossSpaceRespondedAt sql.NullString
+	require.NoError(t, db.QueryRow(
+		`SELECT status, responded_at FROM tenant_invitations
+		 WHERE invitee_user_id = ? AND tenant_id = ?`,
+		"u-viewer", t01TenantB,
+	).Scan(&crossSpaceStatus, &crossSpaceRespondedAt))
+	require.Equal(t, "revoked", crossSpaceStatus,
+		"已在其他空间 active 的用户收到的跨空间 pending 邀请必须置为 revoked")
+	require.True(t, crossSpaceRespondedAt.Valid, "跨空间邀请撤销时必须写入 responded_at")
+
 	// AC-24：零 owner 空间保持现状，不自动补 owner。
 	var zeroOwnerCount int
 	require.NoError(t, db.QueryRow(
@@ -200,6 +213,14 @@ func seedT01SingleSpaceData(t *testing.T, db *sql.DB) {
 		`INSERT INTO tenant_invitations (tenant_id, invitee_user_id, role, status, expires_at)
 		 VALUES (?, ?, 'contributor', 'pending', '2099-01-01 00:00:00')`,
 		t01TenantA, "u-invitee")
+	require.NoError(t, err)
+
+	// AC-23 补充：u-viewer 已是 A 空间的 active 成员，B 空间又发来一条
+	// pending viewer 邀请，属于「跨空间邀请」，迁移后必须撤销。
+	_, err = db.Exec(
+		`INSERT INTO tenant_invitations (tenant_id, invitee_user_id, role, status, expires_at)
+		 VALUES (?, ?, 'viewer', 'pending', '2099-01-01 00:00:00')`,
+		t01TenantB, "u-viewer")
 	require.NoError(t, err)
 }
 
