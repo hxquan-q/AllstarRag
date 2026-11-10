@@ -51,6 +51,7 @@ type provisionOwnerSpaceRequest struct {
 //	@Failure      400      {object}  map[string]interface{}  "请求体非法或缺少 user_id"
 //	@Failure      403      {object}  map[string]interface{}  "仅系统管理员可调用"
 //	@Failure      404      {object}  map[string]interface{}  "目标账号不存在"
+//	@Failure      409      {object}  map[string]interface{}  "目标账号已属于其他空间（一号一空间）"
 //	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /system/admin/users/{user_id}/owner-space [post]
 func (h *OwnerManagementHandler) ProvisionOwnerSpace(c *gin.Context) {

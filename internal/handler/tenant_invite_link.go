@@ -71,6 +71,7 @@ type createInviteLinkRequest struct {
 // @Param        request  body  createInviteLinkRequest  true  "共享链接配置"
 // @Success      201  {object}  handler.DataResponse{data=types.TenantInvitationResponse}
 // @Failure      400  {object}  apperrors.AppError  "请求参数错误（人数非法或有效期已过）"
+// @Failure      403  {object}  apperrors.AppError  "角色越权（不能分配 owner/contributor）"
 // @Failure      500  {object}  apperrors.AppError  "创建后补写配额/有效期失败"
 // @Security     Bearer
 // @Router       /tenants/{id}/invite-links [post]

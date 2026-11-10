@@ -13531,7 +13531,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "已登录用户用共享邀请链接 token 加入空间，不创建新账号；对已是成员的用户幂等。",
+                "description": "已登录用户用共享邀请链接 token 加入空间，不创建新账号；对已是成员的用户幂等。\n非超管账号已属于其他空间时返回 409（一号一空间）；链接角色为历史 owner/contributor 时返回 400。",
                 "consumes": [
                     "application/json"
                 ],
@@ -13559,6 +13559,18 @@ const docTemplate = `{
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "链接角色已不可分配（历史 owner/contributor）",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "409": {
+                        "description": "已属于其他空间（一号一空间）",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
                     },
                     "410": {
@@ -13603,7 +13615,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "当前登录用户接受一条 pending 邀请；服务端会同时写入 tenant_members 行。",
+                "description": "当前登录用户接受一条 pending 邀请；服务端会同时写入 tenant_members 行。\n非超管账号已属于其他空间时返回 409（一号一空间）；历史 owner/contributor 邀请角色不可分配时返回 400。",
                 "produces": [
                     "application/json"
                 ],
@@ -13623,6 +13635,41 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "邀请角色已不可分配（历史 owner/contributor）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "不是邀请接收人",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "邀请不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "已属于其他空间（一号一空间）或邀请已失效/已处理",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -20542,58 +20589,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/system/admin/owners/invite": {
-            "post": {
-                "description": "创建一个 pending 空间与 owner 角色的分享链接；接受邀请后才创建成员关系",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "系统管理"
-                ],
-                "summary": "生成 owner 邀请链接",
-                "parameters": [
-                    {
-                        "description": "邀请信息（全部可选）",
-                        "name": "request",
-                        "in": "body",
-                        "schema": {
-                            "$ref": "#/definitions/internal_handler.createOwnerInviteRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "请求体非法或邀请有效期非法",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "仅系统管理员可调用",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "内部错误",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/system/admin/promote": {
             "post": {
                 "description": "Grant system administrator privileges to a user (SystemAdmin only).\nIdempotent: re-promoting an existing system admin returns 200 with no DB write.\nIdentify the user by email (preferred for human operators) or user_id (UUID, for API clients).",
@@ -21430,6 +21425,13 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "目标账号不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "目标账号已属于其他空间（一号一空间）",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -22829,7 +22831,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "本空间 owner 或系统管理员以外，或路径空间与当前空间不一致",
+                        "description": "本空间 owner/普通管理员或系统管理员以外，或路径空间与当前空间不一致",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -22897,7 +22899,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 通过邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。",
+                "description": "Owner 或普通管理员通过邮箱邀请已注册用户加入空间；只能分配 admin / viewer（owner 走开通/交接，contributor 停止分配）。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。",
                 "consumes": [
                     "application/json"
                 ],
@@ -22944,6 +22946,41 @@ const docTemplate = `{
                                 }
                             ]
                         }
+                    },
+                    "400": {
+                        "description": "参数或角色非法 / 历史邀请角色不可分配",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权（不能邀请 owner/contributor）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "邮箱未注册",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "已是成员、已有待接受邀请，或目标账号已属于其他空间（一号一空间）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -22955,7 +22992,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。",
+                "description": "Owner 或普通管理员取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。",
                 "produces": [
                     "application/json"
                 ],
@@ -22984,6 +23021,27 @@ const docTemplate = `{
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "邀请不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -23046,6 +23104,12 @@ const docTemplate = `{
                     },
                     "400": {
                         "description": "请求参数错误（人数非法或有效期已过）",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权（不能分配 owner/contributor）",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -23188,6 +23252,41 @@ const docTemplate = `{
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "400": {
+                        "description": "请求体或角色非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权（不能分配 owner/contributor）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "邮箱未注册",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "已是成员，或目标账号已属于其他空间（一号一空间）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -23199,7 +23298,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "工作区 Owner（系统管理员按 Owner 处理）可创建 admin/contributor/viewer，\nAdmin 只能创建 viewer；任何人都不能创建 owner。一次请求完成建号与入组。",
+                "description": "工作区 Owner 或普通管理员（系统管理员按 Owner 处理）可创建 admin/viewer；\ncontributor 停止分配，任何人都不能创建 owner。一次请求完成建号与入组。",
                 "consumes": [
                     "application/json"
                 ],
@@ -23244,14 +23343,14 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "角色越权",
+                        "description": "角色越权（不能创建 owner/contributor）",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "409": {
-                        "description": "邮箱或用户名已注册",
+                        "description": "邮箱或用户名已注册，或目标账号已属于其他空间（一号一空间）",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -23274,7 +23373,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 或系统管理员修改某位成员在当前空间内的角色。\nowner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；\nowner 可把非 owner 成员提升为 owner（co-owner）；\n非系统管理员不能修改系统管理员 / 跨空间超管 / 在任意空间持有 owner 的账号。\n最后一位 Owner 的服务层原子保护保留。",
+                "description": "Owner、普通管理员或系统管理员修改某位成员在当前空间内的角色。\n只能分配 admin / viewer；不能把任何人提升为 owner，owner 只能通过 transfer-owner 交接产生。\nowner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；\n普通管理员不能修改另一位普通管理员（同级保护），也不能修改 owner。\n非系统管理员不能修改系统管理员 / 跨空间超管 / 在任意空间持有 owner 的账号。\n最后一位 Owner 的服务层原子保护保留。",
                 "consumes": [
                     "application/json"
                 ],
@@ -23301,7 +23400,7 @@ const docTemplate = `{
                         "required": true
                     },
                     {
-                        "description": "目标角色",
+                        "description": "目标角色（admin/viewer）",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -23316,6 +23415,34 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
                         }
+                    },
+                    "400": {
+                        "description": "请求体或角色非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权或目标保护（owner/同级/自己/特权账号）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标不是本空间 active 成员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             },
@@ -23325,7 +23452,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；\n不能移除最后一位 Owner",
+                "description": "Owner、普通管理员或系统管理员将某位成员从当前空间中移除（软删除 tenant_members 行）；\n普通管理员只能移除 viewer，不能移除 owner（必须先交接）或同级普通管理员；\n不能移除最后一位 Owner",
                 "produces": [
                     "application/json"
                 ],
@@ -23355,13 +23482,41 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
                         }
+                    },
+                    "403": {
+                        "description": "角色越权或目标保护（owner/同级/自己）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标不是本空间 active 成员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "不能移除最后一位 Owner",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
         },
         "/tenants/{id}/members/{user_id}/ban": {
             "post": {
-                "description": "将目标账号置为不可登录并吊销其全部 token，保留成员关系；owner 不能操作 owner/超管",
+                "description": "将目标账号置为不可登录并吊销其全部 token，保留成员关系；Owner/普通管理员不能操作自己、owner 或同级普通管理员，特权账号需系统管理员",
                 "produces": [
                     "application/json"
                 ],
@@ -23513,7 +23668,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，\nAdmin 只能重置 contributor/viewer；\n不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
+                "description": "工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；\n不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
                 "consumes": [
                     "application/json"
                 ],
@@ -23590,7 +23745,7 @@ const docTemplate = `{
         },
         "/tenants/{id}/members/{user_id}/unban": {
             "post": {
-                "description": "恢复目标账号的登录能力，不恢复历史 token；普通 owner 只能解封在本空间被封禁的账号",
+                "description": "恢复目标账号的登录能力，不恢复历史 token；普通 Owner/普通管理员只能解封在本空间被封禁的账号，跨租户解封需系统管理员",
                 "produces": [
                     "application/json"
                 ],
@@ -23661,76 +23816,9 @@ const docTemplate = `{
                 }
             }
         },
-        "/tenants/{id}/owners/create": {
-            "post": {
-                "description": "创建一个 tenantless 账号并加入当前空间，角色为 owner；入组失败会回滚账号",
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "空间成员"
-                ],
-                "summary": "新建 co-owner 账号",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "空间 ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "账号信息",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/internal_handler.createCoOwnerRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "400": {
-                        "description": "用户名/邮箱/密码缺失或非法",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "403": {
-                        "description": "非本空间 owner 或系统管理员",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "409": {
-                        "description": "邮箱/用户名已注册或已是本空间成员",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    },
-                    "500": {
-                        "description": "内部错误",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            }
-        },
         "/tenants/{id}/transfer-owner": {
             "post": {
-                "description": "把 owner 身份交给本空间 active 成员；owner 只能传自己，系统管理员可传任意 owner",
+                "description": "把 owner 身份交给本空间 active 普通管理员（admin），目标需先提升为 admin；owner 只能传自己，系统管理员可传任意 owner",
                 "produces": [
                     "application/json"
                 ],
@@ -23765,14 +23853,14 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "请求体非法、缺少 to_user_id 或 from/to 相同",
+                        "description": "请求体非法、缺少 to_user_id、from/to 相同、目标不是 active admin 或已被封禁",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "403": {
-                        "description": "非本空间 owner、系统管理员以外不能代他人交接",
+                        "description": "非本空间 owner、系统管理员以外不能代他人交接，或目标为特权/别处 owner",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -23780,6 +23868,13 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "源 owner 或目标成员关系不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "交接期间成员角色已变化，需刷新重试",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -23802,7 +23897,7 @@ const docTemplate = `{
                         "Bearer": []
                     }
                 ],
-                "description": "返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系；scope=all 另下发 no_membership_count（无任何空间成员关系的普通账号数）",
+                "description": "返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 恒为 owner/admin/viewer 三个桶（contributor 仅历史存储值，不进入目录）；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系；scope=all 另下发 no_membership_count（无任何空间成员关系的普通账号数）",
                 "produces": [
                     "application/json"
                 ],
@@ -23826,7 +23921,7 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "角色筛选：viewer/contributor/admin/owner，缺省为全部；支持逗号分隔多值（如 contributor,admin），每个值必须合法；多空间视图匹配任意空间的成员关系角色",
+                        "description": "角色筛选：viewer/admin/owner，缺省为全部；支持逗号分隔多值（如 admin,viewer），每个值必须合法；多空间视图匹配任意空间的成员关系角色",
                         "name": "role",
                         "in": "query"
                     },
@@ -23872,7 +23967,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "非本空间 owner 或系统管理员；scope=other/all 及 without_membership 非系统管理员",
+                        "description": "非本空间 owner/普通管理员或系统管理员；scope=other/all 及 without_membership 非系统管理员",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -43188,20 +43283,6 @@ const docTemplate = `{
                 }
             }
         },
-        "internal_handler.createCoOwnerRequest": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "password": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
-                }
-            }
-        },
         "internal_handler.createInvitationRequest": {
             "type": "object",
             "required": [
@@ -43264,20 +43345,6 @@ const docTemplate = `{
                     "type": "string",
                     "maxLength": 50,
                     "minLength": 2
-                }
-            }
-        },
-        "internal_handler.createOwnerInviteRequest": {
-            "type": "object",
-            "properties": {
-                "email": {
-                    "type": "string"
-                },
-                "expires_in_days": {
-                    "type": "integer"
-                },
-                "space_name": {
-                    "type": "string"
                 }
             }
         },

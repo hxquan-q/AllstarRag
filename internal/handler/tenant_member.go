@@ -187,7 +187,9 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 // @Summary      直接添加空间成员（直加路径）
 // @Description
 //
-//	Owner 通过 email 直接把用户作为 active 成员添加进当前空间。
+//	Owner 或普通管理员通过 email 直接把用户作为 active 成员添加进当前空间。
+//	只能分配 admin / viewer；owner 只能通过开通或 transfer-owner 交接产生，
+//	contributor 停止分配。
 //
 //	这是【直加路径】，被加入的用户没有任何确认机会就出现在空间里——
 //	保留它是为了三类不需要走邀请确认的场景：
@@ -206,6 +208,11 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 // @Param        id        path  string                 true  "空间 ID"
 // @Param        request   body  addMemberRequest       true  "邀请请求"
 // @Success      201  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}  "请求体或角色非法"
+// @Failure      403  {object}  map[string]interface{}  "角色越权（不能分配 owner/contributor）"
+// @Failure      404  {object}  map[string]interface{}  "邮箱未注册"
+// @Failure      409  {object}  map[string]interface{}  "已是成员，或目标账号已属于其他空间（一号一空间）"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members [post]
 func (h *TenantMemberHandler) AddMember(c *gin.Context) {
@@ -269,8 +276,8 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 
 // CreateMemberAccount godoc
 // @Summary      创建成员账号并加入空间
-// @Description  工作区 Owner（系统管理员按 Owner 处理）可创建 admin/contributor/viewer，
-// @Description  Admin 只能创建 viewer；任何人都不能创建 owner。一次请求完成建号与入组。
+// @Description  工作区 Owner 或普通管理员（系统管理员按 Owner 处理）可创建 admin/viewer；
+// @Description  contributor 停止分配，任何人都不能创建 owner。一次请求完成建号与入组。
 // @Tags         空间成员
 // @Accept       json
 // @Produce      json
@@ -278,8 +285,8 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 // @Param        request  body  createMemberAccountRequest  true  "建号请求"
 // @Success      201  {object}  map[string]interface{}  "成员已创建（响应不含密码）"
 // @Failure      400  {object}  map[string]interface{}  "参数或密码不合规 / 试图创建 owner"
-// @Failure      403  {object}  map[string]interface{}  "角色越权"
-// @Failure      409  {object}  map[string]interface{}  "邮箱或用户名已注册"
+// @Failure      403  {object}  map[string]interface{}  "角色越权（不能创建 owner/contributor）"
+// @Failure      409  {object}  map[string]interface{}  "邮箱或用户名已注册，或目标账号已属于其他空间（一号一空间）"
 // @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members/create [post]
@@ -471,8 +478,7 @@ func addMemberAndRespond(
 
 // ResetMemberPassword godoc
 // @Summary      重置成员密码
-// @Description  工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，
-// @Description  Admin 只能重置 contributor/viewer；
+// @Description  工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；
 // @Description  不能重置与自己同级或更高级的成员，也不能重置本人。
 // @Description  目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。
 // @Description  成功后旧密码立即失效，该用户所有已签发 token 被吊销。
@@ -586,9 +592,10 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 
 // UpdateMemberRole godoc
 // @Summary      修改空间成员角色
-// @Description  Owner 或系统管理员修改某位成员在当前空间内的角色。
+// @Description  Owner、普通管理员或系统管理员修改某位成员在当前空间内的角色。
+// @Description  只能分配 admin / viewer；不能把任何人提升为 owner，owner 只能通过 transfer-owner 交接产生。
 // @Description  owner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；
-// @Description  owner 可把非 owner 成员提升为 owner（co-owner）；
+// @Description  普通管理员不能修改另一位普通管理员（同级保护），也不能修改 owner。
 // @Description  非系统管理员不能修改系统管理员 / 跨空间超管 / 在任意空间持有 owner 的账号。
 // @Description  最后一位 Owner 的服务层原子保护保留。
 // @Tags         空间成员
@@ -596,8 +603,12 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 // @Produce      json
 // @Param        id       path  string                  true  "空间 ID"
 // @Param        user_id  path  string                  true  "用户 ID"
-// @Param        request  body  updateMemberRoleRequest true  "目标角色"
+// @Param        request  body  updateMemberRoleRequest true  "目标角色（admin/viewer）"
 // @Success      200  {object}  handler.SuccessResponse
+// @Failure      400  {object}  map[string]interface{}  "请求体或角色非法"
+// @Failure      403  {object}  map[string]interface{}  "角色越权或目标保护（owner/同级/自己/特权账号）"
+// @Failure      404  {object}  map[string]interface{}  "目标不是本空间 active 成员"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members/{user_id} [put]
 func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
@@ -783,13 +794,18 @@ func canManageMemberRoles(ctx context.Context) bool {
 
 // RemoveMember godoc
 // @Summary      移除空间成员
-// @Description  Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；
+// @Description  Owner、普通管理员或系统管理员将某位成员从当前空间中移除（软删除 tenant_members 行）；
+// @Description  普通管理员只能移除 viewer，不能移除 owner（必须先交接）或同级普通管理员；
 // @Description  不能移除最后一位 Owner
 // @Tags         空间成员
 // @Produce      json
 // @Param        id       path  string  true  "空间 ID"
 // @Param        user_id  path  string  true  "用户 ID"
 // @Success      200  {object}  handler.SuccessResponse
+// @Failure      403  {object}  map[string]interface{}  "角色越权或目标保护（owner/同级/自己）"
+// @Failure      404  {object}  map[string]interface{}  "目标不是本空间 active 成员"
+// @Failure      409  {object}  map[string]interface{}  "不能移除最后一位 Owner"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members/{user_id} [delete]
 func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {

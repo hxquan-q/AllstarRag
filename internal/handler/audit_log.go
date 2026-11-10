@@ -49,7 +49,7 @@ type auditLogListResponse struct {
 // @Param        q         query  string  false  "关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）"
 // @Success      200  {object}  auditLogListResponse
 // @Failure      400  {object}  errors.AppError
-// @Failure      403  {object}  errors.AppError  "本空间 owner 或系统管理员以外，或路径空间与当前空间不一致"
+// @Failure      403  {object}  errors.AppError  "本空间 owner/普通管理员或系统管理员以外，或路径空间与当前空间不一致"
 // @Security     Bearer
 // @Security     ApiKeyAuth
 // @Router       /tenants/{id}/audit-log [get]

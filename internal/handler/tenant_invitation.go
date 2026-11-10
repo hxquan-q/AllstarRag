@@ -258,13 +258,18 @@ func (h *TenantInvitationHandler) ListTenantInvitations(c *gin.Context) {
 
 // CreateInvitation godoc
 // @Summary      发出空间邀请
-// @Description  Owner 通过邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。
+// @Description  Owner 或普通管理员通过邮箱邀请已注册用户加入空间；只能分配 admin / viewer（owner 走开通/交接，contributor 停止分配）。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。
 // @Tags         空间邀请
 // @Accept       json
 // @Produce      json
 // @Param        id       path  string                   true  "空间 ID"
 // @Param        request  body  createInvitationRequest  true  "邀请请求"
 // @Success      201  {object}  handler.DataResponse{data=types.TenantInvitationResponse}
+// @Failure      400  {object}  map[string]interface{}  "参数或角色非法 / 历史邀请角色不可分配"
+// @Failure      403  {object}  map[string]interface{}  "角色越权（不能邀请 owner/contributor）"
+// @Failure      404  {object}  map[string]interface{}  "邮箱未注册"
+// @Failure      409  {object}  map[string]interface{}  "已是成员、已有待接受邀请，或目标账号已属于其他空间（一号一空间）"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/invitations [post]
 func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
@@ -400,12 +405,15 @@ func (h *TenantInvitationHandler) autoAcceptInvitationAndRespond(
 
 // RevokeInvitation godoc
 // @Summary      撤销待接受邀请
-// @Description  Owner 取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。
+// @Description  Owner 或普通管理员取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。
 // @Tags         空间邀请
 // @Produce      json
 // @Param        id      path  string  true  "空间 ID"
 // @Param        inv_id  path  string  true  "邀请 ID"
 // @Success      200  {object}  handler.SuccessResponse
+// @Failure      403  {object}  map[string]interface{}  "角色越权"
+// @Failure      404  {object}  map[string]interface{}  "邀请不存在"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/invitations/{inv_id} [delete]
 func (h *TenantInvitationHandler) RevokeInvitation(c *gin.Context) {
@@ -529,10 +537,16 @@ func (h *TenantInvitationHandler) CountMyPendingInvitations(c *gin.Context) {
 // AcceptMyInvitation godoc
 // @Summary      接受邀请
 // @Description  当前登录用户接受一条 pending 邀请；服务端会同时写入 tenant_members 行。
+// @Description  非超管账号已属于其他空间时返回 409（一号一空间）；历史 owner/contributor 邀请角色不可分配时返回 400。
 // @Tags         我的邀请
 // @Produce      json
 // @Param        inv_id  path  string  true  "邀请 ID"
 // @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}  "邀请角色已不可分配（历史 owner/contributor）"
+// @Failure      403  {object}  map[string]interface{}  "不是邀请接收人"
+// @Failure      404  {object}  map[string]interface{}  "邀请不存在"
+// @Failure      409  {object}  map[string]interface{}  "已属于其他空间（一号一空间）或邀请已失效/已处理"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /me/invitations/{inv_id}/accept [post]
 func (h *TenantInvitationHandler) AcceptMyInvitation(c *gin.Context) {
@@ -605,11 +619,14 @@ type acceptInvitationByTokenRequest struct {
 // AcceptMyInvitationByToken godoc
 // @Summary      通过共享链接加入空间
 // @Description  已登录用户用共享邀请链接 token 加入空间，不创建新账号；对已是成员的用户幂等。
+// @Description  非超管账号已属于其他空间时返回 409（一号一空间）；链接角色为历史 owner/contributor 时返回 400。
 // @Tags         我的邀请
 // @Accept       json
 // @Produce      json
 // @Param        request  body      acceptInvitationByTokenRequest  true  "邀请 token"
 // @Success      200      {object}  map[string]interface{}
+// @Failure      400      {object}  apperrors.AppError  "链接角色已不可分配（历史 owner/contributor）"
+// @Failure      409      {object}  apperrors.AppError  "已属于其他空间（一号一空间）"
 // @Failure      410      {object}  apperrors.AppError  "链接无效或已撤销"
 // @Security     Bearer
 // @Router       /me/invitations/accept-by-token [post]

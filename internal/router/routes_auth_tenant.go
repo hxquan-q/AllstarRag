@@ -119,10 +119,10 @@ func RegisterTenantRoutes(
 
 			// Tenant member management (PR 3 of #1303). Listing is
 			// Viewer+ so any active member can see the roster; mutation
-			// is Owner+ because membership changes are the highest-impact
-			// tenant op. /:id/leave is Viewer+ — any member can quit on
-			// their own; the service still rejects when it would leave
-			// the tenant without an Owner.
+			// is Admin+ (Owner/普通管理员) because membership changes are the
+			// highest-impact tenant op. /:id/leave is Viewer+ — any member
+			// can quit on their own; the service still rejects when it would
+			// leave the tenant without an Owner.
 			if memberHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.ListMembers)
 				// T06：普通管理员拿到 co-owner 能力集，成员治理入口放宽到
@@ -130,25 +130,24 @@ func RegisterTenantRoutes(
 				// 内判定，不靠路由守卫单独兜底（C4）。
 				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.AddMember)
 				// 建号接口：路由层只保证 Admin+/系统管理员，细粒度角色矩阵
-				// （owner 可建 admin/contributor/viewer，admin 只能建 viewer，
-				// 禁止建 owner）在 handler 内判定，见 service.CanCreateRole；
-				// 系统管理员即使当前工作区角色低于 admin 也放行进 handler，
-				// 按「系统管理员按 owner」矩阵处理（tenant_member.go
-				// CreateMemberAccount 内）。JWT-only：不通过 apiKeyRoute
-				// 声明，API key 默认拒绝。
+				// （owner/普通管理员可建 admin/viewer，禁止建 owner/contributor）
+				// 在 handler 内判定，见 service.CanCreateRole；系统管理员即使
+				// 当前工作区角色低于 admin 也放行进 handler，按「系统管理员按
+				// owner」矩阵处理（tenant_member.go CreateMemberAccount 内）。
+				// JWT-only：不通过 apiKeyRoute 声明，API key 默认拒绝。
 				tenantByID.POST("/members/create", g.AdminOrSystemAdmin(), memberHandler.CreateMemberAccount)
 				// 重置成员密码：路由层只保证 Admin+/系统管理员，细粒度矩阵
-				// （owner 可重置 admin/contributor/viewer，admin 只能重置
-				// contributor/viewer，不能重置同级/上级/本人）在 handler 内
-				// 判定，见 service.CanResetRole；系统管理员即使当前工作区角色
-				// 低于 admin 也放行进 handler，按「系统管理员按 owner」矩阵
-				// 处理（tenant_member.go ResetMemberPassword 内），特权目标
-				// 保护（F1 门禁）不变。JWT-only：不通过 apiKeyRoute 声明，
-				// API key 默认拒绝。
+				// （owner 可重置 admin/viewer，普通管理员只能重置 viewer，
+				// 不能重置同级/上级/本人）在 handler 内判定，见
+				// service.CanResetRole；系统管理员即使当前工作区角色低于 admin
+				// 也放行进 handler，按「系统管理员按 owner」矩阵处理
+				// （tenant_member.go ResetMemberPassword 内），特权目标保护
+				// （F1 门禁）不变。JWT-only：不通过 apiKeyRoute 声明，API key
+				// 默认拒绝。
 				tenantByID.POST("/members/:user_id/reset-password",
 					g.AdminOrSystemAdmin(), memberHandler.ResetMemberPassword)
-				// 改角色：Owner 或系统管理员。超管不需要在本空间持有 owner
-				// 角色；目标级 owner 保护（不能直接降级 owner，必须走
+				// 改角色：Owner/普通管理员或系统管理员。超管不需要在本空间持有
+				// owner 角色；目标级 owner/同级保护（不能直接降级 owner，必须走
 				// transfer-owner）在 handler.UpdateMemberRole 内兜底。
 				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.UpdateMemberRole)
 				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.RemoveMember)
@@ -160,7 +159,7 @@ func RegisterTenantRoutes(
 			// so the invitee gets to confirm via /me/invitations
 			// before any tenant_members row is written. List is
 			// Viewer+ so any member can see pending invites in the
-			// management view; create/revoke are Owner+ to match the
+			// management view; create/revoke are Admin+ to match the
 			// existing /members mutation gates. nil-skip pattern
 			// mirrors memberHandler above for environments built
 			// without the invitation dependency wired.
@@ -186,14 +185,15 @@ func RegisterTenantRoutes(
 	}
 }
 
-// RegisterUserManagementRoutes 注册 owner / 系统管理员的成员管理接口
-// （封禁 / 解封 / 彻底删除 / 空间交接 / 新建 co-owner）。拆成独立的
+// RegisterUserManagementRoutes 注册 Owner/普通管理员与系统管理员的成员管理接口
+// （封禁 / 解封 / 彻底删除 / 空间交接 / 用户管理列表）。拆成独立的
 // Register* 函数，避免改动 RegisterTenantRoutes 的签名和既有调用点。
 //
 // 守卫与 02-plan §3.1 的契约一致：
 //   - /tenants/:id 组级：g.PathTenantMatch()（URL 空间必须等于当前激活
 //     空间；跨空间超管按既有规则放行）；
-//   - 每条路由：g.OwnerOrSystemAdmin() —— 系统管理员即使当前工作区角色
+//   - 封禁/解封/彻底删除/用户管理列表：g.AdminOrSystemAdmin()；
+//   - 空间交接：g.OwnerOrSystemAdmin() —— 系统管理员即使当前工作区角色
 //     低于 owner 也放行。
 //
 // 目标级保护（不能操作自己、owner 目标、系统管理员、别处 owner、跨租户

@@ -73,7 +73,7 @@ func newMemberUserSummary(user *types.User) *memberUserSummary {
 // BanMember 封禁空间成员。
 //
 //	@Summary      封禁空间成员
-//	@Description  将目标账号置为不可登录并吊销其全部 token，保留成员关系；owner 不能操作 owner/超管
+//	@Description  将目标账号置为不可登录并吊销其全部 token，保留成员关系；Owner/普通管理员不能操作自己、owner 或同级普通管理员，特权账号需系统管理员
 //	@Tags         空间成员
 //	@Produce      json
 //	@Param        id       path  string  true  "空间 ID"
@@ -92,7 +92,7 @@ func (h *UserManagementHandler) BanMember(c *gin.Context) {
 // UnbanMember 解封空间成员。
 //
 //	@Summary      解封空间成员
-//	@Description  恢复目标账号的登录能力，不恢复历史 token；普通 owner 只能解封在本空间被封禁的账号
+//	@Description  恢复目标账号的登录能力，不恢复历史 token；普通 Owner/普通管理员只能解封在本空间被封禁的账号，跨租户解封需系统管理员
 //	@Tags         空间成员
 //	@Produce      json
 //	@Param        id       path  string  true  "空间 ID"
@@ -226,15 +226,16 @@ type transferOwnerRequest struct {
 // TransferOwner 交接空间 owner 身份。
 //
 //	@Summary      交接空间 owner
-//	@Description  把 owner 身份交给本空间 active 成员；owner 只能传自己，系统管理员可传任意 owner
+//	@Description  把 owner 身份交给本空间 active 普通管理员（admin），目标需先提升为 admin；owner 只能传自己，系统管理员可传任意 owner
 //	@Tags         空间成员
 //	@Produce      json
 //	@Param        id       path  string               true  "空间 ID"
 //	@Param        request  body  transferOwnerRequest  true  "交接目标（from 可选）"
 //	@Success      200      {object}  map[string]interface{}
-//	@Failure      400      {object}  map[string]interface{}  "请求体非法、缺少 to_user_id 或 from/to 相同"
-//	@Failure      403      {object}  map[string]interface{}  "非本空间 owner、系统管理员以外不能代他人交接"
+//	@Failure      400      {object}  map[string]interface{}  "请求体非法、缺少 to_user_id、from/to 相同、目标不是 active admin 或已被封禁"
+//	@Failure      403      {object}  map[string]interface{}  "非本空间 owner、系统管理员以外不能代他人交接，或目标为特权/别处 owner"
 //	@Failure      404      {object}  map[string]interface{}  "源 owner 或目标成员关系不存在"
+//	@Failure      409      {object}  map[string]interface{}  "交接期间成员角色已变化，需刷新重试"
 //	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/transfer-owner [post]
 func (h *UserManagementHandler) TransferOwner(c *gin.Context) {
@@ -282,22 +283,22 @@ type UserManagementListResponse struct {
 	Data    UserManagementListData `json:"data"`
 }
 
-// ListUsers 返回用户管理页的成员列表（owner / 系统管理员）。
+// ListUsers 返回用户管理页的成员列表（owner / 普通管理员 / 系统管理员）。
 //
 //	@Summary      列出用户管理成员
-//	@Description  返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 为整空间目录计数；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系；scope=all 另下发 no_membership_count（无任何空间成员关系的普通账号数）
+//	@Description  返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 恒为 owner/admin/viewer 三个桶（contributor 仅历史存储值，不进入目录）；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系；scope=all 另下发 no_membership_count（无任何空间成员关系的普通账号数）
 //	@Tags         空间成员
 //	@Produce      json
 //	@Param        id                 path   string   false  "空间 ID"
 //	@Param        scope              query  string   false  "空间筛选：current（默认，仅本空间）/other（其它空间有成员关系的用户）/all（全平台用户），other/all 仅系统管理员"  default(current)
-//	@Param        role               query  string   false  "角色筛选：viewer/contributor/admin/owner，缺省为全部；支持逗号分隔多值（如 contributor,admin），每个值必须合法；多空间视图匹配任意空间的成员关系角色"
+//	@Param        role               query  string   false  "角色筛选：viewer/admin/owner，缺省为全部；支持逗号分隔多值（如 admin,viewer），每个值必须合法；多空间视图匹配任意空间的成员关系角色"
 //	@Param        without_membership query  boolean  false  "仅 scope=all 且系统管理员：只返回无任何 active 成员关系的普通账号（无空间目录）；只接受 true/false，与 role 互斥"
 //	@Param        q                  query  string   false  "按邮箱/用户名模糊筛选"
 //	@Param        page               query  int      false  "页码（从 1 起）"  default(1)
 //	@Param        page_size          query  int      false  "每页数量（最大 100）"  default(20)
 //	@Success      200  {object}  handler.UserManagementListResponse  "成员列表"
 //	@Failure      400  {object}  map[string]interface{}  "role/scope 非法、分页参数非法、without_membership 非 true/false 或非 scope=all、role 与 without_membership 同用"
-//	@Failure      403  {object}  map[string]interface{}  "非本空间 owner 或系统管理员；scope=other/all 及 without_membership 非系统管理员"
+//	@Failure      403  {object}  map[string]interface{}  "非本空间 owner/普通管理员或系统管理员；scope=other/all 及 without_membership 非系统管理员"
 //	@Failure      500  {object}  map[string]interface{}  "内部错误"
 //	@Security     Bearer
 //	@Router       /tenants/{id}/user-management [get]
