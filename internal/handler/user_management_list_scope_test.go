@@ -89,10 +89,9 @@ func umScopeScopedResult() *interfaces.UserManagementListResult {
 		},
 		Total: 1,
 		RoleCounts: map[types.TenantRole]int64{
-			types.TenantRoleOwner:       0,
-			types.TenantRoleAdmin:       1,
-			types.TenantRoleContributor: 0,
-			types.TenantRoleViewer:      1,
+			types.TenantRoleOwner:  0,
+			types.TenantRoleAdmin:  1,
+			types.TenantRoleViewer: 1,
 		},
 	}
 }

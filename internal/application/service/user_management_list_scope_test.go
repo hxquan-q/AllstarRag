@@ -25,7 +25,7 @@ import (
 //     同一 user 一行，memberships 聚合全部 active 关系（含本空间，
 //     按 tenant_id 升序）；
 //   - role 过滤匹配视图内任意一条成员关系的角色；role_counts 按视图内
-//     "有该角色的去重用户数"计且四键始终存在；q 搜索与分页在去重后进行
+//     "有该角色的去重用户数"计且 owner/admin/viewer 三键始终存在；q 搜索与分页在去重后进行
 //     （排序不锁，分页用集合断言）；
 //   - 顶层 role 只弱断言为该用户视图内成员关系角色之一，不锁展示优先级；
 //   - 非系统管理员请求 other/all → 403（服务层自证，C4）；非法 scope → 400
@@ -254,12 +254,11 @@ func TestUserManagementListScopedRoleFilterMatchesAnyMembership(t *testing.T) {
 		"all+admin 命中任意成员关系是 admin 的去重用户（u-dual 因空间 B 的 admin 命中）")
 	require.Equal(t, []string{"u-admin-a", "u-dual"}, umListIDs(all))
 	require.Equal(t, map[types.TenantRole]int64{
-		types.TenantRoleOwner:       1,
-		types.TenantRoleAdmin:       2,
-		types.TenantRoleContributor: 0,
-		types.TenantRoleViewer:      1,
+		types.TenantRoleOwner:  1,
+		types.TenantRoleAdmin:  2,
+		types.TenantRoleViewer: 1,
 	}, all.RoleCounts,
-		"role_counts 按视图全量去重计、不随 role 过滤缩小；u-dual 的 B admin 计入 admin")
+		"role_counts 按视图全量去重计、只保留 owner/admin/viewer 三桶；u-dual 的 B admin 计入 admin")
 
 	other, err := env.svc.ListUsersScoped(sysCtx, umTenantA,
 		interfaces.UserManagementScopeOther, types.TenantRoleAdmin, "", 1, 20)
@@ -290,12 +289,11 @@ func TestUserManagementListScopedRoleCountsDedupedByUser(t *testing.T) {
 				umTenantA, scope, "", "", 1, 20)
 			require.NoError(t, err)
 			require.Equal(t, map[types.TenantRole]int64{
-				types.TenantRoleOwner:       1,
-				types.TenantRoleAdmin:       1,
-				types.TenantRoleContributor: 0,
-				types.TenantRoleViewer:      0,
+				types.TenantRoleOwner:  1,
+				types.TenantRoleAdmin:  1,
+				types.TenantRoleViewer: 0,
 			}, res.RoleCounts,
-				"u-multi-admin 在 B/C 两个空间都是 admin，只计 1；四键始终存在")
+				"u-multi-admin 在 B/C 两个空间都是 admin，只计 1；三键始终存在")
 			require.Equal(t, int64(2), res.Total)
 		})
 	}

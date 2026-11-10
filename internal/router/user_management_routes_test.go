@@ -115,9 +115,22 @@ func TestUserManagementRoutesSystemAdminPassesGuardRegardlessOfRole(t *testing.T
 	}
 }
 
+func TestUserManagementRoutesAdminPassesGuard(t *testing.T) {
+	for _, action := range []string{"ban", "unban"} {
+		action := action
+		t.Run("admin_"+action, func(t *testing.T) {
+			path := "/api/v1/tenants/7/members/u-target/" + action
+			code := postUMRouteWithSession(t, umRouteSession{
+				role: types.TenantRoleAdmin, userID: "u-admin",
+			}, path)
+			require.Equal(t, http.StatusBadRequest, code,
+				"ordinary admin must pass the AdminOrSystemAdmin guard and reach the handler")
+		})
+	}
+}
+
 func TestUserManagementRoutesNonOwnerRejected(t *testing.T) {
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {

@@ -64,9 +64,16 @@ func TestUserManagementPurgeRouteSystemAdminPassesGuardRegardlessOfRole(t *testi
 	}
 }
 
+func TestUserManagementPurgeRouteAdminPassesGuard(t *testing.T) {
+	code := postUMRouteWithSession(t, umRouteSession{
+		role: types.TenantRoleAdmin, userID: "u-admin",
+	}, umPurgePath)
+	require.Equal(t, http.StatusBadRequest, code,
+		"ordinary admin must pass the AdminOrSystemAdmin guard and reach the handler")
+}
+
 func TestUserManagementPurgeRouteNonOwnerRejected(t *testing.T) {
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {

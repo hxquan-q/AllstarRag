@@ -118,10 +118,15 @@ func TestAuditLogRouteSystemAdminAllowedRegardlessOfRole(t *testing.T) {
 	}
 }
 
-// 红点 2（admin）+ 绿保护网（contributor/viewer）：普通成员一律 403。
+// T06 起普通管理员可只读本空间审计日志；contributor/viewer 仍 403。
 func TestAuditLogRouteRejectsNonOwnerMembers(t *testing.T) {
+	// T06 AC-5：普通管理员拿到 co-owner 能力集，审计日志只读放宽。
+	adminCode := getAuditLog(t,
+		auditGuardSession{role: types.TenantRoleAdmin, userID: "u-admin"}, auditGuardPath)
+	require.Equal(t, http.StatusOK, adminCode,
+		"ordinary admin must read the tenant audit log (read-only) after T06")
+
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {
@@ -129,7 +134,7 @@ func TestAuditLogRouteRejectsNonOwnerMembers(t *testing.T) {
 		t.Run(string(role), func(t *testing.T) {
 			code := getAuditLog(t, auditGuardSession{role: role, userID: "u-ordinary"}, auditGuardPath)
 			require.Equal(t, http.StatusForbidden, code,
-				"ordinary %s must not read the tenant audit log (T27: owner + system admin only)", role)
+				"ordinary %s must not read the tenant audit log (T06: owner/admin + system admin only)", role)
 		})
 	}
 }

@@ -116,10 +116,9 @@ func umListSuccessResult() *interfaces.UserManagementListResult {
 		},
 		Total: 2,
 		RoleCounts: map[types.TenantRole]int64{
-			types.TenantRoleOwner:       0,
-			types.TenantRoleAdmin:       1,
-			types.TenantRoleContributor: 0,
-			types.TenantRoleViewer:      1,
+			types.TenantRoleOwner:  0,
+			types.TenantRoleAdmin:  1,
+			types.TenantRoleViewer: 1,
 		},
 	}
 }
@@ -145,8 +144,9 @@ func TestUserManagementListUsersResponse(t *testing.T) {
 	require.Equal(t, int64(2), payload.Data.Total)
 	require.Len(t, payload.Data.Items, 2)
 	require.Equal(t, map[string]int64{
-		"owner": 0, "admin": 1, "contributor": 0, "viewer": 1,
-	}, payload.Data.RoleCounts)
+		"owner": 0, "admin": 1, "viewer": 1,
+	}, payload.Data.RoleCounts,
+		"the directory response must not expose a contributor bucket")
 
 	bannedIndex := -1
 	for i := range payload.Data.Items {

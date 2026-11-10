@@ -44,12 +44,11 @@ func TestUserManagementListUsersWithRolesFiltersAnyRole(t *testing.T) {
 	require.ElementsMatch(t,
 		[]string{"u-admin", "u-contrib"}, umListIDs(res))
 	require.Equal(t, map[types.TenantRole]int64{
-		types.TenantRoleOwner:       1,
-		types.TenantRoleAdmin:       1,
-		types.TenantRoleContributor: 1,
-		types.TenantRoleViewer:      1,
+		types.TenantRoleOwner:  1,
+		types.TenantRoleAdmin:  1,
+		types.TenantRoleViewer: 1,
 	}, res.RoleCounts,
-		"role_counts 是整空间目录计数，不随多角色过滤缩小")
+		"role_counts 是整空间目录计数，只保留三桶，不随多角色过滤缩小")
 }
 
 func TestUserManagementListUsersWithRolesEmptyMeansAll(t *testing.T) {

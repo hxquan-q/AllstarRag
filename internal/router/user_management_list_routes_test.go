@@ -103,9 +103,17 @@ func TestUserManagementListRouteSystemAdminPassesGuardRegardlessOfRole(t *testin
 	}
 }
 
+func TestUserManagementListRouteAdminPassesGuard(t *testing.T) {
+	// 非法 scope 让 handler 在触达 service 前返回 400；403 说明守卫仍拒绝 admin。
+	code := getUMListRouteWithSession(t, umRouteSession{
+		role: types.TenantRoleAdmin, userID: "u-admin",
+	}, "/api/v1/tenants/7/user-management?scope=bogus")
+	require.Equal(t, http.StatusBadRequest, code,
+		"ordinary admin must pass the AdminOrSystemAdmin guard and reach the handler")
+}
+
 func TestUserManagementListRouteNonOwnerRejected(t *testing.T) {
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {

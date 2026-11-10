@@ -58,19 +58,21 @@ func TestMemberRoleRouteAllowsSystemAdmin(t *testing.T) {
 	}
 }
 
-// TestMemberRoleRouteWorkspaceRoleMatrix 防止改成 OwnerOrSystemAdmin 时
-// 顺带放宽普通角色：owner 放行，admin/contributor/viewer 一律 403。
+// TestMemberRoleRouteWorkspaceRoleMatrix：T06 起 admin 也放行（co-owner 能力集），
+// owner/admin 放行，contributor/viewer 仍 403。
 func TestMemberRoleRouteWorkspaceRoleMatrix(t *testing.T) {
-	t.Run("workspace_owner_passes", func(t *testing.T) {
-		code := putMemberRoleRoute(t, memberGuardSession{
-			role: types.TenantRoleOwner, userID: "u-owner",
-		}, memberRoleGuardPath)
-		require.Equal(t, http.StatusBadRequest, code,
-			"workspace owner must pass the route guard and reach the handler")
-	})
+	for _, role := range []types.TenantRole{types.TenantRoleOwner, types.TenantRoleAdmin} {
+		role := role
+		t.Run("workspace_"+string(role)+"_passes", func(t *testing.T) {
+			code := putMemberRoleRoute(t, memberGuardSession{
+				role: role, userID: "u-actor",
+			}, memberRoleGuardPath)
+			require.Equal(t, http.StatusBadRequest, code,
+				"workspace %s must pass the route guard and reach the handler", role)
+		})
+	}
 
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin,
 		types.TenantRoleContributor,
 		types.TenantRoleViewer,
 	} {

@@ -97,7 +97,7 @@ func umListIDs(res *interfaces.UserManagementListResult) []string {
 }
 
 // TestUserManagementListUsersRoleCountsIncludeBannedExcludeTombstones 锁定
-// AC-2/AC-41 的左侧目录计数口径：四类角色都有键；封禁用户计入；墓碑用户
+// AC-2/AC-41 的左侧目录计数口径：owner/admin/viewer 三桶；封禁用户计入；墓碑用户
 // 与非 active 成员关系都不计入，也不出现在列表。
 func TestUserManagementListUsersRoleCountsIncludeBannedExcludeTombstones(t *testing.T) {
 	env := newUMTestEnv(t)
@@ -128,13 +128,13 @@ func TestUserManagementListUsersRoleCountsIncludeBannedExcludeTombstones(t *test
 	require.Equal(t, int64(5), res.Total,
 		"only active memberships of non-tombstoned users count toward total")
 	require.Len(t, res.Items, 5)
+	// 历史 contributor 成员行仍在列表里（枚举保留），但目录只统计三桶。
 	require.Equal(t, map[types.TenantRole]int64{
-		types.TenantRoleOwner:       1,
-		types.TenantRoleAdmin:       1,
-		types.TenantRoleContributor: 1,
-		types.TenantRoleViewer:      2,
+		types.TenantRoleOwner:  1,
+		types.TenantRoleAdmin:  1,
+		types.TenantRoleViewer: 2,
 	}, res.RoleCounts,
-		"role_counts must cover all four roles, include banned, exclude tombstones")
+		"role_counts must only expose owner/admin/viewer buckets, include banned, exclude tombstones")
 
 	require.Nil(t, umListItemByID(res, "u-tomb"), "tombstoned user must not be listed")
 	require.Nil(t, umListItemByID(res, "u-susp"), "non-active membership must not be listed")
@@ -162,10 +162,9 @@ func TestUserManagementListUsersFiltersByRole(t *testing.T) {
 
 	ctx := umCallerCtx("u-owner", umTenantA, types.TenantRoleOwner, false)
 	fullCounts := map[types.TenantRole]int64{
-		types.TenantRoleOwner:       1,
-		types.TenantRoleAdmin:       1,
-		types.TenantRoleContributor: 1,
-		types.TenantRoleViewer:      1,
+		types.TenantRoleOwner:  1,
+		types.TenantRoleAdmin:  1,
+		types.TenantRoleViewer: 1,
 	}
 
 	for _, role := range []types.TenantRole{
