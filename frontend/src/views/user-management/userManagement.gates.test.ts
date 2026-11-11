@@ -176,13 +176,15 @@ test('交接只对 owner 行可用；owner 只能交接自己（AC-13）', () =>
   )
 })
 
-test('角色下拉选项：游客/普通管理员；超管追加 owner；contributor 不再出现（T08/AC-11/13，预期红）', () => {
-  // 改角色白名单与邀请/建号一致：只分配 admin/viewer（AC-11）；
-  // owner 提升仅超管（AC-12，交接/设 owner）；contributor 停止分配后不再出现在选项里。
+test('角色下拉选项：游客/普通管理员；超管与非超管一致，owner 只经交接/开通产生（T09/AC-11）', () => {
+  // 改角色白名单与邀请/建号一致：只分配 admin/viewer（AC-11）。后端改角色接口
+  // 对所有人（含超管）拒绝提升 owner（T09 补丁），owner 只经交接/开通独立空间
+  // 产生；contributor 停止分配后不再出现在选项里。
   assert.deepEqual(roleChangeOptions(false), ['viewer', 'admin'])
-  assert.deepEqual(roleChangeOptions(true), ['viewer', 'admin', 'owner'])
+  assert.deepEqual(roleChangeOptions(true), ['viewer', 'admin'])
   for (const options of [roleChangeOptions(false), roleChangeOptions(true)]) {
     assert.equal(options.includes('contributor'), false, 'contributor 不得再出现在改角色选项')
+    assert.equal(options.includes('owner'), false, 'owner 不经改角色产生（走交接/开通独立空间）')
   }
 })
 

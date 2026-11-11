@@ -5,7 +5,7 @@
  * - 列定义（账号 / 角色 / 状态 / 创建时间 / 操作；多空间视图多一列「所属空间」）；
  * - loading / empty / error（含重试入口）三态；
  * - 行内动作门控（owner 目标、自操作、超管目标、交接）；
- * - 角色下拉选项（owner 不含 owner，超管含 owner）。
+ * - 角色下拉选项（超管与非超管一致：游客/普通管理员；owner 只经交接/开通产生，T09/AC-11）。
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -139,10 +139,10 @@ test('角色下拉：非超管操作者只看到 游客/普通管理员（T08/AC
     ['viewer', 'admin'])
 })
 
-test('角色下拉：超管操作者追加 owner（T08/AC-12）', (t) => {
+test('角色下拉：超管与非超管一致，owner 只经交接/开通产生（T09/AC-11）', (t) => {
   const vm = mountTable(t, { isSystemAdmin: true })
   assert.deepEqual([...vm.roleOptions].map((option: any) => option.value),
-    ['viewer', 'admin', 'owner'])
+    ['viewer', 'admin'])
 })
 
 test('行内动作门控：owner 目标 / 自操作 / 超管目标（AC-4/5/7/29）', (t) => {
