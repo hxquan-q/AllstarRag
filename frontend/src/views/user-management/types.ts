@@ -155,12 +155,14 @@ export function gateUserAction(
 }
 
 /**
- * 角色下拉可选项（T08/AC-11/13）：只分配 游客(viewer) / 普通管理员(admin)；
- * 空间拥有者(owner) 的提升仅超管操作者可选（交接/设 owner 路径）。
- * contributor 停止分配后不再出现在选项里。
+ * 角色下拉可选项（T09/AC-11）：只分配 游客(viewer) / 普通管理员(admin)。
+ * owner 只能经「交接空间」或「开通独立空间」产生（两者已有独立入口）；
+ * 后端对改角色接口拒绝提升 owner（含超管，一律 403 要求走交接），
+ * 所以 owner 不出现在选项里，避免给出必然失败的操作。
+ * isSystemAdmin 参数保留以稳定调用方签名（超管与普通操作者选项一致）。
  */
 export function roleChangeOptions(isSystemAdmin: boolean): TenantRole[] {
-  return isSystemAdmin ? ['viewer', 'admin', 'owner'] : ['viewer', 'admin']
+  return ['viewer', 'admin']
 }
 
 /**
