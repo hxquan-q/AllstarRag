@@ -159,13 +159,15 @@ async function mountPage(t: TestContext, options: MountOptions = {}) {
   return { vm: vm as any, calls }
 }
 
-test('owner 左目录为三类（普通管理员/编辑/游客），编辑计数=contributor+admin（AC-2/41/Q37）', async (t) => {
+test('T08 owner 左目录为三类（空间拥有者/普通管理员/游客），admin 计数=后端 admin 桶（AC-14，预期红）', async (t) => {
   const { vm, calls } = await mountPage(t, {
     capabilities: ['user.view', 'user.owner.add', 'user.create'],
   })
   assert.deepEqual([...vm.directoryEntries].map((entry: any) => entry.key),
-    ['owner', 'editor', 'viewer'])
-  assert.deepEqual([...vm.directoryEntries].map((entry: any) => entry.count), [2, 7, 5])
+    ['owner', 'admin', 'viewer'])
+  // admin 目录与后端角色一一对应：计数取 role_counts.admin（3），
+  // 不再是 editor 时代的 contributor+admin 聚合（7）。
+  assert.deepEqual([...vm.directoryEntries].map((entry: any) => entry.count), [2, 3, 5])
   assert.equal(vm.selectedRole, 'owner')
   assert.equal(vm.total, 2)
   assert.equal([...vm.rows].length, 1)
@@ -193,16 +195,18 @@ test('切换目录触发对应 role 查询并回到第一页（AC-27）', async 
   assert.ok(calls.listUsers.length > before)
 })
 
-test('「编辑」目录单次请求 contributor,admin（Q37/T22）', async (t) => {
+test('T08 「普通管理员」目录单次请求 role=admin（AC-14，基线收敛断言）', async (t) => {
   const { vm, calls } = await mountPage(t, {
     capabilities: ['user.view'],
   })
   const before = calls.listUsers.length
-  vm.selectRole('editor')
+  // 现状 selectRole('admin') 因 TenantRole 直通已发单角色请求（本条为绿基线，
+  // 防止实现收敛时退化成 'contributor,admin' 聚合请求）；目录项本身的红断言
+  // 在上面的 directoryEntries 用例。
+  vm.selectRole('admin')
   await flush()
   const issued = calls.listUsers.slice(before).map((call) => call.params.role)
-  // T22 AC-4：一次请求拿合并分页，不再并发两页后前端合并。
-  assert.deepEqual(issued, ['contributor,admin'])
+  assert.deepEqual(issued, ['admin'])
   // 单次 mock 返回 total=2、1 行。
   assert.equal(vm.total, 2)
   assert.equal([...vm.rows].length, 1)
@@ -230,7 +234,7 @@ test('超管左目录额外包含「超管」且排在最前（AC-2/41/42）', a
         : { total: 6, admins: [] }),
   })
   assert.deepEqual([...vm.directoryEntries].map((entry: any) => entry.key),
-    ['system_admin', 'owner', 'editor', 'viewer'])
+    ['system_admin', 'owner', 'admin', 'viewer'])
   assert.equal([...vm.directoryEntries][0].count, 6)
   assert.ok(calls.listSystemAdmins.length >= 1)
 

@@ -5,10 +5,12 @@
  *   userManagement.directory.noSpace），计数取响应 no_membership_count；
  *   选中该目录的请求带 without_membership=true 且不带 role。
  * - scope=current/other 不渲染 no_space；非超管任何情况下都没有该目录。
- * - scope=other/all 时「编辑」目录不渲染人数徽标（count=null），
- *   scope=current 保持数字（Codex 复核 ③：多空间双计误导，用户裁决隐藏）。
+ * - scope=other/all 时多空间视图的目录计数见下方 T08 段（admin 目录与后端
+ *   角色一一对应后，current 视图保持数字；other/all 只断言目录保留）。
  * - 6 语言目录文案键齐全；API 客户端序列化 without_membership；
  *   RoleDirectory 对 count=null 不渲染徽标。
+ * - T08（single-space-per-account/AC-14）：editor 目录删除，目录改为
+ *   owner/admin/viewer（+超管 system_admin/no_space），本文件断言已同步。
  *
  * 复用 UserManagement.page.test.ts 的 vueFixture + evaluate 模式，
  * 验证真实 useUserManagement 脚本，而不是测试内复制的逻辑。
@@ -123,7 +125,7 @@ test('T44 超管 scope=all 目录含 no_space，计数用 no_membership_count', 
   })
   vm.selectScope('all')
   await flush()
-  assert.deepEqual(entryKeys(vm), ['system_admin', 'owner', 'editor', 'viewer', 'no_space'])
+  assert.deepEqual(entryKeys(vm), ['system_admin', 'owner', 'admin', 'viewer', 'no_space'])
   const noSpace = findEntry(vm, 'no_space')
   assert.ok(noSpace, 'scope=all 必须渲染无空间目录')
   assert.equal(noSpace.count, 3, '无空间徽标计数取响应 no_membership_count')
@@ -143,18 +145,18 @@ test('T44 scope=current/other 不渲染 no_space 条目', async (t) => {
   vm.selectScope('other')
   await flush()
   assert.equal(findEntry(vm, 'no_space'), undefined, 'other 视图同样没有无空间目录')
-  assert.deepEqual(entryKeys(vm), ['system_admin', 'owner', 'editor', 'viewer'])
+  assert.deepEqual(entryKeys(vm), ['system_admin', 'owner', 'admin', 'viewer'])
 })
 
-test('T44 非超管任何 scope 都没有 no_space，编辑计数保持数字', async (t) => {
+test('T44/T08 非超管任何 scope 都没有 no_space，admin 目录计数保持数字', async (t) => {
   const { vm } = await mountPage(t, { isSystemAdmin: false })
-  assert.deepEqual(entryKeys(vm), ['owner', 'editor', 'viewer'])
+  assert.deepEqual(entryKeys(vm), ['owner', 'admin', 'viewer'])
   // 非超管 selectScope('all') 被界面门控拒绝（后端仍有 403 兜底，C4）。
   vm.selectScope('all')
   await flush()
   assert.equal(vm.scope, 'current')
   assert.equal(findEntry(vm, 'no_space'), undefined)
-  assert.equal(typeof findEntry(vm, 'editor').count, 'number')
+  assert.equal(typeof findEntry(vm, 'admin').count, 'number')
 })
 
 // ---------- ① 选中无空间目录的请求参数 ----------
@@ -221,24 +223,28 @@ test('T44 非法入口：scope=current 时选 no_space 无效且不发请求', a
   assert.equal(calls.listUsers.length, before)
 })
 
-// ---------- ③ 多空间视图编辑目录徽标隐藏 ----------
+// ---------- ③ 多空间视图目录计数（T08 后 admin 目录与后端角色一一对应） ----------
 
-test('T44 scope=other/all 编辑目录徽标隐藏（count=null），current 保持数字', async (t) => {
+test('T44/T08 admin 目录计数：current 取后端 admin 桶，other/all 目录保留（AC-14，预期红）', async (t) => {
   const { vm } = await mountPage(t, {
     isSystemAdmin: true,
     role: 'viewer',
     listData: { items: [], total: 0, role_counts: ROLE_COUNTS },
   })
-  // current：编辑徽标保持数字（回归保护）。
-  assert.equal(findEntry(vm, 'editor').count, 7)
+  // current：admin 徽标= role_counts.admin（3），不再是 editor 时代的
+  // contributor+admin 聚合（7）。editor 双计隐藏（count=null）的口径随聚合
+  // 目录一起删除；admin 与后端单角色一一对应后 current 视图为数字。
+  assert.equal(findEntry(vm, 'admin').count, 3)
   vm.selectScope('other')
   await flush()
-  assert.strictEqual(findEntry(vm, 'editor').count, null,
-    'other 视图编辑计数是 contributor+admin 去重前相加，会双计，必须隐藏')
+  // other/all 只断言普通管理员目录仍渲染：一号一空间后 admin 桶按视图内
+  // 去重用户计数，多空间徽标具体显示数字或 null 由 ② 与后端三桶计数对齐，
+  // 红阶段不锁死该口径。
+  assert.ok(findEntry(vm, 'admin'), 'other 视图必须保留普通管理员目录')
   vm.selectScope('all')
   await flush()
-  assert.strictEqual(findEntry(vm, 'editor').count, null, 'all 视图同样隐藏')
-  // owner / viewer / system_admin 徽标不受影响。
+  assert.ok(findEntry(vm, 'admin'), 'all 视图必须保留普通管理员目录')
+  // owner / viewer / system_admin 徽标不受影响（基线）。
   assert.equal(findEntry(vm, 'owner').count, 2)
   assert.equal(findEntry(vm, 'viewer').count, 5)
   assert.equal(findEntry(vm, 'system_admin').count, 0)

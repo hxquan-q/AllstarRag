@@ -1,9 +1,10 @@
 /**
- * Settings / UserMenu 的用户管理入口（T09 / AC-1、AC-2）。
+ * Settings / UserMenu 的用户管理入口（T09 / AC-1、AC-2；T08 同步）。
  *
  * - Settings 新增 `user-management` 分区并挂载页面；
- * - UserMenu「成员管理」指向新页面，只对 owner / 超管 / 跨空间超管展示；
- * - 普通 admin / contributor / viewer 不显示入口。
+ * - UserMenu「成员管理」指向新页面，对 owner / 普通管理员(admin) / 超管展示
+ *   （T08：admin 获得成员管理入口；入口本身只认 user.view 能力投影，F33）；
+ * - contributor / viewer 不显示入口。
  */
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -24,9 +25,10 @@ test('Settings 的 navItems 与空间分组包含 user-management，并渲染 Us
   assert.match(settingsSource, /currentSection === 'user-management'[\s\S]*?<UserManagement \/>/)
 })
 
-test('UserMenu「成员管理」指向 user-management 分区（T09）', () => {
+test('UserMenu「成员管理」指向 user-management 分区（T09/T08）', () => {
   assert.match(userMenuSource, /@click="handleQuickNav\('user-management'\)"/)
-  assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE['user-management'], 'owner')
+  // T08：普通管理员获得成员管理入口，快捷入口门槛 owner→admin（现状 owner，预期红）。
+  assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE['user-management'], 'admin')
 })
 
 function loadCanManageMembers(): (auth: Record<string, unknown>) => boolean {
@@ -45,9 +47,12 @@ function loadCanManageMembers(): (auth: Record<string, unknown>) => boolean {
   }).outputText
   return (auth) => {
     // F33：入口只认能力投影，不再读角色/跨空间标志。
+    // T08 后端能力矩阵（T02/T06 已落地）：owner 与 admin 都拿到 user.view，
+    // contributor/viewer 空集——用角色模拟这两档能力投影。
     const capabilitiesStore = {
       can: (capability: string) =>
-        capability === 'user.view' && (auth.role === 'owner' || auth.isSystemAdmin === true),
+        capability === 'user.view'
+        && (auth.role === 'owner' || auth.role === 'admin' || auth.isSystemAdmin === true),
     }
     return runInNewContext(`${compiled}\ncanManageMembers.value`, {
       computed,
@@ -68,10 +73,12 @@ function auth(role: string, options: { systemAdmin?: boolean; crossTenant?: bool
   }
 }
 
-test('UserMenu 成员管理入口只认 capabilities.can(user.view)（AC-1/F33）', () => {
+test('UserMenu 成员管理入口只认 capabilities.can(user.view)（AC-1/F33/T08）', () => {
   const canManageMembers = loadCanManageMembers()
   assert.equal(canManageMembers(auth('owner')), true)
-  assert.equal(canManageMembers(auth('admin')), false)
+  // T08：admin（普通管理员）拿到 user.view 能力，入口可见（基线：入口实现
+  // 已纯能力驱动，后端 T02/T06 已授予；本断言防回归）。
+  assert.equal(canManageMembers(auth('admin')), true)
   assert.equal(canManageMembers(auth('contributor')), false)
   assert.equal(canManageMembers(auth('viewer')), false)
   assert.equal(canManageMembers(auth('viewer', { systemAdmin: true })), true)

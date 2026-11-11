@@ -27,6 +27,20 @@ const FULL_PERMISSIONS: UserActionPermissions = {
   transfer: true,
 }
 
+/**
+ * T08 新矩阵：普通管理员操作者的能力投影 = admin 能力集（T02：user.view/
+ * invite/create/role.change/ban/unban/purge），不含 space.transfer。
+ * 前端只有能力投影可用（C4），owner 与 admin 操作者的差别就是 transfer 有无，
+ * 用它区分两类非超管操作者；真正放行仍由后端逐接口校验。
+ */
+const ADMIN_OPERATOR: UserActionPermissions = {
+  changeRole: true,
+  ban: true,
+  unban: true,
+  purge: true,
+  transfer: false,
+}
+
 function row(overrides: Partial<UserRow> = {}): UserRow {
   return {
     user_id: 'u-target',
@@ -162,13 +176,45 @@ test('交接只对 owner 行可用；owner 只能交接自己（AC-13）', () =>
   )
 })
 
-test('角色下拉选项：owner 操作者只看到 游客/编辑，超管含 owner，admin 不再出现（AC-12/28/Q37）', () => {
-  // F2 后下拉只会出现在非 owner 行上；超管列表里的 owner 选项用于把
-  // viewer/contributor/admin 提升为 co-owner，不再用于降级 owner。
-  assert.deepEqual(roleChangeOptions(false), ['viewer', 'contributor'])
-  assert.deepEqual(roleChangeOptions(true), ['viewer', 'contributor', 'owner'])
-  assert.equal(roleChangeOptions(true).includes('admin'), false)
-  assert.equal(roleChangeOptions(false).includes('owner'), false)
+test('角色下拉选项：游客/普通管理员；超管追加 owner；contributor 不再出现（T08/AC-11/13，预期红）', () => {
+  // 改角色白名单与邀请/建号一致：只分配 admin/viewer（AC-11）；
+  // owner 提升仅超管（AC-12，交接/设 owner）；contributor 停止分配后不再出现在选项里。
+  assert.deepEqual(roleChangeOptions(false), ['viewer', 'admin'])
+  assert.deepEqual(roleChangeOptions(true), ['viewer', 'admin', 'owner'])
+  for (const options of [roleChangeOptions(false), roleChangeOptions(true)]) {
+    assert.equal(options.includes('contributor'), false, 'contributor 不得再出现在改角色选项')
+  }
+})
+
+test('T08 新矩阵：普通管理员可管理游客，不能动 owner 与同级 admin（AC-5/8，CP2 同级保护）', () => {
+  // admin → viewer：允许（现状即允许，基线）。
+  for (const kind of ['ban', 'unban', 'purge', 'changeRole'] as const) {
+    const gate = gateUserAction(kind, row({ role: 'viewer' }), ADMIN_ID, ADMIN_OPERATOR, false, 1)
+    assert.equal(gate.allowed, true, `admin on viewer ${kind} 必须可用`)
+  }
+  // admin → admin 同级保护：禁用（现状放行，预期红；CP2 拍板普通管理员同级保护）。
+  for (const kind of ['ban', 'unban', 'purge', 'changeRole'] as const) {
+    const gate = gateUserAction(kind, row({ user_id: 'u-peer', role: 'admin' }), ADMIN_ID, ADMIN_OPERATOR, false, 1)
+    assert.equal(gate.allowed, false, `admin on peer admin ${kind} 必须禁用（同级保护）`)
+    assert.ok(gate.reasonKey, '禁用动作必须带 reasonKey 供表格渲染禁用原因')
+  }
+  // admin → owner：禁用（现状已禁用，基线；AC-8 不能对空间拥有者降级/封禁/注销）。
+  const ownerRow = row({ user_id: 'u-owner-x', role: 'owner' })
+  assert.equal(
+    gateUserAction('ban', ownerRow, ADMIN_ID, ADMIN_OPERATOR, false, 1).reasonKey,
+    'userManagement.tooltips.ownerProtected',
+  )
+  assert.equal(
+    gateUserAction('changeRole', ownerRow, ADMIN_ID, ADMIN_OPERATOR, false, 1).reasonKey,
+    'userManagement.tooltips.transferRequired',
+  )
+  // 普通管理员无 transfer 能力：不能发起交接（AC-6，基线）。
+  assert.equal(gateUserAction('transfer', ownerRow, ADMIN_ID, ADMIN_OPERATOR, false, 1).allowed, false)
+  // owner 操作者（含 transfer 能力）仍可管理 admin 行（AC-5 co-owner 能力集，基线）。
+  for (const kind of ['ban', 'unban', 'purge', 'changeRole'] as const) {
+    const gate = gateUserAction(kind, row({ role: 'admin' }), OWNER_ID, FULL_PERMISSIONS, false, 1)
+    assert.equal(gate.allowed, true, `owner on admin ${kind} 必须可用`)
+  }
 })
 
 test('后端列表行映射只保留展示字段，并归一化状态（AC-32）', () => {
