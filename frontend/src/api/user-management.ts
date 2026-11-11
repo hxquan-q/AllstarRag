@@ -158,25 +158,6 @@ export interface SimpleResponse {
   message?: string
 }
 
-export interface CreateCoOwnerRequest {
-  username: string
-  email: string
-  /** 必填；后端对空密码返回 400（不会生成随机密码）。 */
-  password: string
-}
-
-export interface CreateCoOwnerResponse {
-  success: boolean
-  data?: {
-    user: {
-      id: string
-      email: string
-      username: string
-    }
-  }
-  message?: string
-}
-
 export interface ProvisionOwnerSpaceRequest {
   /** 省略时后端按用户名生成空间名。 */
   space_name?: string
@@ -190,23 +171,6 @@ export interface ProvisionOwnerSpaceResponse {
       name: string
       status?: string
     }
-  }
-  message?: string
-}
-
-export interface CreateOwnerInviteRequest {
-  email?: string
-  space_name?: string
-  /** 邀请链接有效期（天）；省略时后端默认 7 天。 */
-  expires_in_days?: number
-}
-
-export interface CreateOwnerInviteResponse {
-  success: boolean
-  data?: {
-    invite_url: string
-    tenant_id: number | string
-    expires_at: string
   }
   message?: string
 }
@@ -333,21 +297,8 @@ export async function transferOwner(
 }
 
 /**
- * 新建 co-owner 账号并直接加入本空间（role=owner）。
- * Backend: POST /api/v1/tenants/:id/owners/create。
- */
-export async function createCoOwner(
-  tenantId: number | string,
-  body: CreateCoOwnerRequest,
-): Promise<CreateCoOwnerResponse> {
-  return (await post(
-    `/api/v1/tenants/${tenantId}/owners/create`,
-    body,
-  )) as unknown as CreateCoOwnerResponse
-}
-
-/**
- * 系统管理员把已有账号设为普通管理员：无独立空间则新建，有则复用（幂等）。
+ * 系统管理员给已有账号开通独立空间，该账号成为该空间的空间拥有者：
+ * 无独立空间则新建，有则复用（幂等）。
  * Backend: POST /api/v1/system/admin/users/:user_id/owner-space。
  */
 export async function provisionOwnerSpace(
@@ -358,20 +309,6 @@ export async function provisionOwnerSpace(
     `/api/v1/system/admin/users/${userId}/owner-space`,
     body,
   )) as unknown as ProvisionOwnerSpaceResponse
-}
-
-/**
- * 系统管理员生成普通管理员邀请：创建 pending 空间 + owner 角色邀请链接，
- * 接受后才建立成员关系。
- * Backend: POST /api/v1/system/admin/owners/invite。
- */
-export async function createOwnerInvite(
-  body: CreateOwnerInviteRequest = {},
-): Promise<CreateOwnerInviteResponse> {
-  return (await post(
-    '/api/v1/system/admin/owners/invite',
-    body,
-  )) as unknown as CreateOwnerInviteResponse
 }
 
 /**
