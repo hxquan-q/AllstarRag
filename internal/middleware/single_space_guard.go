@@ -44,16 +44,9 @@ func tenantHasAnyActiveMember(
 	memberService interfaces.TenantMemberService,
 	tenantID uint64,
 ) (bool, error) {
-	members, err := memberService.ListByTenant(ctx, tenantID)
-	if err != nil {
-		return false, err
-	}
-	for _, member := range members {
-		if member != nil && member.Status == types.TenantMemberStatusActive {
-			return true, nil
-		}
-	}
-	return false, nil
+	// HasAnyMembers 只探一条 status=active 的行（认证热路径上的 LIMIT 1），
+	// 语义就是「空间是否还有任何 active 成员」，不需要拉全量成员。
+	return memberService.HasAnyMembers(ctx, tenantID)
 }
 
 // tryHealOrphanTenant 执行孤儿空间自愈。只有「严格孤儿」空间才补 owner：
