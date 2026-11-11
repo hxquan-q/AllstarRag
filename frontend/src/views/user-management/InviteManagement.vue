@@ -337,6 +337,19 @@ function onMaxChange(value: number | string | undefined) {
   createForm.maxRegistrations = value === '' || value == null ? null : Number(value)
 }
 
+/**
+ * 邀请创建失败的文案。409 在邀请链路上可能是「目标账号已属于其他空间」
+ * （一号一空间），优先给专属原因；其余状态码仍走统一映射。
+ */
+function inviteCreateErrorText(error: unknown): string {
+  const status = (error as { status?: number } | null)?.status
+  const message = (error as { message?: string } | null)?.message ?? ''
+  if (status === 409 && /belongs to another workspace/i.test(message)) {
+    return t('userManagement.errors.userAlreadyInSpace')
+  }
+  return resolveUserManagementError(error)
+}
+
 async function submitCreate() {
   if (creating.value || props.tenantId == null) return
   const max = createForm.maxRegistrations
@@ -358,7 +371,7 @@ async function submitCreate() {
     createVisible.value = false
     await load()
   } catch (createError) {
-    MessagePlugin.error(resolveUserManagementError(createError))
+    MessagePlugin.error(inviteCreateErrorText(createError))
   } finally {
     creating.value = false
   }
