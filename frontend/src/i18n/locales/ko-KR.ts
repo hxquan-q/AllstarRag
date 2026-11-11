@@ -4516,7 +4516,7 @@ export default {
           'system.queue_task_run_now': '큐 작업 즉시 실행',
           'system.queue_task_cancelled': '큐 작업 취소',
           'system.queue_archived_purged': '실패 작업 모두 지우기',
-          'system.owner_provisioned': '소유자 공간 생성',
+          'system.owner_provisioned': '워크스페이스 개설 및 공간 소유자 설정',
           'system.owner_invite_created': '소유자 초대 생성'
         },
         columns: {

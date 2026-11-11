@@ -83,9 +83,6 @@ export type UserActionKind = 'changeRole' | 'ban' | 'unban' | 'purge' | 'transfe
 /** 操作确认弹窗的类型。 */
 export type UserActionMode = 'ban' | 'unban' | 'purge' | 'transfer'
 
-/** 新增/邀请普通管理员的入口类型。 */
-export type AddOwnerMode = 'createCoOwner' | 'inviteCoOwner' | 'provision' | 'inviteOwner'
-
 /** 操作权限开关；来自 capabilities 投影，只做界面门控（C4）。 */
 export interface UserActionPermissions {
   changeRole: boolean

@@ -5279,7 +5279,7 @@ export default {
           'system.queue_task_run_now': 'キュータスクの即時実行',
           'system.queue_task_cancelled': 'キュータスクの中止',
           'system.queue_archived_purged': '失敗タスクの一括削除',
-          'system.owner_provisioned': '所有者スペースを作成',
+          'system.owner_provisioned': 'ワークスペースを開設してスペースオーナーに設定',
           'system.owner_invite_created': '所有者招待を作成'
         },
         outcome: {

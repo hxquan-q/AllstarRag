@@ -4518,7 +4518,7 @@ export default {
           'system.queue_task_run_now': '立即执行队列任务',
           'system.queue_task_cancelled': '终止队列任务',
           'system.queue_archived_purged': '清除全部失败任务',
-          'system.owner_provisioned': '设为普通管理员',
+          'system.owner_provisioned': '开通空间并设为空间拥有者',
           'system.owner_invite_created': '生成普通管理员邀请'
         },
         columns: {

@@ -4516,7 +4516,7 @@ export default {
           'system.queue_task_run_now': 'Задача очереди запущена сейчас',
           'system.queue_task_cancelled': 'Задача очереди отменена',
           'system.queue_archived_purged': 'Очищены все сбойные задачи',
-          'system.owner_provisioned': 'Пространство владельца создано',
+          'system.owner_provisioned': 'Создано пространство и назначен владелец',
           'system.owner_invite_created': 'Приглашение владельца создано'
         },
         columns: {
