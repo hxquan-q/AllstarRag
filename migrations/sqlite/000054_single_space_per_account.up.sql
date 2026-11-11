@@ -55,7 +55,7 @@ INSERT INTO audit_logs (
     tenant_id, actor_user_id, actor_role, action, target_type, target_id,
     target_user_id, outcome, details, scope_type, scope_id
 )
-SELECT 0, 'system', 'system_admin', 'system.membership_migrated', 'tenant_member',
+SELECT 0, 'system', 'system_admin', 'system.membership_migrated', 'tenant_invitation',
        CAST(ti.id AS TEXT), ti.invitee_user_id, 'success',
        '{"change":"invitation_revoked","tenant_id":' || ti.tenant_id ||
            ',"before_status":"pending","after_status":"revoked"}',
@@ -68,7 +68,7 @@ INSERT INTO audit_logs (
     tenant_id, actor_user_id, actor_role, action, target_type, target_id,
     target_user_id, outcome, details, scope_type, scope_id
 )
-SELECT 0, 'system', 'system_admin', 'system.membership_migrated', 'tenant_member',
+SELECT 0, 'system', 'system_admin', 'system.membership_migrated', 'tenant_invitation',
        CAST(ti.id AS TEXT), ti.invitee_user_id, 'success',
        '{"change":"invitation_role_normalized","tenant_id":' || ti.tenant_id ||
            ',"before_role":"' || ti.role || '","after_role":"admin"}',
@@ -218,6 +218,40 @@ WHERE id IN (
             AND tm.tenant_id <> ti.tenant_id
       )
 );
+
+-- 5c. 审计：users.tenant_id 修正逐账号快照（AC-25 / N16）。
+-- 与第 6 步使用同一保留行排序与同一修正条件；记录旧/新 home。
+INSERT INTO audit_logs (
+    tenant_id, actor_user_id, actor_role, action, target_type, target_id,
+    target_user_id, outcome, details, scope_type, scope_id
+)
+SELECT 0, 'system', 'system_admin', 'system.membership_migrated', 'user',
+       u.id, u.id, 'success',
+       '{"change":"home_tenant_repaired","before_tenant_id":' || COALESCE(u.tenant_id, 0) ||
+           ',"after_tenant_id":' || kept.tenant_id || '}',
+       'platform', 'migration:single-space-per-account'
+FROM users u
+JOIN (
+    SELECT tm.user_id, tm.tenant_id,
+           ROW_NUMBER() OVER (
+               PARTITION BY tm.user_id
+               ORDER BY CASE WHEN u.tenant_id IS NOT NULL
+                              AND tm.tenant_id = u.tenant_id THEN 1 ELSE 0 END DESC,
+                        CASE WHEN tm.status = 'active' THEN 1 ELSE 0 END DESC,
+                        tm.joined_at ASC,
+                        tm.id ASC
+           ) AS rn
+    FROM tenant_members tm
+    JOIN users u ON u.id = tm.user_id
+    WHERE tm.status IN ('active', 'invited')
+      AND tm.deleted_at IS NULL
+      AND COALESCE(u.is_system_admin, 0) = 0
+      AND COALESCE(u.can_access_all_tenants, 0) = 0
+) kept ON kept.user_id = u.id
+WHERE kept.rn = 1
+  AND (u.tenant_id IS NULL
+       OR u.tenant_id = 0
+       OR u.tenant_id <> kept.tenant_id);
 
 -- 6. users.tenant_id 指向保留下来的空间。
 -- SQLite 不允许在相关子查询的 ORDER BY 里引用被更新的表名，
