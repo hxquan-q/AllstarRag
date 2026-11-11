@@ -846,18 +846,18 @@ func tenantHasActiveOwner(
 //     临时角色不写入 tenant_members：org admin / 系统管理员只做管理，
 //     不成为该空间的持久 Owner（租户删除、API key 轮换仍应由空间内
 //     真实 Owner 执行）。直通也不会触发下面的孤儿空间自动晋升。
-//  3. No membership but the tenant currently has zero active owners AND
-//     the caller is authenticating into their own home tenant (i.e.
-//     targetTenantID == user.TenantID and this is not a cross-tenant
-//     switch). This is the orphan-tenant self-heal path: the registrant
-//     becomes Owner of the tenant their own user record points to. A
-//     space with non-owner members but no active owner is also healed
-//     (degraded data); a space that already has an active owner is left
-//     untouched. 一号一空间（T04）：非超管已属于其他空间（active/invited）
-//     时跳过自愈并 fail-closed，不能补成第二个空间的 owner；超管豁免。
-//     Any other path (cross-tenant switch, JWT minted for a foreign
-//     tenant, etc.) is intentionally excluded to avoid silent ownership
-//     grabs.
+//  3. No membership but the tenant is a strict orphan AND the caller is
+//     authenticating into their own home tenant (i.e. targetTenantID ==
+//     user.TenantID and this is not a cross-tenant switch). This is the
+//     orphan-tenant self-heal path: the registrant becomes Owner of the
+//     tenant their own user record points to. 严格孤儿（B3）：只有空间没有
+//     任何 active 成员时才自愈；仍有 active 成员但零 owner 的降级空间
+//     不再自动补 owner，按 fail-closed 交给超管处理；已有 active owner
+//     的空间同样跳过。一号一空间（T04）：非超管已属于其他空间
+//     （active/invited）时跳过自愈并 fail-closed，不能补成第二个空间的
+//     owner；超管豁免。Any other path (cross-tenant switch, JWT minted
+//     for a foreign tenant, etc.) is intentionally excluded to avoid
+//     silent ownership grabs.
 //  4. Otherwise → return ok=false. Caller decides:
 //     - When EnableRBAC=true (or cfg unavailable): treat as 403.
 //     - When EnableRBAC=false: fail open with Admin so existing deployments
@@ -917,13 +917,14 @@ func resolveTenantRole(
 		return types.TenantRoleAdmin, true
 	}
 
-	// 3. 孤儿空间自愈：仅当用户登录的是自己的 home tenant、且该空间没有
-	//    active owner 时允许自动晋升为 Owner。跨空间 switch / JWT 指向他人
-	//    空间的场景一律不进入此分支，防止越权获得他人空间的 Owner 权限。
-	//    注意这里按「active owner 数」判断，而不是「是否有任意成员」：
-	//    有 viewer/admin 但 0 owner 的降级空间需要补 owner；已有 owner 的
-	//    空间必须跳过，不能产生第二个 owner。suspended-only owner 仍占用
-	//    唯一索引，AddMember 会失败，此时只记录 warn 并 fail-closed。
+	// 3. 孤儿空间自愈：仅当用户登录的是自己的 home tenant、且该空间是
+	//    「严格孤儿」时允许自动晋升为 Owner——空间没有任何 active 成员
+	//    （当然也没有 active owner）。跨空间 switch / JWT 指向他人空间的
+	//    场景一律不进入此分支，防止越权获得他人空间的 Owner 权限。
+	//    注意：有 viewer/admin 但 0 owner 的降级空间不再补 owner，按
+	//    fail-closed 交给超管处理；已有 active 成员（无论角色）一律跳过，
+	//    不能产生第二个 owner。suspended-only owner 仍占用唯一索引，
+	//    AddMember 会失败，此时只记录 warn 并 fail-closed。
 	isHomeTenant := !crossTenantSwitch && targetTenantID == user.TenantID
 	if isHomeTenant {
 		if role, healed := tryHealOrphanTenant(ctx, memberService, user, targetTenantID); healed {

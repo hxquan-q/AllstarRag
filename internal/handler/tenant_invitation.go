@@ -21,7 +21,7 @@ import (
 
 // TenantInvitationHandler exposes the tenant-scoped CRUD on the
 // `tenant_invitations` table plus the user-self-service inbox endpoints
-// (/me/invitations*). Route-level RBAC: tenant routes are Owner-gated
+// (/me/invitations*). Route-level RBAC: tenant routes are Admin-gated
 // (POST/DELETE) or Viewer-gated (GET); inbox routes only require
 // authentication (the service enforces "only invitee can act").
 type TenantInvitationHandler struct {
