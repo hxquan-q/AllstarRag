@@ -5280,6 +5280,7 @@ export default {
           'system.queue_task_cancelled': 'Queue task cancelled',
           'system.queue_archived_purged': 'All failed tasks cleared',
           'system.owner_provisioned': 'Provisioned workspace and set as owner',
+          'system.membership_migrated': 'Membership migrated',
           'system.owner_invite_created': 'Owner invite created'
         },
         outcome: {

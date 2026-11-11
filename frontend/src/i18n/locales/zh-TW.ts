@@ -4519,6 +4519,7 @@ export default {
           'system.queue_task_cancelled': '終止佇列任務',
           'system.queue_archived_purged': '清除全部失敗任務',
           'system.owner_provisioned': '開通工作區並設為空間擁有者',
+          'system.membership_migrated': '成員關係遷移',
           'system.owner_invite_created': '產生一般管理員邀請'
         },
         columns: {

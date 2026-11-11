@@ -4517,6 +4517,7 @@ export default {
           'system.queue_task_cancelled': '큐 작업 취소',
           'system.queue_archived_purged': '실패 작업 모두 지우기',
           'system.owner_provisioned': '워크스페이스 개설 및 공간 소유자 설정',
+          'system.membership_migrated': '멤버십 마이그레이션',
           'system.owner_invite_created': '소유자 초대 생성'
         },
         columns: {

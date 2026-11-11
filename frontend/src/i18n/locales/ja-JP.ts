@@ -5280,6 +5280,7 @@ export default {
           'system.queue_task_cancelled': 'キュータスクの中止',
           'system.queue_archived_purged': '失敗タスクの一括削除',
           'system.owner_provisioned': 'ワークスペースを開設してスペースオーナーに設定',
+          'system.membership_migrated': 'メンバーシップ移行',
           'system.owner_invite_created': '所有者招待を作成'
         },
         outcome: {

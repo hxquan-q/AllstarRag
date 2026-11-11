@@ -43,6 +43,7 @@ const SYSTEM_GLOBAL_AUDIT_ACTION_LABELS_EN: Record<string, string> = {
   'system.queue_archived_purged': 'All failed tasks cleared',
   'system.owner_provisioned': 'Provisioned workspace and set as owner',
   'system.owner_invite_created': 'Owner invite created',
+  'system.membership_migrated': 'Membership migrated',
 }
 
 const KB_ACTIVITY_ACTION_LABELS_EN: Record<string, string> = {

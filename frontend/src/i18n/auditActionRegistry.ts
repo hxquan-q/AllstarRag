@@ -50,6 +50,7 @@ export const SYSTEM_GLOBAL_AUDIT_ACTIONS = [
   'system.queue_archived_purged',
   'system.owner_provisioned',
   'system.owner_invite_created',
+  'system.membership_migrated',
 ] as const
 
 /** Knowledge-base activity feed (KB settings → activity). */
