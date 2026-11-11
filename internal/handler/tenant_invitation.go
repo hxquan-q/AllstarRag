@@ -129,10 +129,10 @@ func projectInvitation(
 }
 
 // projectInvitationWithLink layers invite_url on top of projectInvitation
-// for share-link rows that are still pending. The Owner-facing list and
-// the create response go through here so a "copy link" button can sit
-// on every active row — Owners can dispatch the link on demand without
-// the "copy now or revoke" pressure.
+// for share-link rows that are still pending. The list facing Admins and
+// above and the create response go through here so a "copy link" button
+// can sit on every active row — Admins and above can dispatch the link
+// on demand without the "copy now or revoke" pressure.
 //
 // The /me/invitations inbox path does NOT use this helper: per-user
 // invitees don't have a token to copy.
@@ -229,16 +229,17 @@ func (h *TenantInvitationHandler) ListTenantInvitations(c *gin.Context) {
 	}
 
 	usersByID := h.hydrateUsers(c, rows)
-	// 共享链接内嵌注册 token：本空间 owner 与平台级系统管理员可见可复制，
-	// 其他角色只看到脱敏后的元数据。
-	showShareLinks := types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleOwner) ||
+	// 共享链接内嵌注册 token：本空间普通管理员及以上（含 owner）与平台级
+	// 系统管理员可见可复制，其他角色只看到脱敏后的元数据。
+	showShareLinks := types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin) ||
 		types.IsSystemAdminFromContext(ctx)
 	resp := make([]types.TenantInvitationResponse, 0, len(rows))
 	for _, inv := range rows {
 		// Within the tenant view we don't bother hydrating tenant name
 		// (the caller already knows the tenant). Pass an empty map.
-		// Share-link URLs embed the registration token — only Owners may
-		// re-copy them; other roles see metadata without invite_url.
+		// Share-link URLs embed the registration token — Admins and
+		// above may re-copy them; other roles see metadata without
+		// invite_url.
 		if showShareLinks {
 			resp = append(resp, h.projectInvitationWithLink(inv, usersByID, nil))
 		} else {
