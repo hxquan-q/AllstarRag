@@ -607,10 +607,6 @@ const batchDisplayCount = computed(() =>
     isAllBatchSelected.value ? total.value : batchSelectedIds.value.length
 )
 
-// 是否可以访问所有空间（跨空间超管或平台级系统管理员）
-const canAccessAllTenants = computed(() => authStore.canAccessAllTenants);
-const isSystemAdmin = computed(() => authStore.isSystemAdmin);
-
 // 是否处于知识库详情页（不包括全局聊天）
 const isInKnowledgeBase = computed<boolean>(() => {
     return route.name === 'knowledgeBaseDetail' ||
