@@ -209,6 +209,8 @@ func RegisterUserManagementRoutes(
 	tenantByID := r.Group("/tenants/:id", g.PathTenantMatch())
 	// T06：封禁/解封/彻底删除/用户管理列表放宽到普通管理员；目标保护
 	// （owner/同级/自己）与跨空间规则在 UserManagementService 内判定。
+	// 封禁/注销在事务内复核目标成员角色未变（CP3 B2），路由层注释的
+	// 快照语义因此不再暴露「校验后被提权」的窗口。
 	tenantByID.POST("/members/:user_id/ban", g.AdminOrSystemAdmin(), h.BanMember)
 	tenantByID.POST("/members/:user_id/unban", g.AdminOrSystemAdmin(), h.UnbanMember)
 	tenantByID.POST("/members/:user_id/purge", g.AdminOrSystemAdmin(), h.PurgeMember)
