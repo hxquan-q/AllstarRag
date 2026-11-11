@@ -92,8 +92,6 @@
               <span>{{ currentRoleLabel }}</span>
             </div>
           </div>
-          <t-icon v-if="showTenantSwitcher" name="swap" class="dropdown-tenant-panel-trail"
-            :title="$t('tenant.switcher.menuLabel')" />
         </div>
         <div class="menu-divider"></div>
         <!-- 账号与空间是头像菜单的核心上下文；基础设施类配置统一收进「全部设置」。 -->
@@ -744,10 +742,6 @@ onUnmounted(() => {
     &:hover,
     &.is-open {
       background: var(--td-bg-color-container-hover);
-
-      .dropdown-tenant-panel-trail {
-        color: var(--td-text-color-secondary);
-      }
     }
   }
 
@@ -767,13 +761,6 @@ onUnmounted(() => {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .dropdown-tenant-panel-trail {
-    flex-shrink: 0;
-    font-size: var(--app-text-xl);
-    color: var(--td-text-color-placeholder);
-    transition: color var(--app-motion-fast) ease;
   }
 
   .dropdown-tenant-panel-role {
