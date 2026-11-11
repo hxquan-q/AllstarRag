@@ -283,14 +283,13 @@ test('工具栏「新增账号」入口按 user.create / user.invite 门控（T1
   assert.equal(vm.canAddUser, true)
   assert.equal(vm.canCreateUser, true)
   assert.equal(vm.canInviteUser, false)
-  assert.equal(vm.canManageOwners, false)
 })
 
-test('工具栏 owner 管理入口按 user.owner.add 门控（T08 / C4）', async (t) => {
+test('user.owner.add 不再驱动独立工具栏入口（T09，canManageOwners 已移除）', async (t) => {
   const { vm } = await mountPage(t, {
     capabilities: ['user.view', 'user.owner.add'],
   })
-  assert.equal(vm.canManageOwners, true)
+  assert.equal(vm.canManageOwners, undefined, 'canManageOwners computed 已随 T09 删除')
   assert.equal(vm.canAddUser, false)
 })
 

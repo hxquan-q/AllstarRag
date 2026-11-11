@@ -5,19 +5,21 @@ import { allowedCreateRoles, canCreateAccount, canResetTarget } from './memberRo
 import type { TenantRole } from '@/api/tenant/members'
 
 /**
- * 覆盖 01-spec AC-1 / AC-2 / AC-9 / AC-11 的前端权限镜像。
- * 口径必须与后端 service.CanCreateRole / CanResetRole 逐格一致（02-plan D3）：
- *   - Owner（含跨租户系统管理员）：建 admin/contributor/viewer；重置 admin/contributor/viewer
- *   - Admin：建 viewer；重置 contributor/viewer
+ * 覆盖 01-spec AC-2 / AC-11 的前端权限镜像。
+ * 建号口径与后端 service.CanCreateRole（T05 白名单 IsAssignableMemberRole）逐格一致：
+ *   - Owner / Admin（含跨租户系统管理员）：建 admin/viewer（T09/AC-11：owner/contributor 停止分配）
+ * 重置口径与后端 service.CanResetRole 逐格一致（02-plan D3）：
+ *   - Owner（含跨租户系统管理员）：重置 admin/contributor/viewer
+ *   - Admin：重置 contributor/viewer
  *   - Contributor / Viewer：无权限
  *   - 本人一律不能重置
  */
 
 const ROLES: TenantRole[] = ['owner', 'admin', 'contributor', 'viewer']
 
-test('allowedCreateRoles matches the AC-1 matrix exactly', () => {
-  assert.deepEqual(allowedCreateRoles('owner'), ['admin', 'contributor', 'viewer'])
-  assert.deepEqual(allowedCreateRoles('admin'), ['viewer'])
+test('allowedCreateRoles matches the T09 admin/viewer whitelist (AC-11)', () => {
+  assert.deepEqual(allowedCreateRoles('owner'), ['admin', 'viewer'])
+  assert.deepEqual(allowedCreateRoles('admin'), ['admin', 'viewer'])
   assert.deepEqual(allowedCreateRoles('contributor'), [])
   assert.deepEqual(allowedCreateRoles('viewer'), [])
 })

@@ -36,20 +36,21 @@ function mountInvites(t: TestContext, props: Record<string, unknown> = {}) {
       absoluteInviteURL: (u: string) => u, formatDateTime: (v: string) => v,
       inviteeName: () => '', shortToken: (v: string) => v,
     },
-  }, { tenantId: 7, canInviteOwner: false, ...props })
+  }, { tenantId: 7, ...props })
   return { vm: vm as any, calls }
 }
 
-test('InviteManagement 无 user.owner.add 时链接角色只有 编辑/游客（T18/Q37）', (t) => {
+test('InviteManagement 链接角色只有 普通管理员/游客，默认 admin（T09/AC-11）', (t) => {
   const { vm } = mountInvites(t)
-  assert.deepEqual([...vm.roleOptions.map((o: any) => o.value)], ['contributor', 'viewer'])
+  assert.deepEqual([...vm.roleOptions.map((o: any) => o.value)], ['admin', 'viewer'])
+  assert.equal(vm.createForm.role, 'admin')
 })
 
-test('InviteManagement 有 user.owner.add 时可发放普通管理员链接，admin 不出现（T18/Q37）', (t) => {
-  const { vm } = mountInvites(t, { canInviteOwner: true })
+test('InviteManagement 不再提供 owner/contributor 链接（T09/AC-11）', (t) => {
+  const { vm } = mountInvites(t)
   const values = vm.roleOptions.map((o: any) => o.value)
-  assert.deepEqual([...values], ['contributor', 'viewer', 'owner'])
-  assert.equal(values.includes('admin'), false)
+  assert.equal(values.includes('owner'), false)
+  assert.equal(values.includes('contributor'), false)
 })
 
 test('InviteManagement 挂载即按空间拉 pending 与全部状态两份列表（T18）', async (t) => {
