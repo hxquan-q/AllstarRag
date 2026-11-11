@@ -515,16 +515,70 @@ func TestTenantMember_RemoveMember_HappyPath(t *testing.T) {
 }
 
 func TestTenantMember_RemoveMember_LastOwnerMaps409(t *testing.T) {
+	// N10 之后 caller==target 由 handler 直接 403；这里改用另一个操作者
+	// 触发服务层 ErrLastOwner，继续覆盖 409 映射。
 	ms := &stubMemberService{
-		remove: func(_ context.Context, _ string, _ uint64) error {
+		remove: func(_ context.Context, userID string, tenantID uint64) error {
+			if userID != "u-only-owner" || tenantID != 1 {
+				t.Fatalf("unexpected target: user=%s tenant=%d", userID, tenantID)
+			}
 			return service.ErrLastOwner
 		},
 	}
 	h := newTestMemberHandler(ms, &stubMemberUserService{})
 
-	w := doJSON(t, memberTestRouter(h), http.MethodDelete, "/tenants/1/members/u-only-owner", nil, "u-only-owner")
+	w := doJSON(t, memberTestRouter(h), http.MethodDelete, "/tenants/1/members/u-only-owner", nil, "u-other-actor")
 	if w.Code != http.StatusConflict {
 		t.Fatalf("last-owner remove must 409, got %d", w.Code)
+	}
+}
+
+func TestTenantMember_RemoveMember_RoleChangedMaps409(t *testing.T) {
+	// B2：目标保护读快照后角色被并发修改，仓储 CAS 返回
+	// ErrRoleChanged，服务层映射 ErrMembershipChanged，handler 必须 409。
+	ms := &stubMemberService{
+		remove: func(_ context.Context, _ string, _ uint64) error {
+			return service.ErrMembershipChanged
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	w := doJSON(t, memberTestRouter(h), http.MethodDelete, "/tenants/1/members/u-target", nil, "u-actor")
+	if w.Code != http.StatusConflict {
+		t.Fatalf("role-changed remove must 409, got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestTenantMember_RemoveMember_SelfDeleteReturns403(t *testing.T) {
+	// AC-9 / N10：管理用 DELETE 不允许删除自己，必须走 POST /leave。
+	// 服务层不调用，避免把自删误判成 leave（或落到 owner 的 409）。
+	called := false
+	ms := &stubMemberService{
+		remove: func(_ context.Context, _ string, _ uint64) error {
+			called = true
+			return nil
+		},
+	}
+	h := newTestMemberHandler(ms, &stubMemberUserService{})
+
+	w := doJSON(t, memberTestRouter(h), http.MethodDelete, "/tenants/1/members/u-self", nil, "u-self")
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("self delete must 403, got %d body=%s", w.Code, w.Body.String())
+	}
+	if called {
+		t.Fatalf("RemoveMember service must not be called for self delete")
+	}
+
+	// 对照：同一用户走 leave 仍然 200。
+	ms.remove = func(_ context.Context, userID string, _ uint64) error {
+		if userID != "u-self" {
+			t.Fatalf("leave must use caller id, got %s", userID)
+		}
+		return nil
+	}
+	w = doJSON(t, memberTestRouter(h), http.MethodPost, "/tenants/1/leave", nil, "u-self")
+	if w.Code != http.StatusOK {
+		t.Fatalf("leave must still 200, got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

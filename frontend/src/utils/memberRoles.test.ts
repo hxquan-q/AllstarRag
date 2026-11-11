@@ -58,13 +58,13 @@ test('canResetTarget matches the AC-2 matrix (actor x target)', () => {
     owner: {
       owner: false,
       admin: true,
-      contributor: true,
+      contributor: false,
       viewer: true,
     },
     admin: {
       owner: false,
       admin: false,
-      contributor: true,
+      contributor: false,
       viewer: true,
     },
     contributor: {

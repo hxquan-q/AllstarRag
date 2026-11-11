@@ -146,6 +146,50 @@ func TestT01SingleSpaceMigration(t *testing.T) {
 		   AND actor_role = 'system_admin' AND scope_id = 'migration:single-space-per-account'`,
 	).Scan(&auditCount))
 	require.Greater(t, auditCount, 0, "迁移必须写 system.membership_migrated 审计")
+
+	// N15：邀请类审计行的 target_type 必须是 tenant_invitation，不能沿用
+	// tenant_member（否则审计页按对象类型过滤时会把邀请事件归错类）。
+	var wrongInvitationTarget int
+	require.NoError(t, db.QueryRow(
+		`SELECT COUNT(*) FROM audit_logs
+		 WHERE action = 'system.membership_migrated'
+		   AND details LIKE '%invitation_%'
+		   AND target_type <> 'tenant_invitation'`,
+	).Scan(&wrongInvitationTarget))
+	require.Zero(t, wrongInvitationTarget,
+		"邀请审计行的 target_type 必须是 tenant_invitation")
+
+	var invitationAuditCount int
+	require.NoError(t, db.QueryRow(
+		`SELECT COUNT(*) FROM audit_logs
+		 WHERE action = 'system.membership_migrated'
+		   AND target_type = 'tenant_invitation'`,
+	).Scan(&invitationAuditCount))
+	require.Greater(t, invitationAuditCount, 0, "迁移必须写邀请审计（tenant_invitation）")
+
+	// N16：home 修正必须逐账号写审计（旧/新 tenant_id），且 target_type=user。
+	var homeAuditCount int
+	require.NoError(t, db.QueryRow(
+		`SELECT COUNT(*) FROM audit_logs
+		 WHERE action = 'system.membership_migrated'
+		   AND target_type = 'user'
+		   AND details LIKE '%home_tenant_repaired%'`,
+	).Scan(&homeAuditCount))
+	require.Equal(t, 1, homeAuditCount,
+		"seed 中只有 u-x 的 home 需要修正，必须产生一条逐账号审计")
+
+	var homeTargetUser, homeDetails string
+	require.NoError(t, db.QueryRow(
+		`SELECT target_user_id, details FROM audit_logs
+		 WHERE action = 'system.membership_migrated'
+		   AND target_type = 'user'
+		   AND details LIKE '%home_tenant_repaired%'`,
+	).Scan(&homeTargetUser, &homeDetails))
+	require.Equal(t, "u-x", homeTargetUser)
+	require.Contains(t, homeDetails, `"before_tenant_id":103`,
+		"审计必须记录修正前 home（u-x 原为 C 空间）")
+	require.Contains(t, homeDetails, `"after_tenant_id":101`,
+		"审计必须记录修正后 home（保留 A 空间）")
 }
 
 // seedT01SingleSpaceData 造出 T01 迁移需要覆盖的存量边界数据。

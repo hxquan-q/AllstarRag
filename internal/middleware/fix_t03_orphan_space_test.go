@@ -8,15 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// T03 红阶段：孤儿空间自愈必须按「active owner 数」判断，而不是
-// 「是否有任何 active 成员」。
+// T03 / CP3 B3：孤儿空间自愈收紧为「严格孤儿」。
 //
 //   - 空间已有 active owner → 跳过自愈，不新增成员；
-//   - 空间 0 个 active owner → 允许把一个 home-tenant 用户补为 owner，
-//     即使空间里已有 viewer/admin 等非 owner 成员。
-//
-// 当前实现用的是 fakeMemberService.HasAnyMembers；只要空间里有任何
-// active 成员就跳过自愈，因此「有 viewer、但 0 owner」的场景会漏补 owner。
+//   - 空间仍有任何 active 成员（即使 0 owner）→ 跳过自愈，fail-closed，
+//     由超管处理；不能把任意 home-tenant 用户补成 owner；
+//   - 空间没有任何 active 成员 → 允许把一个 home-tenant 用户补为 owner。
 
 // countT03ActiveOwners 从测试替身的成员表推导 active owner 数，
 // 不依赖生产接口新增计数方法。
@@ -57,21 +54,25 @@ func TestT03OrphanSpaceSelfHeal(t *testing.T) {
 		require.False(t, exists, "self-heal must not create a membership row for the caller")
 	})
 
-	t.Run("zero_active_owners_adds_owner_even_with_other_members", func(t *testing.T) {
+	t.Run("zero_active_owners_with_active_member_does_not_self_heal", func(t *testing.T) {
 		svc := newFakeMemberService()
 		// 空间里有活跃成员，但没有 owner（例如存量 degraded 数据）。
+		// 严格孤儿口径：只要还有 active 成员就必须 fail-closed，交给超管，
+		// 不能把任意 home-tenant 用户补成 owner（CP3 B3 / N22）。
 		svc.seedActive("existing-viewer", 7, types.TenantRoleViewer)
 		user := &types.User{ID: "u1", TenantID: 7}
 
 		got, ok := resolveTenantRole(context.Background(), svc, user, 7, false, cfgWithRBAC(true))
 
-		require.True(t, ok,
-			"a space with zero active owners must self-heal instead of failing closed")
-		require.Equal(t, types.TenantRoleOwner, got)
-		require.Len(t, svc.addCalls, 1,
-			"the caller must be added exactly once as owner")
-		require.Equal(t, types.TenantRoleOwner, svc.addCalls[0].Role)
-		require.Equal(t, 1, countT03ActiveOwners(svc, 7))
+		require.False(t, ok,
+			"a space that still has active members but no owner must fail closed")
+		require.Empty(t, got)
+		require.Empty(t, svc.addCalls,
+			"self-heal must not promote a user when the space still has active members")
+		require.Equal(t, 0, countT03ActiveOwners(svc, 7),
+			"self-heal must not create an owner in a non-empty space")
+		_, exists := svc.members[memberKey("u1", 7)]
+		require.False(t, exists, "self-heal must not create a membership row for the caller")
 	})
 
 	t.Run("empty_space_adds_owner", func(t *testing.T) {
