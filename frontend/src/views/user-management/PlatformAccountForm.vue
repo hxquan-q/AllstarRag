@@ -2,7 +2,6 @@
   <div class="platform-account">
     <t-radio-group v-model="mode" variant="default-filled" class="platform-account__modes">
       <t-radio-button value="provision">{{ t('userManagement.accountTools.provision') }}</t-radio-button>
-      <t-radio-button value="inviteOwner">{{ t('userManagement.accountTools.inviteOwner') }}</t-radio-button>
       <t-radio-button value="platformUser">{{ t('userManagement.accountTools.platformUser') }}</t-radio-button>
     </t-radio-group>
 
@@ -20,18 +19,6 @@
         </t-form-item>
         <t-form-item :label="t('userManagement.dialogs.spaceName')" name="spaceName">
           <t-input v-model="form.spaceName" clearable />
-        </t-form-item>
-      </template>
-
-      <template v-else-if="mode === 'inviteOwner'">
-        <t-form-item :label="t('userManagement.dialogs.inviteEmail')" name="email">
-          <t-input v-model="form.email" :placeholder="t('userManagement.addOwner.emailPlaceholder')" clearable />
-        </t-form-item>
-        <t-form-item :label="t('userManagement.dialogs.spaceName')" name="spaceName">
-          <t-input v-model="form.spaceName" clearable />
-        </t-form-item>
-        <t-form-item :label="t('userManagement.dialogs.inviteExpires')" name="expiresInDays">
-          <t-input v-model="form.expiresInDays" type="number" clearable />
         </t-form-item>
       </template>
 
@@ -72,10 +59,10 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
-import { createOwnerInvite, provisionOwnerSpace, resolveUserManagementError } from '@/api/user-management'
+import { provisionOwnerSpace, resolveUserManagementError } from '@/api/user-management'
 import { createSystemUser, listAllUsers } from '@/api/system'
 
-type PlatformMode = 'provision' | 'inviteOwner' | 'platformUser'
+type PlatformMode = 'provision' | 'platformUser'
 
 const props = defineProps<{ visible: boolean }>()
 const emit = defineEmits<{ completed: []; close: [] }>()
@@ -89,12 +76,11 @@ const resultLabel = ref('')
 const candidatesLoaded = ref(false)
 const candidateOptions = ref<Array<{ label: string; value: string }>>([])
 const form = reactive({
-  targetUserId: '', spaceName: '', email: '', expiresInDays: '', username: '', password: '',
+  targetUserId: '', spaceName: '', email: '', username: '', password: '',
 })
 
 const description = computed(() => {
   if (mode.value === 'provision') return t('userManagement.dialogs.provisionBody')
-  if (mode.value === 'inviteOwner') return t('userManagement.dialogs.inviteBody')
   return t('userManagement.accountTools.platformUserDesc')
 })
 
@@ -111,10 +97,6 @@ const rules = computed<Record<string, FormRule[]>>(() => {
       { required: true, message: t('userManagement.addOwner.errors.targetRequired'), trigger: 'change' },
     ] }
     return provisionRules
-  }
-  if (mode.value === 'inviteOwner') {
-    const inviteRules: Record<string, FormRule[]> = { email: emailRules(false) }
-    return inviteRules
   }
   const createRules: Record<string, FormRule[]> = {
     username: [
@@ -146,7 +128,7 @@ async function loadCandidates() {
 }
 
 function resetForm() {
-  Object.assign(form, { targetUserId: '', spaceName: '', email: '', expiresInDays: '', username: '', password: '' })
+  Object.assign(form, { targetUserId: '', spaceName: '', email: '', username: '', password: '' })
   resultText.value = ''
   resultLabel.value = ''
 }
@@ -162,15 +144,14 @@ watch(mode, () => {
   formRef.value?.clearValidate?.()
 })
 
-function positiveDays(): number | undefined {
-  const value = Number(form.expiresInDays)
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : undefined
-}
-
 function errorText(error: unknown): string {
   const status = (error as { status?: number } | null)?.status
   const message = (error as { message?: string } | null)?.message ?? ''
   if (status === 409) {
+    // 一号一空间（T04）：目标账号已属于其他空间，不能再开通第二个。
+    if (/belongs to another workspace/i.test(message)) {
+      return t('userManagement.errors.userAlreadyInSpace')
+    }
     return /username/i.test(message) ? t('userManagement.errors.usernameExists') : t('userManagement.errors.emailExists')
   }
   if (status === 400 && /password/i.test(message)) return t('userManagement.errors.passwordPolicy')
@@ -183,19 +164,6 @@ async function submitProvision() {
   MessagePlugin.success(t('userManagement.toasts.ownerProvisioned'))
   emit('completed')
   emit('close')
-}
-
-async function submitInviteOwner() {
-  const response = await createOwnerInvite({
-    email: form.email.trim() || undefined,
-    space_name: form.spaceName.trim() || undefined,
-    expires_in_days: positiveDays(),
-  })
-  if (!response.success || !response.data) throw new Error(response.message || 'create owner invite failed')
-  resultLabel.value = t('userManagement.addOwner.linkLabel')
-  resultText.value = response.data.invite_url
-  MessagePlugin.success(t('userManagement.toasts.inviteCreated'))
-  emit('completed')
 }
 
 async function submitPlatformUser() {
@@ -224,7 +192,6 @@ async function submit() {
   submitting.value = true
   try {
     if (mode.value === 'provision') await submitProvision()
-    else if (mode.value === 'inviteOwner') await submitInviteOwner()
     else await submitPlatformUser()
   } catch (error) {
     MessagePlugin.error(errorText(error))

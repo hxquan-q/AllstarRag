@@ -82,7 +82,6 @@
         <InviteManagement
           v-if="canSeeInvites && activeTab === 'invites'"
           :tenant-id="tenantId"
-          :can-invite-owner="canManageOwners"
         />
       </KeepAlive>
 
@@ -112,7 +111,6 @@
       :is-system-admin="isSystemAdmin"
       :can-create="canCreateUser"
       :can-invite="canInviteUser"
-      :can-add-owner="canManageOwners"
       @completed="reload"
     />
 
@@ -188,7 +186,6 @@ const permissions = computed<UserActionPermissions>(() => ({
 // 多空间视图（scope=other/all）的封禁/解封/注销走 T35 平台接口，不再传当前 tenantId。
 const platformAccountActions = computed(() => usesPlatformAccountActions(scope.value))
 
-const canManageOwners = computed(() => can('user.owner.add'))
 const canCreateUser = computed(() => can('user.create'))
 const canInviteUser = computed(() => can('user.invite'))
 const canAddUser = computed(() => canCreateUser.value || canInviteUser.value)

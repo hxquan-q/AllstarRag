@@ -21,7 +21,7 @@
       />
     </t-tabs>
 
-    <!-- 超管专属：设为普通管理员 / 邀请新普通管理员 / 建无空间平台账号 -->
+    <!-- 超管专属：开通独立空间 / 建无空间平台账号 -->
     <PlatformAccountForm
       v-if="activeTab === 'platform'"
       :visible="visible"
@@ -85,7 +85,7 @@ import { useI18n } from 'vue-i18n'
 import { MessagePlugin, type FormInstanceFunctions, type FormRule } from 'tdesign-vue-next'
 import { createMemberAccount, type TenantRole } from '@/api/tenant/members'
 import { createInvitation } from '@/api/tenant/invitations'
-import { createCoOwner, resolveUserManagementError } from '@/api/user-management'
+import { resolveUserManagementError } from '@/api/user-management'
 import { allowedCreateRoles } from '@/utils/memberRoles'
 import PlatformAccountForm from './PlatformAccountForm.vue'
 
@@ -99,8 +99,6 @@ const props = defineProps<{
   isSystemAdmin: boolean
   canCreate: boolean
   canInvite: boolean
-  /** user.owner.add 能力：决定角色下拉里是否出现「普通管理员」。 */
-  canAddOwner: boolean
 }>()
 
 const emit = defineEmits<{
@@ -116,21 +114,18 @@ const form = reactive<{ username: string; email: string; password: string; role:
   username: '',
   email: '',
   password: '',
-  role: 'contributor',
+  role: 'admin',
 })
 
-// Q37/Q38：只提供 普通管理员(owner) / 编辑(contributor) / 游客(viewer)；
-// 后端 admin 角色保留，但不出现在建号/邀请选项里。
+// T09：邀请/建号只提供 普通管理员(admin) / 游客(viewer)；owner 只能由
+// 开通/交接产生，contributor 停止分配（后端白名单同样只接受 admin/viewer）。
 const allowedRoles = computed<TenantRole[]>(() => {
-  const base: TenantRole[] = props.isSystemAdmin
-    ? ['contributor', 'viewer']
-    : allowedCreateRoles(props.actorRole).filter((role) => role !== 'admin')
-  return props.canAddOwner ? ['owner', ...base] : base
+  if (props.isSystemAdmin) return ['admin', 'viewer']
+  return allowedCreateRoles(props.actorRole)
 })
 
 const roleLabels = computed<Partial<Record<TenantRole, string>>>(() => ({
-  owner: t('userManagement.roles.owner'),
-  contributor: t('userManagement.roles.editor'),
+  admin: t('userManagement.roles.admin'),
   viewer: t('userManagement.roles.viewer'),
 }))
 
@@ -138,16 +133,11 @@ const roleOptions = computed(() =>
   allowedRoles.value.map((role) => ({ label: roleLabels.value[role] ?? role, value: role })),
 )
 
-const description = computed(() => {
-  if (activeTab.value === 'create') {
-    return form.role === 'owner'
-      ? t('userManagement.addOwner.createDesc')
-      : t('userManagement.addUser.createDesc')
-  }
-  return form.role === 'owner'
-    ? t('userManagement.addOwner.inviteCoOwnerDesc')
-    : t('userManagement.addUser.inviteDesc')
-})
+const description = computed(() =>
+  activeTab.value === 'create'
+    ? t('userManagement.addUser.createDesc')
+    : t('userManagement.addUser.inviteDesc'),
+)
 
 function emailRules(): FormRule[] {
   return [
@@ -180,8 +170,8 @@ function resetForm() {
   form.username = ''
   form.email = ''
   form.password = ''
-  const fallback = allowedRoles.value[0] ?? 'contributor'
-  form.role = allowedRoles.value.includes('contributor') ? 'contributor' : fallback
+  // allowedRoles 顺序为 admin/viewer，默认落在 admin（无权限时兜底 viewer）。
+  form.role = allowedRoles.value[0] ?? 'viewer'
   if (props.canCreate) activeTab.value = 'create'
   else if (props.canInvite) activeTab.value = 'invite'
   else activeTab.value = 'platform'
@@ -204,6 +194,10 @@ function errorText(error: unknown): string {
   const status = (error as { status?: number } | null)?.status
   const message = (error as { message?: string } | null)?.message ?? ''
   if (status === 409) {
+    // 一号一空间（T04）：目标账号已属于其他空间（ErrUserAlreadyInSpace）。
+    if (/belongs to another workspace/i.test(message)) {
+      return t('userManagement.errors.userAlreadyInSpace')
+    }
     return /username/i.test(message)
       ? t('userManagement.errors.usernameExists')
       : t('userManagement.errors.emailExists')
@@ -241,27 +235,21 @@ async function submit() {
   }
 }
 
-/** 普通管理员走 owners/create（密码必填）；编辑/游客走 members/create。 */
+/** 建号统一走 members/create，角色只可能是 admin/viewer。 */
 async function submitCreate(tenantId: number) {
   const body = { username: form.username.trim(), email: form.email.trim(), password: form.password }
-  const response = form.role === 'owner'
-    ? await createCoOwner(tenantId, body)
-    : await createMemberAccount(tenantId, { ...body, role: form.role })
+  const response = await createMemberAccount(tenantId, { ...body, role: form.role })
   if (!response.success) throw new Error(response.message || 'create account failed')
   // 密码只用于本次请求，成功后立刻从内存清掉。
   form.password = ''
-  MessagePlugin.success(form.role === 'owner'
-    ? t('userManagement.addOwner.toasts.coOwnerCreated')
-    : t('userManagement.addUser.toasts.created'))
+  MessagePlugin.success(t('userManagement.addUser.toasts.created'))
 }
 
-/** 邀请统一走 invitations；角色为 owner 时即邀请 co-owner。 */
+/** 邀请统一走 invitations，角色只可能是 admin/viewer。 */
 async function submitInvite(tenantId: number) {
   const response = await createInvitation(tenantId, { email: form.email.trim(), role: form.role })
   if (!response.success) throw new Error(response.message || 'create invitation failed')
-  MessagePlugin.success(form.role === 'owner'
-    ? t('userManagement.addOwner.toasts.coOwnerInvited')
-    : t('userManagement.addUser.toasts.invited'))
+  MessagePlugin.success(t('userManagement.addUser.toasts.invited'))
 }
 </script>
 

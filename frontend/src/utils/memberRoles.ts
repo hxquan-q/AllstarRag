@@ -3,9 +3,9 @@ import type { TenantRole } from '@/api/tenant/members'
 /**
  * 当前操作者能创建哪些角色的成员账号。
  *
- * 口径与后端 service.CanCreateRole 保持一致（02-plan D3）：
- * - Owner（含跨租户系统管理员）：admin / contributor / viewer
- * - Admin：只能建 viewer
+ * 口径与后端 service.CanCreateRole 保持一致（T05 白名单）：
+ * - Owner / Admin（含跨租户系统管理员）：admin / viewer
+ * - owner / contributor 停止分配，选项里不再出现（枚举保留兼容存量数据）
  * - 其他角色：没有建号权限
  *
  * 这里只用于界面展示与选项过滤，真正能不能建以后端为准。
@@ -15,9 +15,8 @@ export function allowedCreateRoles(
 ): TenantRole[] {
   switch (actorRole) {
     case 'owner':
-      return ['admin', 'contributor', 'viewer']
     case 'admin':
-      return ['viewer']
+      return ['admin', 'viewer']
     default:
       return []
   }

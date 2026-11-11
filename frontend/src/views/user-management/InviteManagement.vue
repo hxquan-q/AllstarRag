@@ -151,8 +151,6 @@ const LIST_MAX_PAGES = 10
 
 const props = defineProps<{
   tenantId: number | null
-  /** owner+超管可发放「普通管理员」角色的链接；能力来自 user.owner.add 投影。 */
-  canInviteOwner: boolean
 }>()
 
 const { t, locale } = useI18n()
@@ -241,11 +239,11 @@ const inviteColumns = computed<TableColumn[]>(() => [
   { colKey: 'actions', title: t('userManagement.columns.actions'), width: 100 },
 ])
 
-// Q37：admin 在界面上统一显示为「编辑」。
+// 残余 contributor（迁移前发出的邀请）按普通管理员归并显示，口径同 userTableLabels。
 const roleLabels = computed<Record<string, string>>(() => ({
   owner: t('userManagement.roles.owner'),
-  admin: t('userManagement.roles.editor'),
-  contributor: t('userManagement.roles.editor'),
+  admin: t('userManagement.roles.admin'),
+  contributor: t('userManagement.roles.admin'),
   viewer: t('userManagement.roles.viewer'),
 }))
 
@@ -306,20 +304,16 @@ type ExpiryDays = '7' | '30' | '90'
 const createVisible = ref(false)
 const creating = ref(false)
 const createForm = reactive<{ role: TenantRole; expiryDays: ExpiryDays; maxRegistrations: number | null }>({
-  role: 'contributor',
+  role: 'admin',
   expiryDays: '7',
   maxRegistrations: null,
 })
 
-// Q37：角色只提供 编辑/游客；owner+超管 额外可选 普通管理员。
-const roleOptions = computed<Array<{ label: string; value: TenantRole }>>(() => {
-  const options: Array<{ label: string; value: TenantRole }> = [
-    { label: t('userManagement.roles.editor'), value: 'contributor' },
-    { label: t('userManagement.roles.viewer'), value: 'viewer' },
-  ]
-  if (props.canInviteOwner) options.push({ label: t('userManagement.roles.owner'), value: 'owner' })
-  return options
-})
+// T09：链接角色只提供 普通管理员/游客；owner/contributor 停止分配（C10）。
+const roleOptions = computed<Array<{ label: string; value: TenantRole }>>(() => [
+  { label: t('userManagement.roles.admin'), value: 'admin' },
+  { label: t('userManagement.roles.viewer'), value: 'viewer' },
+])
 
 const expiryOptions = computed(() => [
   { label: t('userManagement.invites.expiry7'), value: '7' },
@@ -328,7 +322,7 @@ const expiryOptions = computed(() => [
 ])
 
 function openCreate() {
-  createForm.role = 'contributor'
+  createForm.role = 'admin'
   createForm.expiryDays = '7'
   createForm.maxRegistrations = null
   createVisible.value = true
