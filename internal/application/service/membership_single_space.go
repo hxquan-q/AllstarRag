@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"sync"
-	"time"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -122,10 +121,20 @@ func (s *tenantMemberService) assertSingleSpaceMembership(
 	return nil
 }
 
+// emptyHomeTenantWriter 是 adoptHomeTenantIfEmpty 依赖的窄接口：只条件
+// 更新 users.tenant_id / updated_at。真实 user 仓储实现它；测试替身没有
+// 时跳过回填（不再整行 Save，避免覆盖并发写入）。
+type emptyHomeTenantWriter interface {
+	SetTenantIDIfEmpty(ctx context.Context, userID string, tenantID uint64) (bool, error)
+}
+
 // adoptHomeTenantIfEmpty 在成员创建成功且用户当前没有家空间（0/NULL）时，
 // 把 users.tenant_id 指向刚加入的空间（AC-19）。已有家空间的账号保持原值，
 // 避免把超管的 home 改到第二个空间。nil-safe 且尽力而为：写失败只记日志，
 // 不推翻已建立的成员关系（与 cleanupRemovedMemberState 同口径）。
+//
+// 只做列级条件更新，不整行 Save：整行 Save 会把并发密码重置/撤权写回旧值
+// （N23 / N26）。条件更新本身保证「先到者生效」，无需再预读用户。
 func (s *tenantMemberService) adoptHomeTenantIfEmpty(
 	ctx context.Context,
 	userID string,
@@ -134,20 +143,14 @@ func (s *tenantMemberService) adoptHomeTenantIfEmpty(
 	if s.userRepo == nil || tenantID == 0 || strings.TrimSpace(userID) == "" {
 		return
 	}
-	user, err := s.userRepo.GetUserByID(ctx, userID)
-	if err != nil {
-		if !errors.Is(err, apprepo.ErrUserNotFound) {
-			logger.Warnf(ctx,
-				"membership home-tenant adopt: failed to load user %s: %v", userID, err)
-		}
+	writer, ok := s.userRepo.(emptyHomeTenantWriter)
+	if !ok {
+		logger.Warnf(ctx,
+			"membership home-tenant adopt: repository lacks conditional update; skip user=%s tenant=%d",
+			userID, tenantID)
 		return
 	}
-	if user == nil || user.TenantID != 0 {
-		return
-	}
-	user.TenantID = tenantID
-	user.UpdatedAt = time.Now()
-	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+	if _, err := writer.SetTenantIDIfEmpty(ctx, userID, tenantID); err != nil {
 		logger.Warnf(ctx,
 			"membership home-tenant adopt: failed to set user %s tenant %d: %v",
 			userID, tenantID, err)

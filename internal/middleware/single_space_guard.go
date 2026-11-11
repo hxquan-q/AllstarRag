@@ -35,8 +35,31 @@ func userBelongsToOtherSpace(
 	return false, nil
 }
 
-// tryHealOrphanTenant 执行孤儿空间自愈。已有 active owner、用户已属于
-// 其他空间、或查询失败时都不自愈，由调用方按 EnableRBAC fail-closed。
+// tenantHasAnyActiveMember 判断空间是否还有任何 active 成员（不限角色）。
+// 自愈只服务「严格孤儿」空间：只要还有成员，缺 owner 属于治理异常，
+// 由超管处理，不能把任意一个带着旧 home 指针的人补成 owner（N22）。
+// 查询失败返回错误，由调用方 fail-closed。
+func tenantHasAnyActiveMember(
+	ctx context.Context,
+	memberService interfaces.TenantMemberService,
+	tenantID uint64,
+) (bool, error) {
+	members, err := memberService.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return false, err
+	}
+	for _, member := range members {
+		if member != nil && member.Status == types.TenantMemberStatusActive {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// tryHealOrphanTenant 执行孤儿空间自愈。只有「严格孤儿」空间才补 owner：
+// 空间没有任何 active 成员、也没有 active owner。已有 active owner、
+// 仍有其他 active 成员、用户已属于其他空间、或查询失败时都不自愈，
+// 由调用方按 EnableRBAC fail-closed。
 func tryHealOrphanTenant(
 	ctx context.Context,
 	memberService interfaces.TenantMemberService,
@@ -49,6 +72,17 @@ func tryHealOrphanTenant(
 		return "", false
 	}
 	if hasActiveOwner {
+		return "", false
+	}
+	hasMember, err := tenantHasAnyActiveMember(ctx, memberService, tenantID)
+	if err != nil {
+		logger.Warnf(ctx, "tenant member check failed tenant=%d: %v", tenantID, err)
+		return "", false
+	}
+	if hasMember {
+		logger.Warnf(ctx,
+			"skip orphan-tenant self-heal: tenant=%d still has active members but no active owner",
+			tenantID)
 		return "", false
 	}
 	// 一号一空间（T04）：非超管已属于其他空间时不得再被补成第二个空间

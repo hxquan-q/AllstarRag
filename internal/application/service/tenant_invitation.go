@@ -279,6 +279,23 @@ func (s *tenantInvitationService) acceptUnderUserLock(
 	}
 	defer release()
 
+	// 锁内重读邀请行（N7 / N18）：等待用户锁期间邀请可能已被撤销/过期，
+	// 预读快照不能作为写成员行的依据。失败的返回值与既有撤销/过期一致。
+	fresh, err := s.repo.GetByID(ctx, inv.ID)
+	if err != nil {
+		return nil, err
+	}
+	if fresh == nil || fresh.Status != types.TenantInvitationStatusPending {
+		return nil, ErrInvitationNotPending
+	}
+	if fresh.IsExpired(s.now()) {
+		return nil, ErrInvitationExpired
+	}
+	if !IsAssignableMemberRole(fresh.Role) {
+		return nil, ErrInvitationRoleNotAssignable
+	}
+	inv = fresh
+
 	if err := writer.assertSingleSpaceMembership(ctx, inv.InviteeUserID, inv.TenantID); err != nil {
 		return nil, err
 	}
@@ -682,6 +699,22 @@ func (s *tenantInvitationService) AcceptByToken(
 			return nil, lockErr
 		}
 		defer release()
+		// 锁内重读分享链接（N18）：LookupByToken 只是锁前快速失败；等待
+		// 期间链接可能已被撤销/过期，撤销成功后不能再写成员行。无效/过期
+		// /撤销统一返回 ErrInvitationTokenInvalid（与 LookupByToken 一致）。
+		fresh, freshErr := s.repo.GetByID(ctx, inv.ID)
+		if freshErr != nil {
+			return nil, freshErr
+		}
+		if fresh == nil ||
+			fresh.Status != types.TenantInvitationStatusPending ||
+			fresh.IsExpired(s.now()) {
+			return nil, ErrInvitationTokenInvalid
+		}
+		if !IsAssignableMemberRole(fresh.Role) {
+			return nil, ErrInvitationRoleNotAssignable
+		}
+		inv = fresh
 		if err := writer.assertSingleSpaceMembership(ctx, newUserID, inv.TenantID); err != nil {
 			return nil, err
 		}
