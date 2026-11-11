@@ -29510,6 +29510,11 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/internal_handler.SuccessResponse'
+        "409":
+          description: 角色并发变化（ErrMembershipChanged）或最后一位 Owner 不能离开
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - Bearer: []
       summary: 退出当前空间
@@ -29641,7 +29646,7 @@ paths:
             additionalProperties: true
             type: object
         "409":
-          description: 不能移除最后一位 Owner
+          description: 不能移除最后一位 Owner；或目标角色并发变化（ErrMembershipChanged），刷新后重试
           schema:
             additionalProperties: true
             type: object
@@ -29756,6 +29761,11 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "409":
+          description: 目标角色并发变化（ErrMembershipChanged），刷新后重试
+          schema:
+            additionalProperties: true
+            type: object
         "500":
           description: 内部错误
           schema:
@@ -29804,6 +29814,11 @@ paths:
             type: object
         "404":
           description: 目标不是本空间 active 成员（含重复删除）
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 目标角色并发变化（ErrMembershipChanged），刷新后重试
           schema:
             additionalProperties: true
             type: object

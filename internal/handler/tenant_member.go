@@ -804,7 +804,7 @@ func canManageMemberRoles(ctx context.Context) bool {
 // @Success      200  {object}  handler.SuccessResponse
 // @Failure      403  {object}  map[string]interface{}  "角色越权或目标保护（owner/同级/自己）"
 // @Failure      404  {object}  map[string]interface{}  "目标不是本空间 active 成员"
-// @Failure      409  {object}  map[string]interface{}  "不能移除最后一位 Owner"
+// @Failure      409  {object}  map[string]interface{}  "不能移除最后一位 Owner；或目标角色并发变化（ErrMembershipChanged），刷新后重试"
 // @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members/{user_id} [delete]

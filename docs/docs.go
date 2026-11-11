@@ -23153,6 +23153,13 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
                         }
+                    },
+                    "409": {
+                        "description": "角色并发变化（ErrMembershipChanged）或最后一位 Owner 不能离开",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -23498,7 +23505,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "不能移除最后一位 Owner",
+                        "description": "不能移除最后一位 Owner；或目标角色并发变化（ErrMembershipChanged），刷新后重试",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -23577,6 +23584,13 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
+                    "409": {
+                        "description": "目标角色并发变化（ErrMembershipChanged），刷新后重试",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
                     "500": {
                         "description": "内部错误",
                         "schema": {
@@ -23646,6 +23660,13 @@ const docTemplate = `{
                     },
                     "404": {
                         "description": "目标不是本空间 active 成员（含重复删除）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "目标角色并发变化（ErrMembershipChanged），刷新后重试",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true

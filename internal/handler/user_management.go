@@ -83,6 +83,7 @@ func newMemberUserSummary(user *types.User) *memberUserSummary {
 //	@Failure      400      {object}  map[string]interface{}  "请求体非法"
 //	@Failure      403      {object}  map[string]interface{}  "无权限或目标保护（不能操作自己 / owner / 系统管理员 / 跨空间超管）"
 //	@Failure      404      {object}  map[string]interface{}  "目标不是本空间 active 成员"
+//	@Failure      409      {object}  map[string]interface{}  "目标角色并发变化（ErrMembershipChanged），刷新后重试"
 //	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/members/{user_id}/ban [post]
 func (h *UserManagementHandler) BanMember(c *gin.Context) {
@@ -180,6 +181,7 @@ func (h *UserManagementHandler) changeMemberStatus(c *gin.Context, ban bool) {
 //	@Failure      400      {object}  map[string]interface{}  "请求体非法或 confirm_email 与目标邮箱不一致"
 //	@Failure      403      {object}  map[string]interface{}  "无权限、目标保护、owner 未交接或跨空间账号需超管"
 //	@Failure      404      {object}  map[string]interface{}  "目标不是本空间 active 成员（含重复删除）"
+//	@Failure      409      {object}  map[string]interface{}  "目标角色并发变化（ErrMembershipChanged），刷新后重试"
 //	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/members/{user_id}/purge [post]
 func (h *UserManagementHandler) PurgeMember(c *gin.Context) {
