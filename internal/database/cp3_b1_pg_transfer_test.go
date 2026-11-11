@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/application/repository"
@@ -28,6 +29,21 @@ func TestCP3B1PostgresTransferAfterFullMigration(t *testing.T) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	// L2：先确认迁移真的建立了 unique owner 部分索引，再跑交接。缺少这条
+	// 断言时，AutoMigrate 或旧 schema 上交接也会成功，测试会假绿。
+	var indexDef string
+	require.NoError(t, sqlDB.QueryRow(
+		`SELECT indexdef FROM pg_indexes
+		 WHERE tablename = 'tenant_members'
+		   AND indexname = 'idx_tenant_members_tenant_owner_unique'`,
+	).Scan(&indexDef), "迁移后必须存在唯一 owner 部分唯一索引")
+	require.Contains(t, strings.ToUpper(indexDef), "UNIQUE",
+		"唯一 owner 索引必须是 UNIQUE 索引：%s", indexDef)
+	require.Contains(t, indexDef, "'owner'",
+		"唯一 owner 索引必须只约束 owner 角色：%s", indexDef)
+	require.Contains(t, indexDef, "deleted_at IS NULL",
+		"唯一 owner 索引必须只约束未删除行：%s", indexDef)
 
 	const tenantID = 70202
 	const ownerID = "cp3-pg-owner"
