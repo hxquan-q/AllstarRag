@@ -858,13 +858,15 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 // @Summary      退出当前空间
 // @Description  调用方主动退出当前空间。等价于以自己的 user_id 调 RemoveMember，
 //
-//	但不需要 Owner 权限——非 Owner 也可以自助离开。最后一位 Owner 仍然不能离开
+//	但不需要 Owner 权限——非 Owner 也可以自助离开。离开是幂等的：成员关系已不存在
+//	（如被并发移除）时同样返回成功。最后一位 Owner 仍然不能离开
 //	（需先把其他成员提升为 Owner），由服务层 ErrLastOwner 拦截。
 //
 // @Tags         空间成员
 // @Produce      json
 // @Param        id  path  string  true  "空间 ID"
 // @Success      200  {object}  handler.SuccessResponse
+// @Failure      409  {object}  map[string]interface{}  "角色并发变化（ErrMembershipChanged）或最后一位 Owner 不能离开"
 // @Security     Bearer
 // @Router       /tenants/{id}/leave [post]
 func (h *TenantMemberHandler) LeaveTenant(c *gin.Context) {
@@ -885,6 +887,10 @@ func (h *TenantMemberHandler) LeaveTenant(c *gin.Context) {
 			c.Error(apperrors.NewNotFoundError("you are not a member of this workspace"))
 		case errors.Is(err, service.ErrLastOwner):
 			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrMembershipChanged):
+			// 自助离开已按最新行重试；持续并发变化时返回 409 让客户端刷新，
+			// 而不是落成 500。
+			c.Error(apperrors.NewConflictError("membership changed concurrently; retry"))
 		default:
 			logger.Errorf(ctx, "LeaveTenant failed: user=%s tenant=%d err=%v",
 				caller, tenantID, err)

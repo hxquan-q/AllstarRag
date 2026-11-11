@@ -697,6 +697,11 @@ type guardedMemberRemover interface {
 // service method but the recorded action differs so an audit reader
 // can tell the two apart.
 //
+// Self-leave is idempotent: when the membership row is already gone
+// (concurrent removal) it succeeds instead of returning NotFound. The
+// role-CAS used by the admin DELETE path is retried against a fresh
+// row for self-leave, because leave has no target-protection need.
+//
 // After a successful soft-delete, best-effort cleanup clears any
 // dangling users.tenant_id / LastActiveTenantID that still points at
 // the removed workspace and revokes outstanding auth tokens. Without
@@ -710,47 +715,80 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 	if err != nil {
 		return err
 	}
+	actorID, _ := types.UserIDFromContext(ctx)
+	// 自助离开（POST /leave）等价于 caller == target。它没有目标保护需求，
+	// 而且必须幂等：成员行已被并发移除时视为「已经离开」，不返回 404/500。
+	selfLeave := actorID != "" && actorID == userID
 	if current == nil {
+		if selfLeave {
+			return nil
+		}
 		return ErrMembershipNotFound
 	}
 	// T06 目标保护先于最后 owner 原子保护：普通管理员不能移除 owner
 	// 或同级管理员（403，而不是 ErrLastOwner 的 409）。自己移除自己
 	// 是 LEAVE 路径（POST /leave），保持既有行为，不套用调用者角色保护。
-	actorID, _ := types.UserIDFromContext(ctx)
-	if actorID == "" || actorID != userID {
+	if !selfLeave {
 		if err := memberTargetProtection(ctx, userID, current.Role, false); err != nil {
 			return err
 		}
 	}
-	if current.Role == types.TenantRoleOwner {
-		err := s.repo.RemoveOwnerAtomically(ctx, userID, tenantID)
-		switch {
-		case errors.Is(err, apprepo.ErrLastOwner):
-			return ErrLastOwner
-		case err != nil:
+	for attempt := 1; ; attempt++ {
+		if current.Role == types.TenantRoleOwner {
+			err := s.repo.RemoveOwnerAtomically(ctx, userID, tenantID)
+			switch {
+			case errors.Is(err, apprepo.ErrLastOwner):
+				return ErrLastOwner
+			case errors.Is(err, gorm.ErrRecordNotFound) && selfLeave:
+				// 自助离开期间行被并发移除：幂等成功。
+				return nil
+			case err != nil:
+				return err
+			}
+			break
+		}
+		err := s.deleteMembershipRow(ctx, userID, tenantID, current.Role)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, apprepo.ErrRoleChanged) {
 			return err
 		}
-		s.emitRemovalAudit(ctx, tenantID, userID)
-		s.cleanupRemovedMemberState(ctx, userID, tenantID)
-		return nil
-	}
-	// 目标保护基于预读快照；删除时带上 expectedRole 做 CAS，防止「校验后
-	// 被提升为同级管理员的行」仍被删除（N9 / N17 / N20）。仓储替身不支持
-	// CAS 时回退旧删除路径（仅测试）。
-	if remover, ok := s.repo.(guardedMemberRemover); ok {
-		err := remover.SoftDeleteWithRole(ctx, userID, tenantID, current.Role)
-		if errors.Is(err, apprepo.ErrRoleChanged) {
+		// 管理用移除保留 CAS 语义：角色被并发变化时返回 409。
+		if !selfLeave || attempt >= selfLeaveRetryLimit {
 			return ErrMembershipChanged
 		}
+		// 自助离开没有目标保护需求：角色被并发调整后按最新行重试。
+		// 行已消失即幂等成功；被提升为 owner 则回到最后 owner 保护。
+		current, err = s.repo.Get(ctx, userID, tenantID)
 		if err != nil {
 			return err
 		}
-	} else if err := s.repo.SoftDelete(ctx, userID, tenantID); err != nil {
-		return err
+		if current == nil {
+			return nil
+		}
 	}
 	s.emitRemovalAudit(ctx, tenantID, userID)
 	s.cleanupRemovedMemberState(ctx, userID, tenantID)
 	return nil
+}
+
+// selfLeaveRetryLimit 限制自助离开在角色并发变化时的重试次数；正常情况
+// 一次即可成功，多次失败只可能是极端持续竞争，交给 409 让客户端重试。
+const selfLeaveRetryLimit = 3
+
+// deleteMembershipRow 走 CAS 软删（真实仓储），仓储替身不支持 CAS 时
+// 回退旧的删除路径（仅测试）。
+func (s *tenantMemberService) deleteMembershipRow(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	expectedRole types.TenantRole,
+) error {
+	if remover, ok := s.repo.(guardedMemberRemover); ok {
+		return remover.SoftDeleteWithRole(ctx, userID, tenantID, expectedRole)
+	}
+	return s.repo.SoftDelete(ctx, userID, tenantID)
 }
 
 // cleanupRemovedMemberState drops stale home/preference pointers that
