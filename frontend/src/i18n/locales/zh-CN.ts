@@ -762,10 +762,10 @@ export default {
       }
     },
     role: {
-      owner: '所有者',
-      admin: '管理员',
-      contributor: '编辑',
-      viewer: '访客'
+      owner: '空间拥有者',
+      admin: '普通管理员',
+      contributor: '普通管理员',
+      viewer: '游客'
     },
     columns: {
       member: '姓名与邮箱',
@@ -9440,8 +9440,8 @@ export default {
     directory: {
       title: '角色目录',
       systemAdmin: '系统管理员',
-      owner: '普通管理员',
-      editor: '编辑',
+      owner: '空间拥有者',
+      admin: '普通管理员',
       viewer: '游客',
       noSpace: '无空间',
     },
@@ -9456,7 +9456,9 @@ export default {
     },
     roles: {
       systemAdmin: '系统管理员',
-      owner: '普通管理员',
+      owner: '空间拥有者',
+      admin: '普通管理员',
+      // roles.editor 仍被邀请/建号弹窗引用（T09 范围），届时随选项收敛一起删除。
       editor: '编辑',
       viewer: '游客',
     },
@@ -9510,10 +9512,11 @@ export default {
     },
     tooltips: {
       self: '不能对自己执行该操作',
-      ownerProtected: '普通管理员账号只能由系统管理员处理',
+      ownerProtected: '空间拥有者账号只能由系统管理员处理',
+      peerProtected: '普通管理员不能对同级普通管理员执行该操作',
       systemAdminProtected: '请先撤销系统管理员身份',
       transferRequired: '请先通过「交接空间」完成交接',
-      transferOwnerOnly: '只有普通管理员需要交接空间',
+      transferOwnerOnly: '只有空间拥有者需要交接空间',
       switchSpaceRequired: '请先切换到该账号所在空间，再修改角色或交接空间',
       noPermission: '你没有权限执行该操作',
     },

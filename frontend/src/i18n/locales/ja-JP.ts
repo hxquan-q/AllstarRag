@@ -8970,9 +8970,9 @@ export default {
       operations: '操作'
     },
     role: {
-      owner: 'オーナー',
+      owner: 'スペースオーナー',
       admin: '管理者',
-      contributor: '編集者',
+      contributor: '管理者',
       viewer: '閲覧者'
     },
     add: {
@@ -9441,8 +9441,8 @@ export default {
     directory: {
       title: 'ロール一覧',
       systemAdmin: 'システム管理者',
-      owner: '管理者',
-      editor: '編集者',
+      owner: 'スペースオーナー',
+      admin: '管理者',
       viewer: '閲覧者',
       noSpace: '所属空間なし',
     },
@@ -9457,7 +9457,8 @@ export default {
     },
     roles: {
       systemAdmin: 'システム管理者',
-      owner: '管理者',
+      owner: 'スペースオーナー',
+      admin: '管理者',
       editor: '編集者',
       viewer: '閲覧者',
     },
@@ -9511,10 +9512,11 @@ export default {
     },
     tooltips: {
       self: '自分自身に対してこの操作はできません',
-      ownerProtected: '管理者アカウントはシステム管理者のみ操作できます',
+      ownerProtected: 'スペースオーナーアカウントはシステム管理者のみ操作できます',
+      peerProtected: '管理者は同じ管理者に対してこの操作はできません',
       systemAdminProtected: '先にシステム管理者を取り消してください',
       transferRequired: '先に「ワークスペースを引き継ぐ」で引き継ぎを完了してください',
-      transferOwnerOnly: 'ワークスペースの引き継ぎは管理者のみ対象です',
+      transferOwnerOnly: 'ワークスペースの引き継ぎはスペースオーナーのみ対象です',
       switchSpaceRequired: 'ロール変更や引き継ぎの前に、このアカウントが属するワークスペースに切り替えてください',
       noPermission: 'この操作を実行する権限がありません',
     },

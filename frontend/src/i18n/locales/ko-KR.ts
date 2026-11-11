@@ -762,10 +762,10 @@ export default {
       }
     },
     role: {
-      owner: '소유자',
-      admin: '관리자',
-      contributor: '기여자',
-      viewer: '뷰어'
+      owner: '공간 소유자',
+      admin: '일반 관리자',
+      contributor: '일반 관리자',
+      viewer: '방문자'
     },
     columns: {
       member: '이름 · 이메일',
@@ -9441,8 +9441,8 @@ export default {
     directory: {
       title: '역할 목록',
       systemAdmin: '시스템 관리자',
-      owner: '일반 관리자',
-      editor: '편집자',
+      owner: '공간 소유자',
+      admin: '일반 관리자',
       viewer: '방문자',
       noSpace: '소속 공간 없음',
     },
@@ -9457,7 +9457,8 @@ export default {
     },
     roles: {
       systemAdmin: '시스템 관리자',
-      owner: '일반 관리자',
+      owner: '공간 소유자',
+      admin: '일반 관리자',
       editor: '편집자',
       viewer: '방문자',
     },
@@ -9511,10 +9512,11 @@ export default {
     },
     tooltips: {
       self: '자신에게는 이 작업을 수행할 수 없습니다',
-      ownerProtected: '일반 관리자 계정은 시스템 관리자만 처리할 수 있습니다',
+      ownerProtected: '공간 소유자 계정은 시스템 관리자만 처리할 수 있습니다',
+      peerProtected: '일반 관리자는 동급 일반 관리자에게 이 작업을 수행할 수 없습니다',
       systemAdminProtected: '먼저 시스템 관리자 권한을 취소하세요',
       transferRequired: '먼저 「워크스페이스 이전」으로 이전을 완료하세요',
-      transferOwnerOnly: '워크스페이스 이전은 일반 관리자만 대상입니다',
+      transferOwnerOnly: '워크스페이스 이전은 공간 소유자만 대상입니다',
       switchSpaceRequired: '역할 변경 또는 이전 전에 이 계정이 속한 워크스페이스로 전환하세요',
       noPermission: '이 작업을 수행할 권한이 없습니다',
     },

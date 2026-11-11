@@ -13,7 +13,6 @@ import type { TenantRole } from '@/api/tenant/members'
 import { useAuthStore } from '@/stores/auth'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 import {
-  EDITOR_BACKEND_ROLES,
   systemAdminToUserRow,
   toUserRow,
   type DirectoryEntry,
@@ -82,18 +81,12 @@ export function useUserManagement() {
   let searchTimer: ReturnType<typeof setTimeout> | null = null
 
   // 目录计数；scope=other/all 时后端按视图内去重用户数返回，键可能缺 0 值。
-  // 编辑目录（contributor+admin 相加）在多空间视图会双计同一人的多空间
-  // 角色（与列表去重结果不一致），所以 other/all 隐藏徽标（count=null，
-  // Codex 复核 ③），仅 current 视图显示数字。
+  // T08 后 admin 目录与后端单角色一一对应，不再有 contributor+admin
+  // 聚合双计，徽标恒为数字。
   const directoryCount = (key: DirectoryRole): number | null => {
-    if (key === 'editor') {
-      return scope.value === 'current'
-        ? (roleCounts.value.contributor ?? 0) + (roleCounts.value.admin ?? 0)
-        : null
-    }
     if (key === 'system_admin') return systemAdminCount.value
     if (key === 'no_space') return noMembershipCount.value
-    return roleCounts.value[key as 'owner' | 'viewer'] ?? 0
+    return roleCounts.value[key as 'owner' | 'admin' | 'viewer'] ?? 0
   }
 
   /** 「无空间」目录（T44）只在超管的全平台视图存在。 */
@@ -101,8 +94,8 @@ export function useUserManagement() {
     () => capabilities.isSystemAdmin && scope.value === 'all',
   )
 
-  // 左目录（Q37）：owner 视角三类，超管视角另加系统管理员共四类；
-  // 编辑 = contributor + admin 前端聚合；超管 scope=all 再追加「无空间」。
+  // 左目录（T08 收敛）：owner/admin/viewer 三类，超管视角另加系统管理员，
+  // 超管 scope=all 再追加「无空间」。
   const directoryEntries = computed<DirectoryEntry[]>(() => {
     const entries: DirectoryEntry[] = []
     if (capabilities.isSystemAdmin) {
@@ -114,7 +107,7 @@ export function useUserManagement() {
     }
     entries.push(
       { key: 'owner', label: t('userManagement.directory.owner'), count: directoryCount('owner') },
-      { key: 'editor', label: t('userManagement.directory.editor'), count: directoryCount('editor') },
+      { key: 'admin', label: t('userManagement.directory.admin'), count: directoryCount('admin') },
       { key: 'viewer', label: t('userManagement.directory.viewer'), count: directoryCount('viewer') },
     )
     if (canSeeNoSpaceDirectory.value) {
@@ -169,8 +162,8 @@ export function useUserManagement() {
   }
 
   /**
-   * 目录对应的列表请求。「编辑」目录一次请求 role=contributor,admin，
-   * total/分页由后端按去重用户计算（T22），不再前端合并两页。
+   * 目录对应的列表请求。owner/admin/viewer 目录与后端角色一一对应，
+   * 单角色直查（T08），total/分页由后端按去重用户计算（T22）。
    * 「无空间」目录（T44）只带 without_membership，不携带 role
    * （无空间账号没有角色，两者互斥）。
    */
@@ -191,9 +184,7 @@ export function useUserManagement() {
     if (selectedRole.value === 'no_space') {
       params.without_membership = true
     } else {
-      params.role = selectedRole.value === 'editor'
-        ? EDITOR_BACKEND_ROLES.join(',')
-        : (selectedRole.value as TenantRole)
+      params.role = selectedRole.value as TenantRole
     }
     const data = parseListResponse(await listUsers(tenantId, params))
     return {

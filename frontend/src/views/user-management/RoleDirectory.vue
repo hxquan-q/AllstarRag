@@ -24,8 +24,7 @@
           @click="emit('select', entry.key)"
         >
           <span class="role-directory__label">{{ entry.label }}</span>
-          <!-- count 为 null 表示该视图下计数不可用（如多空间视图的编辑目录
-               会双计），不渲染徽标而不是显示空圆点。 -->
+          <!-- count 为 null 表示该视图下计数不可用，不渲染徽标而不是显示空圆点。 -->
           <span v-if="entry.count != null" class="role-directory__count">{{ entry.count }}</span>
         </button>
       </li>

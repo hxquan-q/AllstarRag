@@ -29,7 +29,8 @@ export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
   members: 'viewer',
   // 用户管理页含封禁/注销等账号级写操作；入口可见性统一走
   // /auth/capabilities 的 user.view 能力投影（Settings.vue 单一来源）。
-  'user-management': 'owner',
+  // T08：普通管理员获得成员管理入口，最低角色档降为 admin。
+  'user-management': 'admin',
   mymemory: 'viewer',
   // 客户版产线绑定：每个成员编辑自己在当前工作区的绑定，Admin 设置不出现该分区（C6）。
   agentlines: 'viewer',
@@ -48,8 +49,10 @@ export const SETTINGS_SECTION_MIN_ROLE: Record<string, SettingsRoleKey> = {
  * corresponding read-only Settings page.
  */
 export const SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE = {
-  members: 'owner',
-  'user-management': 'owner',
+  // T08：普通管理员拿到成员治理能力（T02/T06），头像「成员管理」快捷入口
+  // 的门槛从 owner 降到 admin；实际可见性仍由 user.view 能力投影决定。
+  members: 'admin',
+  'user-management': 'admin',
   models: 'admin',
 } as const satisfies Record<string, SettingsRoleKey>
 

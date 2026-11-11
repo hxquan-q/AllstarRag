@@ -8970,9 +8970,9 @@ export default {
       operations: 'Actions'
     },
     role: {
-      owner: 'Owner',
-      admin: 'Admin',
-      contributor: 'Contributor',
+      owner: 'Space owner',
+      admin: 'Administrator',
+      contributor: 'Administrator',
       viewer: 'Viewer'
     },
     add: {
@@ -9447,8 +9447,8 @@ export default {
     directory: {
       title: 'Roles',
       systemAdmin: 'System administrator',
-      owner: 'Administrator',
-      editor: 'Editor',
+      owner: 'Space owner',
+      admin: 'Administrator',
       viewer: 'Viewer',
       noSpace: 'No workspace',
     },
@@ -9463,7 +9463,8 @@ export default {
     },
     roles: {
       systemAdmin: 'System administrator',
-      owner: 'Administrator',
+      owner: 'Space owner',
+      admin: 'Administrator',
       editor: 'Editor',
       viewer: 'Viewer',
     },
@@ -9517,10 +9518,11 @@ export default {
     },
     tooltips: {
       self: 'You cannot perform this action on yourself',
-      ownerProtected: 'Administrator accounts can only be managed by a system administrator',
+      ownerProtected: 'Space owner accounts can only be managed by a system administrator',
+      peerProtected: 'Administrators cannot perform this action on fellow administrators',
       systemAdminProtected: 'Revoke system administrator privileges first',
       transferRequired: 'Complete the workspace handover first',
-      transferOwnerOnly: 'Only administrators need to hand over a workspace',
+      transferOwnerOnly: 'Only space owners need to hand over a workspace',
       switchSpaceRequired: 'Switch to the workspace this account belongs to before changing roles or transferring ownership',
       noPermission: 'You do not have permission to perform this action',
     },

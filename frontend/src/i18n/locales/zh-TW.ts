@@ -762,9 +762,9 @@ export default {
       }
     },
     role: {
-      owner: '所有者',
-      admin: '管理員',
-      contributor: '編輯',
+      owner: '空間擁有者',
+      admin: '一般管理員',
+      contributor: '一般管理員',
       viewer: '訪客'
     },
     columns: {
@@ -9437,8 +9437,8 @@ export default {
     directory: {
       title: '角色目錄',
       systemAdmin: '系統管理員',
-      owner: '一般管理員',
-      editor: '編輯',
+      owner: '空間擁有者',
+      admin: '一般管理員',
       viewer: '訪客',
       noSpace: '無空間',
     },
@@ -9453,7 +9453,8 @@ export default {
     },
     roles: {
       systemAdmin: '系統管理員',
-      owner: '一般管理員',
+      owner: '空間擁有者',
+      admin: '一般管理員',
       editor: '編輯',
       viewer: '訪客',
     },
@@ -9507,10 +9508,11 @@ export default {
     },
     tooltips: {
       self: '不能對自己執行此操作',
-      ownerProtected: '一般管理員帳號只能由系統管理員處理',
+      ownerProtected: '空間擁有者帳號只能由系統管理員處理',
+      peerProtected: '一般管理員不能對同級一般管理員執行此操作',
       systemAdminProtected: '請先撤銷系統管理員身分',
       transferRequired: '請先透過「交接工作區」完成交接',
-      transferOwnerOnly: '只有一般管理員需要交接工作區',
+      transferOwnerOnly: '只有空間擁有者需要交接工作區',
       switchSpaceRequired: '請先切換到此帳號所在的工作區，再變更角色或交接工作區',
       noPermission: '你沒有權限執行此操作',
     },

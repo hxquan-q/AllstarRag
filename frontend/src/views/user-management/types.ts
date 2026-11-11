@@ -9,17 +9,14 @@ import type {
 } from '@/api/user-management'
 
 /**
- * 左目录的类别（Q37 简化后）：普通管理员(owner) / 编辑(editor) / 游客(viewer)，
- * 超管视图另加平台系统管理员。
- * editor 是前端展示口径：聚合后端的 contributor 与 admin 两类账号，
- * 后端 admin 角色保留不删，已有 admin 账号归入「编辑」栏且权限不变。
+ * 左目录的类别（T08 收敛后）：空间拥有者(owner) / 普通管理员(admin) / 游客(viewer)，
+ * 超管视图另加平台系统管理员；scope=all 再加「无空间」。
+ * admin 与后端角色一一对应（单角色直查）。后端已停止分配 contributor，
+ * 残余 contributor 行在界面按普通管理员归并显示，不再有独立「编辑」目录。
  * no_space 是超管全平台视图（scope=all）专属的「无空间」目录（T44）：
  * 无任何 active 成员关系的普通账号。
  */
-export type DirectoryRole = 'owner' | 'editor' | 'viewer' | 'system_admin' | 'no_space'
-
-/** 编辑类包含的后端角色；目录计数与列表查询都按这两个角色聚合。 */
-export const EDITOR_BACKEND_ROLES: TenantRole[] = ['contributor', 'admin']
+export type DirectoryRole = 'owner' | 'admin' | 'viewer' | 'system_admin' | 'no_space'
 
 /** 右表一行；只保留展示需要的字段（AC-32）。role 为空串表示该账号
  * 在当前视图里没有任何成员关系（scope=all 时可能出现）。 */
@@ -37,7 +34,7 @@ export interface UserRow {
 /**
  * 左目录一项：类别、当前语言下的文案、该类别成员数。
  * count 为 null 表示该视图下计数不可信/不可用，不渲染徽标
- * （如 other/all 视图的编辑目录会双计多空间账号，隐藏徽标）。
+ * （如后端未返回该桶计数的场景）。
  */
 export interface DirectoryEntry {
   key: DirectoryRole
@@ -110,6 +107,7 @@ const TOOLTIP_OWNER_PROTECTED = 'userManagement.tooltips.ownerProtected'
 const TOOLTIP_SYSTEM_ADMIN = 'userManagement.tooltips.systemAdminProtected'
 const TOOLTIP_TRANSFER_REQUIRED = 'userManagement.tooltips.transferRequired'
 const TOOLTIP_TRANSFER_OWNER_ONLY = 'userManagement.tooltips.transferOwnerOnly'
+const TOOLTIP_PEER_PROTECTED = 'userManagement.tooltips.peerProtected'
 
 /**
  * 单行动作的前端门控：先看能力，再看目标形态与操作者身份。
@@ -138,6 +136,15 @@ export function gateUserAction(
   if (!permissions[kind]) return { allowed: false, reasonKey: TOOLTIP_NO_PERMISSION }
   if (row.role === 'system_admin') return { allowed: false, reasonKey: TOOLTIP_SYSTEM_ADMIN }
   if (row.user_id === currentUserId) return { allowed: false, reasonKey: TOOLTIP_SELF }
+  // CP2 同级保护（T08/AC-12b）：操作者按能力投影刻画 —— 拥有成员治理能力但
+  // 没有 space.transfer，在 T02 后的能力矩阵下唯一对应普通管理员（owner 与
+  // 系统管理员的矩阵都含 transfer），禁止写第二套角色判断。普通管理员不能
+  // 对同级 admin 执行治理动作；迁移残留的 contributor 行已按普通管理员归并
+  // 显示，同样受保护。后端 member_target_protection 仍逐接口兜底（C4）。
+  const isRegularAdminOperator = !isSystemAdmin && !permissions.transfer
+  if (isRegularAdminOperator && (row.role === 'admin' || row.role === 'contributor')) {
+    return { allowed: false, reasonKey: TOOLTIP_PEER_PROTECTED }
+  }
   if (row.role !== 'owner') return { allowed: true }
   // owner 行不提供角色下拉：后端对 owner → 非 owner 一律 403，
   // 只能先通过「交接」把所有权交给其他成员。
@@ -151,12 +158,12 @@ export function gateUserAction(
 }
 
 /**
- * 角色下拉可选项（Q37 简化后）：只提供 游客(viewer) / 编辑(contributor)，
- * 超管操作者额外可把成员提升为 普通管理员(owner)（co-owner）。
- * 后端 admin 角色不再出现在 UI 选项里；「编辑」统一落到 contributor。
+ * 角色下拉可选项（T08/AC-11/13）：只分配 游客(viewer) / 普通管理员(admin)；
+ * 空间拥有者(owner) 的提升仅超管操作者可选（交接/设 owner 路径）。
+ * contributor 停止分配后不再出现在选项里。
  */
 export function roleChangeOptions(isSystemAdmin: boolean): TenantRole[] {
-  return isSystemAdmin ? ['viewer', 'contributor', 'owner'] : ['viewer', 'contributor']
+  return isSystemAdmin ? ['viewer', 'admin', 'owner'] : ['viewer', 'admin']
 }
 
 /**

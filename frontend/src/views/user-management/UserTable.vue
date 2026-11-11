@@ -179,12 +179,12 @@ const currentPageSize = computed({
   set: (value: number) => emit('update:pageSize', value),
 })
 
-// 角色下拉的展示值：后端 admin 账号归入「编辑」，选值统一落到 contributor。
-// 走到这里的角色只会是 viewer/contributor/admin（owner 行显示 tooltip，
-// system_admin 行显示文本），兜底取 contributor。
+// 角色下拉的展示值：admin 与后端角色一一对应；迁移残留的 contributor 行
+// 已按普通管理员归并显示，选值统一落到 admin。走到这里的角色只会是
+// viewer/admin（owner 行显示 tooltip，system_admin 行显示文本）。
 function selectValue(row: UserRow): TenantRole {
   if (row.role === 'viewer') return 'viewer'
-  return 'contributor'
+  return 'admin'
 }
 
 const columns = computed<TableColumn[]>(() => {

@@ -138,10 +138,12 @@ function roleDiff(row: AuditLog): string {
   return `${roleLabel(from)} → ${roleLabel(to)}`
 }
 
+// 角色变更记录的反向映射（T08）：只按 空间拥有者/普通管理员/游客 三档显示，
+// admin 之外的残余角色（如迁移前的 contributor）归并到普通管理员。
 function roleLabel(role: string): string {
-  if (role === 'owner') return t('userManagement.directory.owner')
-  if (role === 'viewer') return t('userManagement.directory.viewer')
-  return t('userManagement.directory.editor')
+  if (role === 'owner') return t('userManagement.roles.owner')
+  if (role === 'viewer') return t('userManagement.roles.viewer')
+  return t('userManagement.roles.admin')
 }
 
 function outcomeTheme(outcome: AuditOutcome): 'success' | 'danger' | 'default' {

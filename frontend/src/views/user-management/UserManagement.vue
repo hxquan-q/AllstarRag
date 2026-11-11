@@ -193,10 +193,10 @@ const canCreateUser = computed(() => can('user.create'))
 const canInviteUser = computed(() => can('user.invite'))
 const canAddUser = computed(() => canCreateUser.value || canInviteUser.value)
 
-// 邀请管理 Tab 仅对有邀请能力的角色（owner/系统管理员）可见；
-// 前端只做入口门控，接口本身仍由后端逐项校验（C4）。
+// 邀请管理 Tab 对有邀请能力的角色可见（owner/普通管理员/系统管理员，
+// T02 后能力矩阵）；前端只做入口门控，接口本身仍由后端逐项校验（C4）。
 const canSeeInvites = computed(() => can('user.invite'))
-// 操作记录 Tab 与用户管理同门槛（owner/系统管理员）；数据仍由后端按空间过滤。
+// 操作记录 Tab 与用户管理同门槛（user.view 能力）；数据仍由后端按空间过滤。
 const canSeeOperations = computed(() => can('user.view'))
 type ManagementTab = 'members' | 'invites' | 'operations'
 const activeTab = ref<ManagementTab>('members')
