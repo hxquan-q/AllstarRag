@@ -1689,7 +1689,8 @@ async function onRoleChange(row: TenantMember, newRole: string) {
 
 // 原地 popconfirm 替代 DialogPlugin 模态确认：与"共享资源删除"等其它列表内
 // 的删除入口风格统一，避免一个简单的二次确认打断成员管理表格的浏览节奏。
-// 错误分支保持与旧实现一致（409 last-owner / 404 not-found / 兜底）。
+// 409 有两种来源（最后一位 owner / 目标角色被并发修改，CP3 B2），后端共用
+// ErrConflict 码无法区分，统一显示通用冲突文案；404 not-found / 兜底不变。
 async function removeRow(row: TenantMember) {
   try {
     const resp = await removeMember(activeTenantId.value, row.user_id)
@@ -1702,7 +1703,7 @@ async function removeRow(row: TenantMember) {
   } catch (err: any) {
     const status = err?.status
     if (status === 409) {
-      MessagePlugin.error(t('tenantMember.errors.lastOwner'))
+      MessagePlugin.error(t('userManagement.errors.conflict'))
     } else if (status === 404) {
       MessagePlugin.error(t('tenantMember.errors.notFound'))
     } else {
