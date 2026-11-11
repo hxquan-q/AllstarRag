@@ -41,10 +41,17 @@ func banTxPauseHookFromContext(ctx context.Context) BanTxPauseHook {
 //
 // 目标已经是封禁态时幂等返回，不写新审计，避免重复 ban 改写“全平台最近
 // 一次 ban”的归属。audit 为 nil 时只改状态（调用方没有审计服务）。
+//
+// expectedTargetRole 非空时，在同一事务内锁住目标在本租户的 active 成员行
+// 并复核角色仍等于预读值；不一致返回 ErrRoleChanged。这样并发把 viewer
+// 提升为 admin 后，普通管理员不能再封禁已受同级保护的目标。平台级调用
+// 传空角色跳过该复核（不依赖成员关系）。
 func (r *userRepository) BanUserTx(
 	ctx context.Context,
+	tenantID uint64,
 	targetUserID string,
 	actorID string,
+	expectedTargetRole types.TenantRole,
 	audit *types.AuditLog,
 ) (*types.User, error) {
 	var user types.User
@@ -81,6 +88,26 @@ func (r *userRepository) BanUserTx(
 		}
 		if user.IsSystemAdmin && activeSystemAdminCount(admins) <= 1 {
 			return ErrCannotDisableLastAdmin
+		}
+		// 目标保护快照复核（N9 / N20）：服务层按预读的成员角色决定是否
+		// 允许，这里锁住同一成员行并复核角色未变。并发提权（viewer→admin）
+		// 后，普通管理员不能继续封禁该目标；expectedTargetRole 为空表示
+		// 平台级调用，不依赖成员关系。
+		if expectedTargetRole != "" {
+			var member types.TenantMember
+			err := tx.Clauses(forUpdateClause()).
+				Where("tenant_id = ? AND user_id = ? AND status = ?",
+					tenantID, targetUserID, types.TenantMemberStatusActive).
+				First(&member).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrRoleChanged
+			}
+			if err != nil {
+				return err
+			}
+			if member.Role != expectedTargetRole {
+				return ErrRoleChanged
+			}
 		}
 
 		now := time.Now()

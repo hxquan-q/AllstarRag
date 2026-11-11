@@ -31,12 +31,14 @@ func memberTargetProtection(
 	if _, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
 		return nil
 	}
-	if types.IsSystemAdminFromContext(ctx) {
-		return nil
-	}
+	// AC-9：任何人（含系统管理员）都不能对自己降级/封禁/注销。self 检查
+	// 必须先于超管豁免，否则超管以普通成员身份可以改自己的空间角色。
 	actorID, _ := types.UserIDFromContext(ctx)
 	if actorID != "" && actorID == targetUserID && !allowSelf {
 		return apperrors.NewForbiddenError("you cannot change your own account status")
+	}
+	if types.IsSystemAdminFromContext(ctx) {
+		return nil
 	}
 	callerRole, ok := explicitCallerRole(ctx)
 	if !ok {

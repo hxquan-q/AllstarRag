@@ -674,6 +674,18 @@ func (s *tenantMemberService) emitRoleChangeAudit(
 	})
 }
 
+// guardedMemberRemover 是按 expectedRole 做 CAS 软删的可选仓储能力。
+// 单独定义窄接口，让只实现 TenantMemberRepository 的既有测试替身继续可
+// 编译；真实仓储实现它，生产路径因此总走 CAS。
+type guardedMemberRemover interface {
+	SoftDeleteWithRole(
+		ctx context.Context,
+		userID string,
+		tenantID uint64,
+		expectedRole types.TenantRole,
+	) error
+}
+
 // RemoveMember enforces the "cannot remove the last Owner" invariant
 // before soft-deleting the membership. For Owner removals it routes
 // through the repo's transactional helper so the count + delete commit
@@ -722,7 +734,18 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 		s.cleanupRemovedMemberState(ctx, userID, tenantID)
 		return nil
 	}
-	if err := s.repo.SoftDelete(ctx, userID, tenantID); err != nil {
+	// 目标保护基于预读快照；删除时带上 expectedRole 做 CAS，防止「校验后
+	// 被提升为同级管理员的行」仍被删除（N9 / N17 / N20）。仓储替身不支持
+	// CAS 时回退旧删除路径（仅测试）。
+	if remover, ok := s.repo.(guardedMemberRemover); ok {
+		err := remover.SoftDeleteWithRole(ctx, userID, tenantID, current.Role)
+		if errors.Is(err, apprepo.ErrRoleChanged) {
+			return ErrMembershipChanged
+		}
+		if err != nil {
+			return err
+		}
+	} else if err := s.repo.SoftDelete(ctx, userID, tenantID); err != nil {
 		return err
 	}
 	s.emitRemovalAudit(ctx, tenantID, userID)

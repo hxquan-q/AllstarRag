@@ -112,8 +112,10 @@ type userUnbanTx interface {
 type userBanTx interface {
 	BanUserTx(
 		ctx context.Context,
+		tenantID uint64,
 		targetUserID string,
 		actorID string,
+		expectedTargetRole types.TenantRole,
 		audit *types.AuditLog,
 	) (*types.User, error)
 }
@@ -147,7 +149,10 @@ func (s *userManagementService) BanUser(
 			audit = statusAuditEntry(ctx, tenantID, target,
 				types.AuditActionMemberBanned, reason)
 		}
-		user, err := s.banRepo.BanUserTx(ctx, target.user.ID, auditActor(ctx), audit)
+		// expectedTargetRole 让事务内复核目标角色未被并发提升；目标保护
+		// 因此不再只依赖事务外的快照（N9 / N20）。
+		user, err := s.banRepo.BanUserTx(
+			ctx, tenantID, target.user.ID, auditActor(ctx), target.member.Role, audit)
 		if err != nil {
 			return nil, mapUserStatusError(err)
 		}
@@ -385,6 +390,9 @@ func mapUserStatusError(err error) error {
 		errors.Is(err, apprepo.ErrLastSystemAdmin):
 		return apperrors.NewForbiddenError(
 			"cannot disable the last remaining system administrator")
+	case errors.Is(err, apprepo.ErrRoleChanged):
+		// 目标角色在事务内已变化（并发提权/降级），按冲突让调用方刷新重试。
+		return apperrors.NewConflictError("the member's role changed; refresh and retry")
 	default:
 		return err
 	}

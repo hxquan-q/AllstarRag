@@ -34,11 +34,17 @@ var (
 // 成员行加锁把"服务层校验后、事务提交前"的并发提权挡住：并发的
 // UpdateRole / TransferOwner 要么先提交（这里能看到 owner 行并拒绝），
 // 要么被行锁挡住，待墓碑提交后因成员行已软删而失败回滚。
+//
+// expectedTargetRole 非空时还会复核目标在本租户的成员角色仍等于服务层
+// 预读值，不一致返回 ErrRoleChanged。这是目标保护的 CAS：避免校验后被
+// 提升为普通管理员的账号仍被同级管理员注销（N17 / N20）。平台级调用传
+// 空角色跳过该复核（不依赖成员关系）。
 func (r *userRepository) PurgeUserTx(
 	ctx context.Context,
 	tenantID uint64,
 	targetUserID string,
 	callerIsSystemAdmin bool,
+	expectedTargetRole types.TenantRole,
 	audit *types.AuditLog,
 ) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
@@ -60,6 +66,7 @@ func (r *userRepository) PurgeUserTx(
 			Find(&members).Error; err != nil {
 			return err
 		}
+		roleMatched := false
 		for _, member := range members {
 			if member.Role == types.TenantRoleOwner {
 				return ErrPurgeTargetStillOwner
@@ -68,6 +75,18 @@ func (r *userRepository) PurgeUserTx(
 			if !callerIsSystemAdmin && member.TenantID != tenantID {
 				return ErrPurgeTargetCrossTenant
 			}
+			// 目标保护快照复核（N17 / N20）：事务外按预读角色判定后，目标
+			// 可能已被提升为普通管理员。这里在锁住的成员行上复核角色未变，
+			// 避免普通管理员删除受同级保护的账号。
+			if expectedTargetRole != "" && member.TenantID == tenantID {
+				if member.Role != expectedTargetRole {
+					return ErrRoleChanged
+				}
+				roleMatched = true
+			}
+		}
+		if expectedTargetRole != "" && !roleMatched {
+			return ErrRoleChanged
 		}
 
 		now := time.Now().UTC()

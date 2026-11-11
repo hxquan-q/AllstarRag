@@ -69,7 +69,8 @@ func (s *userManagementService) PlatformBanUser(
 		if s.audit != nil {
 			audit = platformAuditEntry(ctx, target.ID, types.AuditActionMemberBanned, reason)
 		}
-		user, err := s.banRepo.BanUserTx(ctx, target.ID, auditActor(ctx), audit)
+		// 平台级封禁不依赖成员关系，传空角色跳过事务内成员快照复核。
+		user, err := s.banRepo.BanUserTx(ctx, 0, target.ID, auditActor(ctx), "", audit)
 		if err != nil {
 			return nil, mapUserStatusError(err)
 		}
@@ -163,7 +164,8 @@ func (s *userManagementService) PlatformPurgeUser(
 		return apperrors.NewInternalServerError("user purge is not available")
 	}
 	audit := platformAuditEntry(ctx, target.ID, types.AuditActionMemberPurged, reason)
-	if err := s.purgeRepo.PurgeUserTx(ctx, 0, target.ID, true, audit); err != nil {
+	// 平台级注销不依赖成员关系，传空角色跳过事务内成员快照复核。
+	if err := s.purgeRepo.PurgeUserTx(ctx, 0, target.ID, true, "", audit); err != nil {
 		return mapPurgeError(err)
 	}
 	return nil

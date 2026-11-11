@@ -819,12 +819,22 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("user_id is required"))
 		return
 	}
+	// 管理用 DELETE 与自助 POST /leave 共用服务方法；服务层用
+	// caller==target 识别 leave，无法区分两个入口。这里显式拒绝自删，
+	// 保证 AC-9（任何人不能移除自己）：离开空间只能走 leave 接口。
+	if caller, ok := types.UserIDFromContext(ctx); ok && caller != "" && caller == userID {
+		c.Error(apperrors.NewForbiddenError(
+			"you cannot remove your own membership; use the leave endpoint"))
+		return
+	}
 
 	if err := h.memberService.RemoveMember(ctx, userID, tenantID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrMembershipNotFound):
 			c.Error(apperrors.NewNotFoundError("membership not found"))
 		case errors.Is(err, service.ErrLastOwner):
+			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrMembershipChanged):
 			c.Error(apperrors.NewConflictError(err.Error()))
 		default:
 			// T06 目标保护拒绝（admin→owner/同级）是 403 AppError，

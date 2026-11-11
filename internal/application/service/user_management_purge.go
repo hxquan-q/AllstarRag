@@ -24,6 +24,7 @@ type userPurgeTx interface {
 		tenantID uint64,
 		targetUserID string,
 		callerIsSystemAdmin bool,
+		expectedTargetRole types.TenantRole,
 		audit *types.AuditLog,
 	) error
 }
@@ -55,8 +56,11 @@ func (s *userManagementService) PurgeUser(
 		return apperrors.NewInternalServerError("user purge is not available")
 	}
 	audit := purgeAuditEntry(ctx, tenantID, target, reason)
+	// expectedTargetRole 让墓碑化事务复核目标角色未被并发提升，堵住
+	// 「校验后被提为同级管理员仍被注销」的窗口（N17 / N20）。
 	if err := s.purgeRepo.PurgeUserTx(
-		ctx, tenantID, target.user.ID, types.IsSystemAdminFromContext(ctx), audit,
+		ctx, tenantID, target.user.ID, types.IsSystemAdminFromContext(ctx),
+		target.member.Role, audit,
 	); err != nil {
 		return mapPurgeError(err)
 	}
@@ -176,6 +180,9 @@ func mapPurgeError(err error) error {
 	case errors.Is(err, apprepo.ErrPurgeTargetCrossTenant):
 		return apperrors.NewForbiddenError(
 			"this account also belongs to other workspaces; ask a system administrator to purge it")
+	case errors.Is(err, apprepo.ErrRoleChanged):
+		// 目标角色在事务内已变化（并发提权/降级），按冲突让调用方刷新重试。
+		return apperrors.NewConflictError("the member's role changed; refresh and retry")
 	default:
 		return err
 	}
