@@ -74,7 +74,7 @@ func (s *userManagementService) ProvisionOwnerSpace(
 		if err != nil {
 			return nil, err
 		}
-		if err := s.adoptHomeTenant(ctx, target, tenant.ID); err != nil {
+		if err := s.adoptHomeTenant(ctx, target.ID, tenant.ID); err != nil {
 			return nil, err
 		}
 		s.emitOwnerAudit(ctx, tenant.ID, types.AuditActionOwnerProvisioned,
@@ -100,7 +100,7 @@ func (s *userManagementService) ProvisionOwnerSpace(
 		_ = s.tenantService.DeleteTenant(ctx, tenant.ID)
 		return nil, err
 	}
-	if err := s.adoptHomeTenant(ctx, target, tenant.ID); err != nil {
+	if err := s.adoptHomeTenant(ctx, target.ID, tenant.ID); err != nil {
 		return nil, err
 	}
 	s.emitOwnerAudit(ctx, tenant.ID, types.AuditActionOwnerProvisioned,

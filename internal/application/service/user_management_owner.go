@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	apprepo "github.com/Tencent/WeKnora/internal/application/repository"
 	apperrors "github.com/Tencent/WeKnora/internal/errors"
@@ -151,19 +150,27 @@ func defaultOwnerSpaceName(spaceName, username string) string {
 
 // adoptHomeTenant 把无家空间账号（users.tenant_id=0）指向刚确认的空间。
 // 已有家空间的账号保持原值，避免悄悄改写别的空间归属。
+//
+// 只做列级条件更新（SetTenantIDIfEmpty），不再整行 Save：整行 Save 会把
+// 事务外读到的用户快照写回去，覆盖并发发生的密码重置、撤权等安全字段
+// （N23 / N26）。已有 home（含并发已设置）时 RowsAffected=0，按幂等成功
+// 处理；只有真正的写失败才返回错误，调用方据此回滚空间创建。
 func (s *userManagementService) adoptHomeTenant(
 	ctx context.Context,
-	user *types.User,
+	userID string,
 	tenantID uint64,
 ) error {
-	if user == nil || user.TenantID != 0 || tenantID == 0 {
+	userID = strings.TrimSpace(userID)
+	if userID == "" || tenantID == 0 {
 		return nil
 	}
-	user.TenantID = tenantID
-	user.UpdatedAt = time.Now()
-	// 家空间是登录/空间切换的归属依据，写失败必须让调用方看到，
-	// 否则账号会继续被当成无空间用户。
-	return s.userRepo.UpdateUser(ctx, user)
+	writer, ok := s.userRepo.(emptyHomeTenantWriter)
+	if !ok {
+		return apperrors.NewInternalServerError(
+			"user repository lacks conditional home-tenant update")
+	}
+	_, err := writer.SetTenantIDIfEmpty(ctx, userID, tenantID)
+	return err
 }
 
 // emitOwnerAudit 写 owner 管理相关审计。审计是尽力而为：写失败不影响
