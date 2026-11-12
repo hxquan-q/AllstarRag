@@ -208,6 +208,16 @@ func (s *tenantMemberService) addMemberLocked(
 		return nil, err
 	}
 	if existing != nil {
+		// 挂起的旧关系不等于「已是成员」：重新邀请/重新加入要恢复该行，
+		// 否则邀请侧会把邀请标成 accepted 后拿到已挂起的旧成员（假成功）。
+		// 恢复同样受一号一空间约束：用户若已 active/invited 在别的空间，
+		// 不能借恢复挂起行变成两个空间。
+		if existing.Status == types.TenantMemberStatusSuspended {
+			if err := s.assertSingleSpaceMembership(ctx, userID, tenantID); err != nil {
+				return nil, err
+			}
+			return s.reactivateSuspendedLocked(ctx, userID, tenantID, role, invitedBy)
+		}
 		return nil, ErrMembershipAlreadyExists
 	}
 	// 同租户已有成员关系不触发跨空间拒绝（幂等/重复错误交给上面）；这里
@@ -230,6 +240,58 @@ func (s *tenantMemberService) addMemberLocked(
 		// to the same sentinel the in-service check would have returned
 		// so callers get a clean 409 instead of an opaque 500.
 		if isDuplicateMembership(err) {
+			return nil, ErrMembershipAlreadyExists
+		}
+		return nil, err
+	}
+	s.emitAudit(ctx, &types.AuditLog{
+		TenantID:     tenantID,
+		ActorUserID:  auditActor(ctx),
+		ActorRole:    auditActorRole(ctx),
+		Action:       types.AuditActionMemberAdded,
+		TargetType:   "tenant_member",
+		TargetUserID: userID,
+		Outcome:      types.AuditOutcomeSuccess,
+	})
+	s.adoptHomeTenantIfEmpty(ctx, userID, tenantID)
+	return member, nil
+}
+
+// suspendedMemberReactivator 是「挂起后重新加入」依赖的可选仓储能力。
+// 单独定义窄接口，让只实现 TenantMemberRepository 的既有测试替身继续可
+// 编译；真实仓储实现它，生产路径因此总能恢复挂起行。
+type suspendedMemberReactivator interface {
+	ReactivateSuspended(
+		ctx context.Context,
+		userID string,
+		tenantID uint64,
+		role types.TenantRole,
+		invitedBy *string,
+	) (*types.TenantMember, error)
+}
+
+// reactivateSuspendedLocked 恢复被挂起的旧成员行：status→active、role 取
+// 本次请求角色、joined_at 记为本次重新加入时间、invited_by 取本次值。
+// 收尾与新建一致（member_added 审计 + home 回填）。调用方必须已持有该
+// 用户的用户级锁。
+//
+// 并发请求已先把行恢复为 active 时按「已是成员」返回，由邀请侧幂等分支
+// 回读最新成员。
+func (s *tenantMemberService) reactivateSuspendedLocked(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	role types.TenantRole,
+	invitedBy *string,
+) (*types.TenantMember, error) {
+	reactivator, ok := s.repo.(suspendedMemberReactivator)
+	if !ok {
+		// 测试替身没有恢复能力：保持旧的「已是成员」语义。
+		return nil, ErrMembershipAlreadyExists
+	}
+	member, err := reactivator.ReactivateSuspended(ctx, userID, tenantID, role, invitedBy)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrMembershipAlreadyExists
 		}
 		return nil, err
