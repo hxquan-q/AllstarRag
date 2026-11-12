@@ -104,6 +104,7 @@ type userUnbanTx interface {
 		targetUserID string,
 		actorID string,
 		isSystemAdmin bool,
+		expectedTargetRole types.TenantRole,
 	) (*types.User, error)
 }
 
@@ -196,8 +197,10 @@ func (s *userManagementService) UnbanUser(
 	// 生产路径：检查与解封在同一事务内完成，避免并发新 ban 被旧来源的
 	// 解封覆盖。事务内还会再查一次最新 ban，不能依赖事务外的预检查。
 	if s.unbanRepo != nil {
+		// expectedTargetRole 让事务内复核目标角色未被并发提升；目标保护
+		// 因此不再只依赖事务外的快照（与 ban/purge 的 B2 模式一致）。
 		user, err := s.unbanRepo.UnbanUserTx(
-			ctx, tenantID, target.user.ID, auditActor(ctx), isSystemAdmin)
+			ctx, tenantID, target.user.ID, auditActor(ctx), isSystemAdmin, target.member.Role)
 		if err != nil {
 			switch {
 			case errors.Is(err, apprepo.ErrUnbanNotLatestTenant):
@@ -205,6 +208,9 @@ func (s *userManagementService) UnbanUser(
 					"this account was banned in another workspace; ask a system administrator")
 			case errors.Is(err, apprepo.ErrUserNotFound):
 				return nil, apperrors.NewNotFoundError("user not found")
+			case errors.Is(err, apprepo.ErrRoleChanged):
+				return nil, apperrors.NewConflictError(
+					"the member's role changed; refresh and retry")
 			default:
 				return nil, err
 			}

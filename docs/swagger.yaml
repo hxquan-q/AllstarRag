@@ -29931,6 +29931,11 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "409":
+          description: 目标角色并发变化（ErrMembershipChanged），刷新后重试
+          schema:
+            additionalProperties: true
+            type: object
         "500":
           description: 内部错误
           schema:

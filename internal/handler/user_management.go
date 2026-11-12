@@ -103,6 +103,7 @@ func (h *UserManagementHandler) BanMember(c *gin.Context) {
 //	@Failure      400      {object}  map[string]interface{}  "请求体非法"
 //	@Failure      403      {object}  map[string]interface{}  "无权限、目标保护或跨租户解封需超管"
 //	@Failure      404      {object}  map[string]interface{}  "目标不是本空间 active 成员"
+//	@Failure      409      {object}  map[string]interface{}  "目标角色并发变化（ErrMembershipChanged），刷新后重试"
 //	@Failure      500      {object}  map[string]interface{}  "内部错误"
 //	@Router       /tenants/{id}/members/{user_id}/unban [post]
 func (h *UserManagementHandler) UnbanMember(c *gin.Context) {

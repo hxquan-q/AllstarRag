@@ -23827,6 +23827,13 @@ const docTemplate = `{
                             "additionalProperties": true
                         }
                     },
+                    "409": {
+                        "description": "目标角色并发变化（ErrMembershipChanged），刷新后重试",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
                     "500": {
                         "description": "内部错误",
                         "schema": {
