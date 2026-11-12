@@ -9499,7 +9499,7 @@ export default {
       reasonPlaceholder: '備註（選填）',
       purgeEmailMismatch: '電子郵件與目標帳號不一致，請重新輸入',
       transferTargetRequired: '請選擇新的空間擁有者',
-      transferNoCandidates: '暫無可交接的成員',
+      transferNoCandidates: '本空間暫無可交接的一般管理員，請先將目標提升為一般管理員',
       confirm: '確認',
       cancel: '取消',
     },

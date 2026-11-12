@@ -9502,7 +9502,7 @@ export default {
       reasonPlaceholder: '备注（可选）',
       purgeEmailMismatch: '邮箱与目标账号不一致，请重新输入',
       transferTargetRequired: '请选择新的空间拥有者',
-      transferNoCandidates: '暂无可交接的成员',
+      transferNoCandidates: '本空间暂无可交接的普通管理员，请先把目标提升为普通管理员',
       confirm: '确认',
       cancel: '取消',
     },

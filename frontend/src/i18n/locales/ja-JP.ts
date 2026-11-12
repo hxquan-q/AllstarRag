@@ -9503,7 +9503,7 @@ export default {
       reasonPlaceholder: 'メモ（任意）',
       purgeEmailMismatch: 'メールアドレスが対象アカウントと一致しません。再入力してください。',
       transferTargetRequired: '新しいスペースオーナーを選択してください',
-      transferNoCandidates: '引き継ぎ可能なメンバーがいません',
+      transferNoCandidates: '引き継ぎ可能な管理者がいません。対象を管理者に昇格してからお試しください',
       confirm: '確認',
       cancel: 'キャンセル',
     },

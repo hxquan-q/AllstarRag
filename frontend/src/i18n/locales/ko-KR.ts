@@ -9503,7 +9503,7 @@ export default {
       reasonPlaceholder: '메모(선택)',
       purgeEmailMismatch: '이메일이 대상 계정과 일치하지 않습니다. 다시 입력하세요.',
       transferTargetRequired: '새 공간 소유자를 선택하세요',
-      transferNoCandidates: '이전할 수 있는 구성원이 없습니다',
+      transferNoCandidates: '이전할 수 있는 일반 관리자가 없습니다. 대상 구성원을 일반 관리자로 승격한 후 다시 시도하세요',
       confirm: '확인',
       cancel: '취소',
     },

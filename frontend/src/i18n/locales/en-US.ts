@@ -9509,7 +9509,7 @@ export default {
       reasonPlaceholder: 'Note (optional)',
       purgeEmailMismatch: 'The email does not match the target account. Please re-enter it.',
       transferTargetRequired: 'Choose the new space owner',
-      transferNoCandidates: 'No members available to take over',
+      transferNoCandidates: 'No administrator is available to take over. Promote the target to administrator first.',
       confirm: 'Confirm',
       cancel: 'Cancel',
     },

@@ -292,7 +292,11 @@ export function useUserManagement() {
     await load()
   }
 
-  /** 交接弹窗的候选人：本空间全部 active 成员（最多拉 20 页兜底）。 */
+  /**
+   * 交接弹窗的候选人：本空间全部 active 普通管理员（admin），最多拉 20 页
+   * 兜底。后端只允许 active admin 接任空间拥有者（AC-7），游客/其他角色
+   * 即使列出来也必然 409，这里直接按同一口径过滤。
+   */
   async function loadTransferCandidates(): Promise<UserRow[]> {
     const currentTenantId = tenantId.value
     if (currentTenantId == null) return []
@@ -305,7 +309,7 @@ export function useUserManagement() {
       const total = response.data.total ?? 0
       if (items.length < 100 || collected.length >= total) break
     }
-    return collected.filter((row) => row.status === 'active')
+    return collected.filter((row) => row.status === 'active' && row.role === 'admin')
   }
 
   /** 重新拉能力与当前列表；操作成功后保持页码/搜索/目录不变。 */
