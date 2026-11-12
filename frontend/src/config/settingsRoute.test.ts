@@ -96,3 +96,8 @@ test('canonical settings query skips a redundant replace', () => {
     false,
   )
 })
+
+test('旧「成员管理」分区并入用户管理：?section=members 规范化为 user-management（Q31/T20）', () => {
+  assert.equal(normalizeSettingsSection('members'), 'user-management')
+  assert.equal(normalizeSettingsSection('user-management'), 'user-management')
+})

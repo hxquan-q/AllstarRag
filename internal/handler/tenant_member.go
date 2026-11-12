@@ -187,7 +187,9 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 // @Summary      直接添加空间成员（直加路径）
 // @Description
 //
-//	Owner 通过 email 直接把用户作为 active 成员添加进当前空间。
+//	Owner 或普通管理员通过 email 直接把用户作为 active 成员添加进当前空间。
+//	只能分配 admin / viewer；owner 只能通过开通或 transfer-owner 交接产生，
+//	contributor 停止分配。
 //
 //	这是【直加路径】，被加入的用户没有任何确认机会就出现在空间里——
 //	保留它是为了三类不需要走邀请确认的场景：
@@ -206,6 +208,11 @@ func (h *TenantMemberHandler) ListMembers(c *gin.Context) {
 // @Param        id        path  string                 true  "空间 ID"
 // @Param        request   body  addMemberRequest       true  "邀请请求"
 // @Success      201  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}  "请求体或角色非法"
+// @Failure      403  {object}  map[string]interface{}  "角色越权（不能分配 owner/contributor）"
+// @Failure      404  {object}  map[string]interface{}  "邮箱未注册"
+// @Failure      409  {object}  map[string]interface{}  "已是成员，或目标账号已属于其他空间（一号一空间）"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members [post]
 func (h *TenantMemberHandler) AddMember(c *gin.Context) {
@@ -224,7 +231,13 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 	// gives the client a better error message than the generic service
 	// sentinel-mapped 400.
 	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+		c.Error(apperrors.NewValidationError("invalid role"))
+		return
+	}
+	// T05：POST /members 只分配 admin / viewer；owner/contributor 拒绝。
+	if !service.IsAssignableMemberRole(req.Role) {
+		c.Error(apperrors.NewForbiddenError(
+			"role must be admin or viewer; owner is assigned via provisioning or handover"))
 		return
 	}
 
@@ -263,8 +276,8 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 
 // CreateMemberAccount godoc
 // @Summary      创建成员账号并加入空间
-// @Description  工作区 Owner（系统管理员按 Owner 处理）可创建 admin/contributor/viewer，
-// @Description  Admin 只能创建 viewer；任何人都不能创建 owner。一次请求完成建号与入组。
+// @Description  工作区 Owner 或普通管理员（系统管理员按 Owner 处理）可创建 admin/viewer；
+// @Description  contributor 停止分配，任何人都不能创建 owner。一次请求完成建号与入组。
 // @Tags         空间成员
 // @Accept       json
 // @Produce      json
@@ -272,8 +285,8 @@ func (h *TenantMemberHandler) AddMember(c *gin.Context) {
 // @Param        request  body  createMemberAccountRequest  true  "建号请求"
 // @Success      201  {object}  map[string]interface{}  "成员已创建（响应不含密码）"
 // @Failure      400  {object}  map[string]interface{}  "参数或密码不合规 / 试图创建 owner"
-// @Failure      403  {object}  map[string]interface{}  "角色越权"
-// @Failure      409  {object}  map[string]interface{}  "邮箱或用户名已注册"
+// @Failure      403  {object}  map[string]interface{}  "角色越权（不能创建 owner/contributor）"
+// @Failure      409  {object}  map[string]interface{}  "邮箱或用户名已注册，或目标账号已属于其他空间（一号一空间）"
 // @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members/create [post]
@@ -409,6 +422,9 @@ func writeAddMemberError(
 		// 409 reads better than 400 here: the request was syntactically
 		// fine, the conflict is semantic ("already a member").
 		_ = c.Error(apperrors.NewConflictError(err.Error()))
+	case errors.Is(err, service.ErrUserAlreadyInSpace):
+		// 一号一空间（T04）：非超管已属于其他空间，不能加入第二个。
+		_ = c.Error(apperrors.NewConflictError(err.Error()))
 	default:
 		// 500 只回笼统信息：err.Error() 可能带出仓储层细节（F6），完整错误
 		// 已在上面记日志。
@@ -462,8 +478,7 @@ func addMemberAndRespond(
 
 // ResetMemberPassword godoc
 // @Summary      重置成员密码
-// @Description  工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，
-// @Description  Admin 只能重置 contributor/viewer；
+// @Description  工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；
 // @Description  不能重置与自己同级或更高级的成员，也不能重置本人。
 // @Description  目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。
 // @Description  成功后旧密码立即失效，该用户所有已签发 token 被吊销。
@@ -545,6 +560,12 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 			_ = c.Error(apperrors.NewForbiddenError("your role cannot reset this member's password"))
 			return
 		}
+		if errors.Is(err, service.ErrCannotResetElsewhereOwner) {
+			logger.Warnf(ctx, "ResetMemberPassword denied: target owns another workspace user=%s tenant=%d actor_role=%s",
+				targetUserID, tenantID, actorRole)
+			_ = c.Error(apperrors.NewForbiddenError("this member owns another workspace; ask a system administrator to reset the password"))
+			return
+		}
 		if service.IsPasswordPolicyError(err) {
 			_ = c.Error(apperrors.NewValidationError("password does not meet the password policy"))
 			return
@@ -571,14 +592,23 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 
 // UpdateMemberRole godoc
 // @Summary      修改空间成员角色
-// @Description  Owner 修改某位成员在当前空间内的角色；不能将最后一位 Owner 降级
+// @Description  Owner、普通管理员或系统管理员修改某位成员在当前空间内的角色。
+// @Description  只能分配 admin / viewer；不能把任何人提升为 owner，owner 只能通过 transfer-owner 交接产生。
+// @Description  owner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；
+// @Description  普通管理员不能修改另一位普通管理员（同级保护），也不能修改 owner。
+// @Description  非系统管理员不能修改系统管理员 / 跨空间超管 / 在任意空间持有 owner 的账号。
+// @Description  最后一位 Owner 的服务层原子保护保留。
 // @Tags         空间成员
 // @Accept       json
 // @Produce      json
 // @Param        id       path  string                  true  "空间 ID"
 // @Param        user_id  path  string                  true  "用户 ID"
-// @Param        request  body  updateMemberRoleRequest true  "目标角色"
+// @Param        request  body  updateMemberRoleRequest true  "目标角色（admin/viewer）"
 // @Success      200  {object}  handler.SuccessResponse
+// @Failure      400  {object}  map[string]interface{}  "请求体或角色非法"
+// @Failure      403  {object}  map[string]interface{}  "角色越权或目标保护（owner/同级/自己/特权账号）"
+// @Failure      404  {object}  map[string]interface{}  "目标不是本空间 active 成员"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members/{user_id} [put]
 func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
@@ -603,8 +633,113 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
-	if err := h.memberService.UpdateRole(ctx, userID, tenantID, req.Role); err != nil {
+	// 唯一 owner 模型（AC-2/AC-4）：改角色接口不能把任何人提升为 owner，
+	// 包括 owner 与系统管理员调用者。owner 只能由 ProvisionOwnerSpace
+	// 或 transfer-owner 交接产生。
+	if req.Role == types.TenantRoleOwner {
+		logger.Warnf(ctx, "UpdateMemberRole denied: promotion to owner user=%s tenant=%d",
+			userID, tenantID)
+		c.Error(apperrors.NewForbiddenError(
+			"a member cannot be promoted to owner; use transfer-owner to hand over the space"))
+		return
+	}
+	// 路由守卫之外的第二道判权：只有本空间 owner 或系统管理员能改角色。
+	// 保留它是为了防止将来路由装配回退时静默 fail-open（红线 C4）。
+	if !canManageMemberRoles(ctx) {
+		logger.Warnf(ctx, "UpdateMemberRole denied: caller_role=%s tenant=%d",
+			types.TenantRoleFromContext(ctx), tenantID)
+		c.Error(apperrors.NewForbiddenError(
+			"only workspace owners or administrators can change member roles"))
+		return
+	}
+
+	// 目标必须是本空间 active 成员；同时取当前角色做 owner 保护。
+	// 查询失败不能放行，否则下面的保护形同虚设。
+	current, err := h.memberService.GetMembership(ctx, userID, tenantID)
+	if err != nil {
+		logger.Errorf(ctx, "GetMembership failed: user=%s tenant=%d err=%v",
+			userID, tenantID, err)
+		c.Error(apperrors.NewInternalServerError("failed to look up membership"))
+		return
+	}
+	if current == nil || current.Status != types.TenantMemberStatusActive {
+		c.Error(apperrors.NewNotFoundError("membership not found"))
+		return
+	}
+
+	// owner 目标一律不能通过本接口降级/改角色，必须先走 transfer-owner
+	// 交接；owner 与系统管理员同一口径（AC-13/AC-20）。
+	if current.Role == types.TenantRoleOwner && req.Role != types.TenantRoleOwner {
+		logger.Warnf(ctx, "UpdateMemberRole denied: direct owner change user=%s tenant=%d old=%s new=%s",
+			userID, tenantID, current.Role, req.Role)
+		c.Error(apperrors.NewForbiddenError(
+			"an owner cannot be demoted directly; complete the space handover via transfer-owner first"))
+		return
+	}
+
+	// T05：contributor 不再分配；非 owner 目标改角色只能落到 admin / viewer。
+	// 放在 owner 降级保护之后，保持「降级 owner 必须先交接」的提示语义。
+	if !service.IsAssignableMemberRole(req.Role) {
+		logger.Warnf(ctx, "UpdateMemberRole denied: non-assignable role user=%s tenant=%d role=%s",
+			userID, tenantID, req.Role)
+		c.Error(apperrors.NewForbiddenError(
+			"role must be admin or viewer; contributor is no longer assignable"))
+		return
+	}
+
+	// AC-5/AC-6：与封禁/注销保持同一套目标保护。非系统管理员不能改
+	// 系统管理员、跨空间超管，或在别处持有 owner 角色的账号。
+	// 判定需要读 users 行与跨空间成员关系，由真实 TenantMemberService
+	// 通过可选窄接口提供；测试替身未实现时跳过。
+	if !types.IsSystemAdminFromContext(ctx) {
+		if guard, ok := h.memberService.(interfaces.RoleChangeTargetValidator); ok {
+			if err := guard.ValidateRoleChangeTarget(ctx, tenantID, userID); err != nil {
+				switch {
+				case errors.Is(err, service.ErrTargetPrivileged):
+					logger.Warnf(ctx,
+						"UpdateMemberRole denied: target is privileged user=%s tenant=%d", userID, tenantID)
+					c.Error(apperrors.NewForbiddenError(
+						"system administrators and cross-workspace superusers are managed by a system administrator"))
+				case errors.Is(err, service.ErrTargetOwnsWorkspace):
+					logger.Warnf(ctx,
+						"UpdateMemberRole denied: target owns another workspace user=%s tenant=%d",
+						userID, tenantID)
+					c.Error(apperrors.NewForbiddenError(
+						"owner accounts can only be managed by a system administrator"))
+				case errors.Is(err, service.ErrMembershipNotFound):
+					c.Error(apperrors.NewNotFoundError("membership not found"))
+				default:
+					logger.Errorf(ctx, "ValidateRoleChangeTarget failed: user=%s tenant=%d err=%v",
+						userID, tenantID, err)
+					c.Error(apperrors.NewInternalServerError("failed to validate target role change"))
+				}
+				return
+			}
+		}
+	}
+
+	var updateErr error
+	if guarded, ok := h.memberService.(interface {
+		UpdateRoleGuarded(
+			ctx context.Context,
+			userID string,
+			tenantID uint64,
+			expectedRole, newRole types.TenantRole,
+			allowOwnerDemotion bool,
+		) error
+	}); ok {
+		updateErr = guarded.UpdateRoleGuarded(ctx, userID, tenantID, current.Role, req.Role, false)
+	} else {
+		updateErr = h.memberService.UpdateRole(ctx, userID, tenantID, req.Role)
+	}
+	if err := updateErr; err != nil {
 		switch {
+		case errors.Is(err, service.ErrMembershipChanged):
+			c.Error(apperrors.NewConflictError(
+				"membership role changed, refresh and retry"))
+		case errors.Is(err, service.ErrOwnerDemotionRequiresTransfer):
+			c.Error(apperrors.NewForbiddenError(
+				"an owner cannot be demoted directly; complete the space handover via transfer-owner first"))
 		case errors.Is(err, service.ErrMembershipNotFound):
 			c.Error(apperrors.NewNotFoundError("membership not found"))
 		case errors.Is(err, service.ErrLastOwner):
@@ -613,7 +748,20 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 			c.Error(apperrors.NewValidationError(err.Error()))
 		case errors.Is(err, service.ErrAPIKeyCannotAssignOwner):
 			c.Error(apperrors.NewForbiddenError(err.Error()))
+		case errors.Is(err, service.ErrTargetPrivileged):
+			c.Error(apperrors.NewForbiddenError(
+				"system administrators and cross-workspace superusers are managed by a system administrator"))
+		case errors.Is(err, service.ErrTargetOwnsWorkspace):
+			c.Error(apperrors.NewForbiddenError(
+				"owner accounts can only be managed by a system administrator"))
 		default:
+			// 服务层目标保护（owner/同级）返回带 403 语义的 AppError，
+			// 原样交给全局错误处理器，避免被下面笼统的 500 覆盖。
+			var appErr *apperrors.AppError
+			if errors.As(err, &appErr) {
+				c.Error(appErr)
+				return
+			}
 			logger.Errorf(ctx, "UpdateRole failed: user=%s tenant=%d err=%v",
 				userID, tenantID, err)
 			c.Error(apperrors.NewInternalServerError("failed to update member role").WithDetails(err.Error()))
@@ -624,15 +772,40 @@ func (h *TenantMemberHandler) UpdateMemberRole(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
+// canManageMemberRoles 判断调用方能否改本空间成员角色：本空间 owner 或
+// 普通管理员（admin），平台系统管理员（超管不受空间角色阶梯限制，与
+// 路由层 AdminOrSystemAdmin 同一口径），或带 manage_members 能力的 API Key。
+//
+// 普通管理员能否改「某个目标」由下方目标保护与服务层同级保护判定；
+// 这里只做调用者门槛。API Key 是机器主体，不参与 JWT 角色阶梯：它的
+// 权限由路由层 APIKeyGate 按 manage_members 能力判定。这里放行只是避免
+// handler 的第二道判权误伤已有集成；目标级保护仍照常执行。
+func canManageMemberRoles(ctx context.Context) bool {
+	role := types.TenantRoleFromContext(ctx)
+	if types.IsSystemAdminFromContext(ctx) ||
+		role == types.TenantRoleOwner || role == types.TenantRoleAdmin {
+		return true
+	}
+	if scope, ok := types.TenantAPIKeyScopeFromContext(ctx); ok {
+		return scope.FullAccess || scope.HasCapability(types.APIKeyCapabilityManageMembers)
+	}
+	return false
+}
+
 // RemoveMember godoc
 // @Summary      移除空间成员
-// @Description  Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；
+// @Description  Owner、普通管理员或系统管理员将某位成员从当前空间中移除（软删除 tenant_members 行）；
+// @Description  普通管理员只能移除 viewer，不能移除 owner（必须先交接）或同级普通管理员；
 // @Description  不能移除最后一位 Owner
 // @Tags         空间成员
 // @Produce      json
 // @Param        id       path  string  true  "空间 ID"
 // @Param        user_id  path  string  true  "用户 ID"
 // @Success      200  {object}  handler.SuccessResponse
+// @Failure      403  {object}  map[string]interface{}  "角色越权或目标保护（owner/同级/自己）"
+// @Failure      404  {object}  map[string]interface{}  "目标不是本空间 active 成员"
+// @Failure      409  {object}  map[string]interface{}  "不能移除最后一位 Owner；或目标角色并发变化（ErrMembershipChanged），刷新后重试"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/members/{user_id} [delete]
 func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
@@ -646,6 +819,14 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 		c.Error(apperrors.NewValidationError("user_id is required"))
 		return
 	}
+	// 管理用 DELETE 与自助 POST /leave 共用服务方法；服务层用
+	// caller==target 识别 leave，无法区分两个入口。这里显式拒绝自删，
+	// 保证 AC-9（任何人不能移除自己）：离开空间只能走 leave 接口。
+	if caller, ok := types.UserIDFromContext(ctx); ok && caller != "" && caller == userID {
+		c.Error(apperrors.NewForbiddenError(
+			"you cannot remove your own membership; use the leave endpoint"))
+		return
+	}
 
 	if err := h.memberService.RemoveMember(ctx, userID, tenantID); err != nil {
 		switch {
@@ -653,7 +834,16 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 			c.Error(apperrors.NewNotFoundError("membership not found"))
 		case errors.Is(err, service.ErrLastOwner):
 			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrMembershipChanged):
+			c.Error(apperrors.NewConflictError(err.Error()))
 		default:
+			// T06 目标保护拒绝（admin→owner/同级）是 403 AppError，
+			// 原样透传，不落成 500。
+			var appErr *apperrors.AppError
+			if errors.As(err, &appErr) {
+				c.Error(appErr)
+				return
+			}
 			logger.Errorf(ctx, "RemoveMember failed: user=%s tenant=%d err=%v",
 				userID, tenantID, err)
 			c.Error(apperrors.NewInternalServerError("failed to remove member").WithDetails(err.Error()))
@@ -668,13 +858,15 @@ func (h *TenantMemberHandler) RemoveMember(c *gin.Context) {
 // @Summary      退出当前空间
 // @Description  调用方主动退出当前空间。等价于以自己的 user_id 调 RemoveMember，
 //
-//	但不需要 Owner 权限——非 Owner 也可以自助离开。最后一位 Owner 仍然不能离开
+//	但不需要 Owner 权限——非 Owner 也可以自助离开。离开是幂等的：成员关系已不存在
+//	（如被并发移除）时同样返回成功。最后一位 Owner 仍然不能离开
 //	（需先把其他成员提升为 Owner），由服务层 ErrLastOwner 拦截。
 //
 // @Tags         空间成员
 // @Produce      json
 // @Param        id  path  string  true  "空间 ID"
 // @Success      200  {object}  handler.SuccessResponse
+// @Failure      409  {object}  map[string]interface{}  "角色并发变化（ErrMembershipChanged）或最后一位 Owner 不能离开"
 // @Security     Bearer
 // @Router       /tenants/{id}/leave [post]
 func (h *TenantMemberHandler) LeaveTenant(c *gin.Context) {
@@ -695,6 +887,10 @@ func (h *TenantMemberHandler) LeaveTenant(c *gin.Context) {
 			c.Error(apperrors.NewNotFoundError("you are not a member of this workspace"))
 		case errors.Is(err, service.ErrLastOwner):
 			c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrMembershipChanged):
+			// 自助离开已按最新行重试；持续并发变化时返回 409 让客户端刷新，
+			// 而不是落成 500。
+			c.Error(apperrors.NewConflictError("membership changed concurrently; retry"))
 		default:
 			logger.Errorf(ctx, "LeaveTenant failed: user=%s tenant=%d err=%v",
 				caller, tenantID, err)

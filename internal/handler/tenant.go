@@ -216,9 +216,11 @@ func (h *TenantHandler) resolveMaxOwnedTenantsPerUser(ctx context.Context) int {
 
 // CreateTenant godoc
 // @Summary      创建空间
-// @Description  创建新的空间。任意已登录用户均可调用以建立自己的新工作区，
-// @Description  调用方会被自动设为该空间的 Owner。跨空间超管仍可像以前一样
-// @Description  通过本接口创建任意空间。
+// @Description  创建新的空间。仅平台级管理员可调用：系统管理员、跨空间超管，
+// @Description  或持有 system_tenants_manage 的平台 API Key。其余角色
+// @Description  （owner/admin/contributor/viewer）一律返回 403，与上游
+// @Description  tenant.self_service_creation_enabled 开关无关。
+// @Description  调用方会被自动设为该空间的 Owner。
 // @Description  当 tenant.auto_create_api_key（或 WEKNORA_TENANT_AUTO_CREATE_API_KEY）
 // @Description  开启时，会自动创建一个 full_access API Key，并在响应体的 data.api_key 字段返回其明文 token。
 // @Tags         空间管理
@@ -227,6 +229,7 @@ func (h *TenantHandler) resolveMaxOwnedTenantsPerUser(ctx context.Context) int {
 // @Param        request  body      handler.createTenantRequest  true  "空间信息"
 // @Success      201      {object}  map[string]interface{}  "创建的空间（可选含 api_key）"
 // @Failure      400      {object}  errors.AppError         "请求参数错误"
+// @Failure      403      {object}  errors.AppError         "仅平台级管理员可创建空间"
 // @Security     Bearer
 // @Router       /tenants [post]
 func (h *TenantHandler) CreateTenant(c *gin.Context) {
@@ -245,7 +248,12 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 	}
 	apiKeyScope, hasAPIKeyScope := types.TenantAPIKeyScopeFromContext(ctx)
 	platformCaller := hasAPIKeyScope && apiKeyScope.IsPlatform()
-	catalogManager := caller.CanAccessAllTenants || platformCaller
+	// 平台级管理员：系统管理员、跨空间超管、平台 API Key（机器凭证，不是用户角色）。
+	// T11 / AC-44：本产品把“建空间”收敛为仅平台级管理员，普通用户（owner/admin/
+	// contributor/viewer）即使 tenant.self_service_creation_enabled 开启也一律 403。
+	// 该开关只保留为部署配置（见下方注释与 tenant_policy.go），不再作为普通用户的
+	// 放行依据；上游默认值不改（config 仍为 true），产品守卫只在这里。
+	catalogManager := caller.CanAccessAllTenants || caller.IsSystemAdmin || platformCaller
 
 	// 被移出所有空间的账号不得再自建空间占用配额(用户报告的越权路径:
 	// 被 owner 移除后活跃成员=0,旧逻辑会把 ownedCount 当 0 放行)。
@@ -267,10 +275,10 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 		}
 	}
 
-	// Deployment-level policy: ordinary users may be restricted to joining
-	// existing workspaces by invitation. This check is authoritative; the
-	// frontend capability only improves UX and cannot bypass it. Cross-tenant
-	// superusers retain the catalog-management create path.
+	// 上游的部署级开关：tenant.self_service_creation_enabled 关闭时，普通用户
+	// 只能靠邀请加入空间。该开关在本产品里不再是普通用户的“放行依据”，
+	// 只在关闭时沿用既有的 2005 错误码（下方产品门禁对开启场景返回 403）。
+	// 平台级管理员（catalogManager）始终跳过这里。
 	if !catalogManager &&
 		!resolveTenantSelfServiceCreationEnabled(ctx, h.config, h.systemSettingSvc) {
 		logger.Warnf(ctx, "Self-service tenant creation denied by policy for user %s", caller.ID)
@@ -278,8 +286,22 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 		return
 	}
 
+	// T11 / AC-44 / AC-45：产品级硬门禁。只有平台级管理员能创建新空间；
+	// owner 的独立空间由 T04 ProvisionOwnerSpace（超管设 owner 时）产生，
+	// 不走本接口。取消这里会让上面的 self_service 开关重新变成普通用户的
+	// 建空间入口，属于产品决策回退，必须与用户确认。
+	if !catalogManager {
+		logger.Warnf(ctx, "Tenant creation denied: user %s is not a platform administrator", caller.ID)
+		c.Error(errors.NewForbiddenError("only platform administrators can create workspaces").
+			WithDetails("tenant.create_requires_platform_admin"))
+		return
+	}
+
 	var tenantData types.Tenant
 
+	// 普通用户自助分支已由上面的门禁拦截，不再可达。保留原字段处理差异
+	// （catalogManager 接受完整 Tenant 载荷；自助分支只接受 name/description
+	// 并做配额检查），以便上游同步时减少冲突；不要把它当作权限放行路径。
 	if catalogManager {
 		// Backward-compatible path for cross-tenant superusers: accept
 		// the full Tenant payload (status, storage_quota, retriever

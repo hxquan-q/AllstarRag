@@ -85,6 +85,27 @@ func (r *userRepository) GetUsersByIDs(ctx context.Context, ids []string) (map[s
 	return out, nil
 }
 
+// GetDeletedUserIDs 返回 user 行已被软删（墓碑化）的 id 子集。
+// 这里显式使用 Unscoped：默认作用域会隐藏已删除行，而检测墓碑正需要读到它们。
+func (r *userRepository) GetDeletedUserIDs(
+	ctx context.Context, ids []string,
+) (map[string]struct{}, error) {
+	out := make(map[string]struct{}, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	var deleted []string
+	if err := r.db.WithContext(ctx).Unscoped().Model(&types.User{}).
+		Where("id IN ? AND deleted_at IS NOT NULL", ids).
+		Pluck("id", &deleted).Error; err != nil {
+		return nil, err
+	}
+	for _, id := range deleted {
+		out[id] = struct{}{}
+	}
+	return out, nil
+}
+
 // GetUserByEmail gets a user by email
 func (r *userRepository) GetUserByEmail(ctx context.Context, email string) (*types.User, error) {
 	var user types.User
@@ -125,6 +146,20 @@ func (r *userRepository) GetUserByTenantID(ctx context.Context, tenantID uint64)
 // must go through SetUserActive so stale profile/password writes cannot undo
 // an administrator's enable/disable action.
 func (r *userRepository) UpdateUser(ctx context.Context, user *types.User) error {
+	// 墓碑行不可再被整行 Save 复活（F29）：并发 purge 之后，旧快照
+	// 的 UpdateUser 可能把 PII / 偏好写回已删除的 users 行。默认作用域
+	// 会隐藏墓碑，所以这里用 Unscoped 显式探测。
+	if user != nil {
+		var tombstoned int64
+		if err := r.db.WithContext(ctx).Unscoped().Model(&types.User{}).
+			Where("id = ? AND deleted_at IS NOT NULL", user.ID).
+			Count(&tombstoned).Error; err != nil {
+			return err
+		}
+		if tombstoned > 0 {
+			return ErrUserNotFound
+		}
+	}
 	if user != nil && user.TenantID == 0 {
 		return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			// Keep status and the nullable tenant column out of the struct

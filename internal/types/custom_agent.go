@@ -127,6 +127,10 @@ type CustomAgent struct {
 	// 让前端列表卡片区分「我创建」与「同空间其他成员创建」。不落库，内建 agent / 老数据
 	// 仍可能为空。
 	CreatorName string `yaml:"-" json:"creator_name,omitempty" gorm:"-" extensions:"x-agent"`
+
+	// CreatorDeleted 由列表 handler 批量回填：CreatedBy 指向的用户已被墓碑化时为 true。
+	// 内建 agent 与老数据保持 false，避免被误标成「已注销用户」。
+	CreatorDeleted bool `yaml:"-" json:"creator_deleted" gorm:"-" extensions:"x-agent"`
 }
 
 // maxAgentAvatarLength mirrors the custom_agents.avatar column limit

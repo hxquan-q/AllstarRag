@@ -128,7 +128,7 @@ func TestCreateInvitation_AutoAcceptEnabled_AddsMemberDirectly(t *testing.T) {
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"contributor"}`)
+	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"admin"}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
@@ -284,7 +284,7 @@ func TestCreateInvitation_AutoAccept_AdoptsTenantlessInviteeHomeTenant(t *testin
 	}
 	r := newAutoAcceptTestRouter(h)
 
-	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"contributor"}`)
+	w := postAutoAcceptInvitation(t, r, `{"email":"bob@x.com","role":"admin"}`)
 	if w.Code != http.StatusCreated {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}

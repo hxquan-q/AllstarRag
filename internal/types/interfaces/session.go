@@ -81,6 +81,10 @@ type SessionService interface {
 type SessionRepository interface {
 	// Create creates a session
 	Create(ctx context.Context, session *types.Session) (*types.Session, error)
+	// CreateIdempotent 创建会话时保留调用方预分配的 ID。插入前先锁住
+	// canonical web 用户（墓碑用户在任何行写入前即被拒绝），并以
+	// ON CONFLICT DO NOTHING 插入，因此重复同一 ID 是无操作而非报错。
+	CreateIdempotent(ctx context.Context, session *types.Session) (*types.Session, error)
 	// Get gets a session visible to the tenant/user scope.
 	Get(ctx context.Context, tenantID uint64, userID string, id string) (*types.Session, error)
 	// GetByID loads a session by tenant and id without user scoping. Callers

@@ -1,18 +1,26 @@
 <template>
   <!-- On the right edge, where the panel opens, clear of the upload progress
        card in the bottom-right corner. -->
-  <AssistantButton v-if="assistant.entry === 'launcher' && !assistant.visible" class="assistant-launcher"
-    data-guide="assistant-entry" :label="name" :icon-size="18" @click="assistant.open()" />
+  <AssistantButton
+    v-if="assistant.entry === 'launcher' && !assistant.visible && !(ui.showSettingsModal && ui.settingsActiveSection === 'user-management')"
+    class="assistant-launcher"
+    data-guide="assistant-entry"
+    :label="name"
+    :icon-size="18"
+    @click="assistant.open()"
+  />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAssistantStore } from '@/stores/assistant'
+import { useUIStore } from '@/stores/ui'
 import AssistantButton from './AssistantButton.vue'
 
 const { t } = useI18n()
 const assistant = useAssistantStore()
+const ui = useUIStore()
 const name = computed(() => assistant.displayName || t('assistant.title'))
 </script>
 

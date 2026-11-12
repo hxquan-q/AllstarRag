@@ -59,12 +59,12 @@ const roleOptions = computed(() =>
   })),
 )
 
-// Owner 默认建「编辑」账号（和邀请弹窗的默认角色一致）；Admin 只有 viewer。
+// 默认角色取列表第一项（owner/admin 均为 admin，与邀请弹窗一致）。
 // initialRole 在允许范围内时优先沿用（邀请 404 切过来时不丢已选角色）。
 function defaultCreateRole(actorRole: TenantRole, initial?: TenantRole): TenantRole {
   const allowed = allowedCreateRoles(actorRole)
   if (initial && allowed.includes(initial)) return initial
-  return allowed.includes('contributor') ? 'contributor' : (allowed[0] ?? 'viewer')
+  return allowed[0] ?? 'viewer'
 }
 
 const form = reactive<{ username: string; email: string; password: string; role: TenantRole }>({

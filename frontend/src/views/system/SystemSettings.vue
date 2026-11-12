@@ -418,7 +418,6 @@ const hasUnknownSettings = computed(() => unknownSettings.value.length > 0)
 const sectionTabs = computed(() => {
   const tabs: { key: SettingsSection; icon: string; label: string }[] = [
     { key: 'access', icon: 'lock-on', label: t('system.globalSettings.sections.access.title') },
-    { key: 'users', icon: 'usergroup', label: t('system.globalSettings.userList.rowLabel') },
     { key: 'tenant', icon: 'folder', label: t('system.globalSettings.sections.tenant.title') },
     { key: 'runtime', icon: 'server', label: t('system.globalSettings.sections.runtime.title') },
     { key: 'security', icon: 'secured', label: t('system.globalSettings.sections.security.title') },
@@ -437,6 +436,11 @@ function panelFromQuery(): SettingsSection | null {
 /** Follows ?panel= so a navigated link can open a tab other than the first. */
 function applyRoutePanel() {
   const panel = panelFromQuery()
+  // 系统设置里的用户列表已并入「用户管理」（Q31）：旧 ?panel=users 链接跳新页。
+  if (panel === 'users') {
+    void router.replace({ path: '/platform/settings', query: { section: 'user-management' } })
+    return
+  }
   if (!panel || panel === activeSettingsSection.value) return
   if (panel === 'other' && !hasUnknownSettings.value) return
   activeSettingsSection.value = panel

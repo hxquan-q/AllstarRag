@@ -1637,6 +1637,12 @@ definitions:
     - rbac.member_removed
     - rbac.member_role_changed
     - rbac.member_left
+    - rbac.member_banned
+    - rbac.member_unbanned
+    - rbac.member_purged
+    - system.owner_provisioned
+    - rbac.owner_transferred
+    - system.owner_invite_created
     - rbac.member_password_reset
     - rbac.access_denied
     - rbac.invitation_sent
@@ -1702,6 +1708,12 @@ definitions:
     - AuditActionMemberRemoved
     - AuditActionMemberRoleChanged
     - AuditActionMemberLeft
+    - AuditActionMemberBanned
+    - AuditActionMemberUnbanned
+    - AuditActionMemberPurged
+    - AuditActionOwnerProvisioned
+    - AuditActionOwnerTransferred
+    - AuditActionOwnerInviteCreated
     - AuditActionMemberPasswordReset
     - AuditActionAccessDenied
     - AuditActionInvitationSent
@@ -2745,6 +2757,12 @@ definitions:
       created_by:
         description: Created by user ID
         type: string
+      creator_deleted:
+        description: |-
+          CreatorDeleted 由列表 handler 批量回填：CreatedBy 指向的用户已被墓碑化时为 true。
+          内建 agent 与老数据保持 false，避免被误标成「已注销用户」。
+        type: boolean
+        x-agent: true
       creator_name:
         description: |-
           CreatorName 由 list handler 在返回前批量回填，作用同 KnowledgeBase.CreatorName：
@@ -4713,6 +4731,11 @@ definitions:
       created_at:
         description: Creation time of the knowledge base
         type: string
+      creator_deleted:
+        description: |-
+          CreatorDeleted 由列表 handler 批量回填：CreatorID 指向的用户已被墓碑化时为 true。
+          与 CreatorName 配合，前端才能区分「已注销」与「老数据没有名字」。
+        type: boolean
       creator_id:
         description: |-
           CreatorID records the user ID of whoever originally created the KB.
@@ -10623,6 +10646,36 @@ definitions:
         type: integer
         x-agent: true
     type: object
+  github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementListItem:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      is_active:
+        type: boolean
+      memberships:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementMembership'
+        type: array
+      role:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole'
+      status:
+        type: string
+      user_id:
+        type: string
+      username:
+        type: string
+    type: object
+  github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementMembership:
+    properties:
+      role:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole'
+      tenant_id:
+        type: integer
+      tenant_name:
+        type: string
+    type: object
   gorm.DeletedAt:
     properties:
       time:
@@ -10822,6 +10875,17 @@ definitions:
         type: array
     required:
     - ids
+    type: object
+  internal_handler.CapabilitiesResponse:
+    properties:
+      capabilities:
+        items:
+          type: string
+        type: array
+      is_system_admin:
+        type: boolean
+      role:
+        type: string
     type: object
   internal_handler.ClearResponse:
     properties:
@@ -11317,6 +11381,14 @@ definitions:
         example: true
         type: boolean
     type: object
+  internal_handler.GetCapabilitiesResponse:
+    properties:
+      data:
+        $ref: '#/definitions/internal_handler.CapabilitiesResponse'
+      success:
+        example: true
+        type: boolean
+    type: object
   internal_handler.GetDeploymentCapabilitiesResponse:
     properties:
       code:
@@ -11689,6 +11761,11 @@ definitions:
       created_at:
         description: Creation time of the knowledge base
         type: string
+      creator_deleted:
+        description: |-
+          CreatorDeleted 由列表 handler 批量回填：CreatorID 指向的用户已被墓碑化时为 true。
+          与 CreatorName 配合，前端才能区分「已注销」与「老数据没有名字」。
+        type: boolean
       creator_id:
         description: |-
           CreatorID records the user ID of whoever originally created the KB.
@@ -13627,6 +13704,30 @@ definitions:
       sort_order:
         type: integer
     type: object
+  internal_handler.UserManagementListData:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementListItem'
+        type: array
+      no_membership_count:
+        type: integer
+      role_counts:
+        additionalProperties:
+          format: int64
+          type: integer
+        type: object
+      total:
+        type: integer
+    type: object
+  internal_handler.UserManagementListResponse:
+    properties:
+      data:
+        $ref: '#/definitions/internal_handler.UserManagementListData'
+      success:
+        example: true
+        type: boolean
+    type: object
   internal_handler.ValidateTokenResponse:
     properties:
       message:
@@ -14020,6 +14121,18 @@ definitions:
           revoke.
         type: string
     type: object
+  internal_handler.memberPurgeRequest:
+    properties:
+      confirm_email:
+        type: string
+      reason:
+        type: string
+    type: object
+  internal_handler.memberStatusChangeRequest:
+    properties:
+      reason:
+        type: string
+    type: object
   internal_handler.platformAPIKeyCreateRequest:
     properties:
       capabilities:
@@ -14029,6 +14142,11 @@ definitions:
       expires_at_unix:
         type: integer
       name:
+        type: string
+    type: object
+  internal_handler.provisionOwnerSpaceRequest:
+    properties:
+      space_name:
         type: string
     type: object
   internal_handler.registerByInviteRequest:
@@ -14265,6 +14383,13 @@ definitions:
         type: string
       scope_type:
         $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.APIKeyScopeType'
+    type: object
+  internal_handler.transferOwnerRequest:
+    properties:
+      from_user_id:
+        type: string
+      to_user_id:
+        type: string
     type: object
   internal_handler.updateLastFAQImportResultDisplayStatusRequest:
     properties:
@@ -15482,6 +15607,27 @@ paths:
       summary: 自动初始化（Lite 桌面版）
       tags:
       - 认证
+  /auth/capabilities:
+    get:
+      consumes:
+      - application/json
+      description: 返回当前工作区角色、是否系统管理员，以及由唯一能力矩阵投影出的能力列表。前端据此门控菜单与按钮；真正的权限由后端逐接口校验。
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 当前用户能力
+          schema:
+            $ref: '#/definitions/internal_handler.GetCapabilitiesResponse'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+      security:
+      - Bearer: []
+      summary: 获取当前用户能力
+      tags:
+      - 认证
   /auth/change-password:
     post:
       consumes:
@@ -15865,7 +16011,7 @@ paths:
       consumes:
       - application/json
       description: |-
-        为当前用户在目标空间重新签发访问令牌；要求该用户在目标空间存在 active 成员关系（跨租户超级用户除外）。
+        为当前用户在目标空间重新签发访问令牌；要求该用户在目标空间存在 active 成员关系（跨租户超级用户和系统管理员除外）。
         成功换签会把目标空间写入「最近活跃租户」偏好，下次登录与 refresh 都落在该空间（refresh JWT 不含 tenant_id）。
         该偏好是账号级的：一次换签会改变该用户所有设备的下次登录/refresh 落点。偏好写入失败则整次换签失败，不会发出新 token。
       parameters:
@@ -15892,7 +16038,7 @@ paths:
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
         "403":
-          description: 无该空间成员关系或偏好写入失败
+          description: 普通用户无该空间成员关系，或偏好写入失败；系统管理员可跨空间切换
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
       security:
@@ -23438,7 +23584,9 @@ paths:
       - 我的邀请
   /me/invitations/{inv_id}/accept:
     post:
-      description: 当前登录用户接受一条 pending 邀请；服务端会同时写入 tenant_members 行。
+      description: |-
+        当前登录用户接受一条 pending 邀请；服务端会同时写入 tenant_members 行。
+        非超管账号已属于其他空间时返回 409（一号一空间）；历史 owner/contributor 邀请角色不可分配时返回 400。
       parameters:
       - description: 邀请 ID
         in: path
@@ -23450,6 +23598,31 @@ paths:
       responses:
         "200":
           description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 邀请角色已不可分配（历史 owner/contributor）
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 不是邀请接收人
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 邀请不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 已属于其他空间（一号一空间）或邀请已失效/已处理
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
           schema:
             additionalProperties: true
             type: object
@@ -23483,7 +23656,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: 已登录用户用共享邀请链接 token 加入空间，不创建新账号；对已是成员的用户幂等。
+      description: |-
+        已登录用户用共享邀请链接 token 加入空间，不创建新账号；对已是成员的用户幂等。
+        非超管账号已属于其他空间时返回 409（一号一空间）；链接角色为历史 owner/contributor 时返回 400。
       parameters:
       - description: 邀请 token
         in: body
@@ -23499,6 +23674,14 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "400":
+          description: 链接角色已不可分配（历史 owner/contributor）
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "409":
+          description: 已属于其他空间（一号一空间）
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
         "410":
           description: 链接无效或已撤销
           schema:
@@ -28313,6 +28496,199 @@ paths:
         state and system administrator flag. Follow has_more using offset + limit.
         tenant_id is the home workspace, not a list of memberships. No search or role
         filter is supported: paginate before drawing conclusions.'
+  /system/admin/users/{user_id}/ban:
+    post:
+      description: 系统管理员按 user_id 封禁任意账号（不依赖当前空间成员关系）：置 is_active=false 并吊销全部 token，写
+        tenant_id=0 的系统审计
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 封禁原因（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.memberStatusChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 最小账号摘要（不含 preferences / 密码哈希 / 成员关系）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 非系统管理员、操作自己或目标是最后一名活跃系统管理员
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标账号不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 平台封禁账号
+      tags:
+      - 平台用户管理
+  /system/admin/users/{user_id}/owner-space:
+    post:
+      description: 系统管理员把已有账号设为 owner：已有独立空间则复用，否则新建空间并成为唯一 owner
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 空间名（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.provisionOwnerSpaceRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法或缺少 user_id
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 仅系统管理员可调用
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标账号不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 目标账号已属于其他空间（一号一空间）
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 设置账号为 owner
+      tags:
+      - 系统管理
+  /system/admin/users/{user_id}/purge:
+    post:
+      description: 系统管理员按 user_id 墓碑化任意账号（跨空间/无成员关系均可）：清空 PII、清理个人数据并写系统审计；owner 需先交接、系统管理员需先撤权，不可恢复
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 确认邮箱与原因（原因可选）
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.memberPurgeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 仅包含被处理账号 id
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法或 confirm_email 与目标邮箱不一致
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 非系统管理员、操作自己、目标仍有特权或 owner 未交接
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标账号不存在（含重复删除）
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 平台注销账号
+      tags:
+      - 平台用户管理
+  /system/admin/users/{user_id}/unban:
+    post:
+      description: 系统管理员按 user_id 解封任意账号：恢复登录能力，不恢复历史 token，不受「最近一次 ban 必须在当前空间」限制
+      parameters:
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 解封原因（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.memberStatusChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 最小账号摘要（不含 preferences / 密码哈希 / 成员关系）
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 非系统管理员
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标账号不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 平台解封账号
+      tags:
+      - 平台用户管理
   /system/admin/users/create:
     post:
       consumes:
@@ -28622,9 +28998,11 @@ paths:
       consumes:
       - application/json
       description: |-
-        创建新的空间。任意已登录用户均可调用以建立自己的新工作区，
-        调用方会被自动设为该空间的 Owner。跨空间超管仍可像以前一样
-        通过本接口创建任意空间。
+        创建新的空间。仅平台级管理员可调用：系统管理员、跨空间超管，
+        或持有 system_tenants_manage 的平台 API Key。其余角色
+        （owner/admin/contributor/viewer）一律返回 403，与上游
+        tenant.self_service_creation_enabled 开关无关。
+        调用方会被自动设为该空间的 Owner。
         当 tenant.auto_create_api_key（或 WEKNORA_TENANT_AUTO_CREATE_API_KEY）
         开启时，会自动创建一个 full_access API Key，并在响应体的 data.api_key 字段返回其明文 token。
       parameters:
@@ -28644,6 +29022,10 @@ paths:
             type: object
         "400":
           description: 请求参数错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 仅平台级管理员可创建空间
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
       security:
@@ -28899,6 +29281,10 @@ paths:
         in: query
         name: actor
         type: string
+      - description: 关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）
+        in: query
+        name: q
+        type: string
       produces:
       - application/json
       responses:
@@ -28908,6 +29294,10 @@ paths:
             $ref: '#/definitions/internal_handler.auditLogListResponse'
         "400":
           description: Bad Request
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 本空间 owner/普通管理员或系统管理员以外，或路径空间与当前空间不一致
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
       security:
@@ -28955,8 +29345,9 @@ paths:
     post:
       consumes:
       - application/json
-      description: Owner 通过邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在
-        /me/invitations 接受后成为成员。
+      description: Owner 或普通管理员通过邮箱邀请已注册用户加入空间；只能分配 admin / viewer（owner 走开通/交接，contributor
+        停止分配）。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations
+        接受后成为成员。
       parameters:
       - description: 空间 ID
         in: path
@@ -28981,6 +29372,31 @@ paths:
                 data:
                   $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.TenantInvitationResponse'
               type: object
+        "400":
+          description: 参数或角色非法 / 历史邀请角色不可分配
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 角色越权（不能邀请 owner/contributor）
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 邮箱未注册
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 已是成员、已有待接受邀请，或目标账号已属于其他空间（一号一空间）
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - Bearer: []
       summary: 发出空间邀请
@@ -28988,7 +29404,8 @@ paths:
       - 空间邀请
   /tenants/{id}/invitations/{inv_id}:
     delete:
-      description: Owner 取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。
+      description: Owner 或普通管理员取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired
+        的行不可再撤销。
       parameters:
       - description: 空间 ID
         in: path
@@ -29007,6 +29424,21 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/internal_handler.SuccessResponse'
+        "403":
+          description: 角色越权
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 邀请不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - Bearer: []
       summary: 撤销待接受邀请
@@ -29049,6 +29481,10 @@ paths:
           description: 请求参数错误（人数非法或有效期已过）
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "403":
+          description: 角色越权（不能分配 owner/contributor）
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
         "500":
           description: 创建后补写配额/有效期失败
           schema:
@@ -29074,6 +29510,11 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/internal_handler.SuccessResponse'
+        "409":
+          description: 角色并发变化（ErrMembershipChanged）或最后一位 Owner 不能离开
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - Bearer: []
       summary: 退出当前空间
@@ -29140,6 +29581,31 @@ paths:
           schema:
             additionalProperties: true
             type: object
+        "400":
+          description: 请求体或角色非法
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 角色越权（不能分配 owner/contributor）
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 邮箱未注册
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 已是成员，或目标账号已属于其他空间（一号一空间）
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - Bearer: []
       summary: 直接添加空间成员（直加路径）
@@ -29148,7 +29614,8 @@ paths:
   /tenants/{id}/members/{user_id}:
     delete:
       description: |-
-        Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；
+        Owner、普通管理员或系统管理员将某位成员从当前空间中移除（软删除 tenant_members 行）；
+        普通管理员只能移除 viewer，不能移除 owner（必须先交接）或同级普通管理员；
         不能移除最后一位 Owner
       parameters:
       - description: 空间 ID
@@ -29168,6 +29635,26 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/internal_handler.SuccessResponse'
+        "403":
+          description: 角色越权或目标保护（owner/同级/自己）
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标不是本空间 active 成员
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 不能移除最后一位 Owner；或目标角色并发变化（ErrMembershipChanged），刷新后重试
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - Bearer: []
       summary: 移除空间成员
@@ -29176,7 +29663,13 @@ paths:
     put:
       consumes:
       - application/json
-      description: Owner 修改某位成员在当前空间内的角色；不能将最后一位 Owner 降级
+      description: |-
+        Owner、普通管理员或系统管理员修改某位成员在当前空间内的角色。
+        只能分配 admin / viewer；不能把任何人提升为 owner，owner 只能通过 transfer-owner 交接产生。
+        owner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；
+        普通管理员不能修改另一位普通管理员（同级保护），也不能修改 owner。
+        非系统管理员不能修改系统管理员 / 跨空间超管 / 在任意空间持有 owner 的账号。
+        最后一位 Owner 的服务层原子保护保留。
       parameters:
       - description: 空间 ID
         in: path
@@ -29188,7 +29681,7 @@ paths:
         name: user_id
         required: true
         type: string
-      - description: 目标角色
+      - description: 目标角色（admin/viewer）
         in: body
         name: request
         required: true
@@ -29201,9 +29694,140 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/internal_handler.SuccessResponse'
+        "400":
+          description: 请求体或角色非法
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 角色越权或目标保护（owner/同级/自己/特权账号）
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标不是本空间 active 成员
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
       security:
       - Bearer: []
       summary: 修改空间成员角色
+      tags:
+      - 空间成员
+  /tenants/{id}/members/{user_id}/ban:
+    post:
+      description: 将目标账号置为不可登录并吊销其全部 token，保留成员关系；Owner/普通管理员不能操作自己、owner 或同级普通管理员，特权账号需系统管理员
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 封禁原因（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.memberStatusChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 无权限或目标保护（不能操作自己 / owner / 系统管理员 / 跨空间超管）
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标不是本空间 active 成员
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 目标角色并发变化（ErrMembershipChanged），刷新后重试
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 封禁空间成员
+      tags:
+      - 空间成员
+  /tenants/{id}/members/{user_id}/purge:
+    post:
+      description: 墓碑化目标账号：清空 PII、清理成员/邀请/token/个人数据并写审计；资产保留。不可恢复
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 确认邮箱与原因（原因可选）
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.memberPurgeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法或 confirm_email 与目标邮箱不一致
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 无权限、目标保护、owner 未交接或跨空间账号需超管
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标不是本空间 active 成员（含重复删除）
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 目标角色并发变化（ErrMembershipChanged），刷新后重试
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 彻底删除空间成员
       tags:
       - 空间成员
   /tenants/{id}/members/{user_id}/reset-password:
@@ -29211,8 +29835,7 @@ paths:
       consumes:
       - application/json
       description: |-
-        工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，
-        Admin 只能重置 contributor/viewer；
+        工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；
         不能重置与自己同级或更高级的成员，也不能重置本人。
         目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。
         成功后旧密码立即失效，该用户所有已签发 token 被吊销。
@@ -29266,13 +29889,68 @@ paths:
       summary: 重置成员密码
       tags:
       - 空间成员
+  /tenants/{id}/members/{user_id}/unban:
+    post:
+      description: 恢复目标账号的登录能力，不恢复历史 token；普通 Owner/普通管理员只能解封在本空间被封禁的账号，跨租户解封需系统管理员
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 用户 ID
+        in: path
+        name: user_id
+        required: true
+        type: string
+      - description: 解封原因（可选）
+        in: body
+        name: request
+        schema:
+          $ref: '#/definitions/internal_handler.memberStatusChangeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 无权限、目标保护或跨租户解封需超管
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 目标不是本空间 active 成员
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 目标角色并发变化（ErrMembershipChanged），刷新后重试
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 解封空间成员
+      tags:
+      - 空间成员
   /tenants/{id}/members/create:
     post:
       consumes:
       - application/json
       description: |-
-        工作区 Owner（系统管理员按 Owner 处理）可创建 admin/contributor/viewer，
-        Admin 只能创建 viewer；任何人都不能创建 owner。一次请求完成建号与入组。
+        工作区 Owner 或普通管理员（系统管理员按 Owner 处理）可创建 admin/viewer；
+        contributor 停止分配，任何人都不能创建 owner。一次请求完成建号与入组。
       parameters:
       - description: 空间 ID
         in: path
@@ -29299,12 +29977,12 @@ paths:
             additionalProperties: true
             type: object
         "403":
-          description: 角色越权
+          description: 角色越权（不能创建 owner/contributor）
           schema:
             additionalProperties: true
             type: object
         "409":
-          description: 邮箱或用户名已注册
+          description: 邮箱或用户名已注册，或目标账号已属于其他空间（一号一空间）
           schema:
             additionalProperties: true
             type: object
@@ -29316,6 +29994,126 @@ paths:
       security:
       - Bearer: []
       summary: 创建成员账号并加入空间
+      tags:
+      - 空间成员
+  /tenants/{id}/transfer-owner:
+    post:
+      description: 把 owner 身份交给本空间 active 普通管理员（admin），目标需先提升为 admin；owner 只能传自己，系统管理员可传任意
+        owner
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 交接目标（from 可选）
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/internal_handler.transferOwnerRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "400":
+          description: 请求体非法、缺少 to_user_id、from/to 相同、目标不是 active admin 或已被封禁
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 非本空间 owner、系统管理员以外不能代他人交接，或目标为特权/别处 owner
+          schema:
+            additionalProperties: true
+            type: object
+        "404":
+          description: 源 owner 或目标成员关系不存在
+          schema:
+            additionalProperties: true
+            type: object
+        "409":
+          description: 交接期间成员角色已变化，需刷新重试
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      summary: 交接空间 owner
+      tags:
+      - 空间成员
+  /tenants/{id}/user-management:
+    get:
+      description: 返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 恒为 owner/admin/viewer
+        三个桶（contributor 仅历史存储值，不进入目录）；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships
+        列出各空间成员关系；scope=all 另下发 no_membership_count（无任何空间成员关系的普通账号数）
+      parameters:
+      - description: 空间 ID
+        in: path
+        name: id
+        type: string
+      - default: current
+        description: 空间筛选：current（默认，仅本空间）/other（其它空间有成员关系的用户）/all（全平台用户），other/all
+          仅系统管理员
+        in: query
+        name: scope
+        type: string
+      - description: 角色筛选：viewer/admin/owner，缺省为全部；支持逗号分隔多值（如 admin,viewer），每个值必须合法；多空间视图匹配任意空间的成员关系角色
+        in: query
+        name: role
+        type: string
+      - description: 仅 scope=all 且系统管理员：只返回无任何 active 成员关系的普通账号（无空间目录）；只接受 true/false，与
+          role 互斥
+        in: query
+        name: without_membership
+        type: boolean
+      - description: 按邮箱/用户名模糊筛选
+        in: query
+        name: q
+        type: string
+      - default: 1
+        description: 页码（从 1 起）
+        in: query
+        name: page
+        type: integer
+      - default: 20
+        description: 每页数量（最大 100）
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 成员列表
+          schema:
+            $ref: '#/definitions/internal_handler.UserManagementListResponse'
+        "400":
+          description: role/scope 非法、分页参数非法、without_membership 非 true/false 或非 scope=all、role
+            与 without_membership 同用
+          schema:
+            additionalProperties: true
+            type: object
+        "403":
+          description: 非本空间 owner/普通管理员或系统管理员；scope=other/all 及 without_membership
+            非系统管理员
+          schema:
+            additionalProperties: true
+            type: object
+        "500":
+          description: 内部错误
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - Bearer: []
+      summary: 列出用户管理成员
       tags:
       - 空间成员
   /tenants/all:

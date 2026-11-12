@@ -6,12 +6,12 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 )
 
-// 本文件覆盖 01-spec AC-1 / AC-2 的角色矩阵纯函数。
-// 口径来源：02-plan D3 与第 4 节矩阵表。
-//   - owner（含系统管理员）：建 admin/contributor/viewer；重置 admin/contributor/viewer
-//   - admin：建 viewer；重置 contributor/viewer
+// 本文件覆盖 01-spec AC-1 / AC-2 / AC-5 的角色矩阵纯函数。
+// 口径来源：02-plan §2.3 与 T05（一号一空间 feature 后只分配 admin/viewer）。
+//   - owner / admin（普通管理员）：创建 admin / viewer；重置 admin / viewer
+//   - admin 不能重置同级 admin（同级保护）
 //   - contributor / viewer：无权限
-//   - 任何人不能建 owner；owner 之间不能互相重置（同级）
+//   - 任何人不能创建或重置 owner；contributor 不再作为可分配目标
 //
 // 系统管理员按 owner 处理在 handler 入口完成，不在纯函数里，因此这里只测角色本身。
 
@@ -27,16 +27,16 @@ func TestCanCreateRoleFullMatrix(t *testing.T) {
 	// 行 = 操作者，列 = 目标角色。
 	want := map[types.TenantRole]map[types.TenantRole]bool{
 		types.TenantRoleOwner: {
-			types.TenantRoleOwner:       false, // AC-1：任何人都不能创建 owner
+			types.TenantRoleOwner:       false, // 任何人都不能创建 owner
 			types.TenantRoleAdmin:       true,
-			types.TenantRoleContributor: true,
+			types.TenantRoleContributor: false, // contributor 不再分配（AC-2）
 			types.TenantRoleViewer:      true,
 		},
 		types.TenantRoleAdmin: {
 			types.TenantRoleOwner:       false,
-			types.TenantRoleAdmin:       false,
-			types.TenantRoleContributor: false,
-			types.TenantRoleViewer:      true, // AC-1：Admin 只能建 viewer
+			types.TenantRoleAdmin:       true,
+			types.TenantRoleContributor: false, // contributor 不再分配（AC-2）
+			types.TenantRoleViewer:      true,
 		},
 		types.TenantRoleContributor: {
 			types.TenantRoleOwner:       false,
@@ -80,15 +80,15 @@ func TestCanCreateRoleUnknownInputsFailClosed(t *testing.T) {
 func TestCanResetRoleFullMatrix(t *testing.T) {
 	want := map[types.TenantRole]map[types.TenantRole]bool{
 		types.TenantRoleOwner: {
-			types.TenantRoleOwner:       false, // AC-2：不能重置同级（另一位 owner）
+			types.TenantRoleOwner:       false, // 不能重置 owner（含另一位）
 			types.TenantRoleAdmin:       true,
-			types.TenantRoleContributor: true,
+			types.TenantRoleContributor: false, // contributor 不再分配（AC-2）
 			types.TenantRoleViewer:      true,
 		},
 		types.TenantRoleAdmin: {
 			types.TenantRoleOwner:       false, // 不能重置上级
-			types.TenantRoleAdmin:       false, // AC-2：不能重置同级
-			types.TenantRoleContributor: true,
+			types.TenantRoleAdmin:       false, // 普通管理员不能重置同级
+			types.TenantRoleContributor: false, // contributor 不再分配（AC-2）
 			types.TenantRoleViewer:      true,
 		},
 		types.TenantRoleContributor: {

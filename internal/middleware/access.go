@@ -61,8 +61,12 @@ func IsCrossTenantSuperuser(ctx context.Context, cfg *config.Config) bool {
 // `targetTenantID`. The decision order is:
 //
 //  1. Home tenant (user.TenantID == targetTenantID): always.
-//  2. Cross-tenant superuser: governed by IsCrossTenantSuperuser.
-//  3. Multi-tenant member: an active tenant_members row in the target
+//  2. System administrator: always. IsSystemAdmin 是平台级身份，与
+//     CanAccessAllTenants 无关，也不受 EnableCrossTenantAccess 开关约束；
+//     否则「系统管理员设 owner → 切到该空间做交接/降级/注销」的链路会在
+//     认证层被 403 挡住。
+//  3. Cross-tenant superuser: governed by IsCrossTenantSuperuser.
+//  4. Multi-tenant member: an active tenant_members row in the target
 //     tenant grants access (this is what makes cross-tenant browsing
 //     work for non-superusers added via PR 3's member management).
 //
@@ -79,6 +83,10 @@ func IsTenantAccessible(
 		return false
 	}
 	if user.TenantID == targetTenantID {
+		return true
+	}
+	// 系统管理员是平台级管理员，可在任意空间执行租户内管理操作。
+	if user.IsSystemAdmin {
 		return true
 	}
 	if cfg != nil && cfg.Tenant != nil && cfg.Tenant.EnableCrossTenantAccess && user.CanAccessAllTenants {
@@ -106,6 +114,12 @@ func RequireCrossTenantAccess(cfg *config.Config) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
 		if scope, ok := types.TenantAPIKeyScopeFromContext(ctx); ok && scope.IsPlatform() {
+			c.Next()
+			return
+		}
+		// 系统管理员是平台级身份，跨租户空间列表/搜索对它必须可用
+		// （F22）；它不依赖 CanAccessAllTenants 或集群开关。
+		if u, ok := ctx.Value(types.UserContextKey).(*types.User); ok && u != nil && u.IsSystemAdmin {
 			c.Next()
 			return
 		}

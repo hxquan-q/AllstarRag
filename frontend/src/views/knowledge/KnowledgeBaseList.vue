@@ -255,7 +255,8 @@
                   </div>
                 </div>
                 <div v-if="!authStore.isLiteMode && showKbOriginBadge(kb)" class="bottom-right">
-                  <ResourceOriginBadge :variant="kbOriginVariant(kb)" :creator-name="kb.creator_name" />
+                  <ResourceOriginBadge :variant="kbOriginVariant(kb)" :creator-name="kb.creator_name"
+                    :creator-deleted="kb.creator_deleted" />
                 </div>
               </div>
             </div>
@@ -488,7 +489,8 @@
                   </div>
                 </div>
                 <div v-if="!authStore.isLiteMode && showKbOriginBadge(kb)" class="bottom-right">
-                  <ResourceOriginBadge :variant="kbOriginVariant(kb)" :creator-name="kb.creator_name" />
+                  <ResourceOriginBadge :variant="kbOriginVariant(kb)" :creator-name="kb.creator_name"
+                    :creator-deleted="kb.creator_deleted" />
                 </div>
               </div>
             </div>
@@ -810,6 +812,8 @@ interface KB {
   creator_id?: string;
   // creator_name 由后端 list 接口回填，仅用于卡片右下角来源徽章的 tooltip。
   creator_name?: string;
+  /** 后端标记创建者已墓碑化；与 creator_name 配合区分「已注销」与老数据。 */
+  creator_deleted?: boolean;
 }
 
 const flatKnowledgeBaseSortAccessors: ResourceSortAccessors<any> = {
@@ -1298,17 +1302,22 @@ function isMyKb(kb: { creator_id?: string }): boolean {
 //   - 同空间他人创建的：creator 变体——只显示创建者名字。用户始终在
 //     某个工作空间内浏览（顶部 TenantSelector 已经标了空间身份），右下
 //     角再贴一遍空间名属于重复信息；contributor / admin / owner / viewer
-//     看到的徽章一致。创建者无法解析时，creator 变体自动回退到
-//     resourceOrigin.tenant 文案（"本空间"），不会出现空标签。
+//     看到的徽章一致。按 T25 三态展示：creator_deleted=true 时显示
+//     「已注销用户」；creator_name 缺失但未注销时回退「本空间」。
 function kbOriginVariant(kb: { creator_id?: string }): 'mine' | 'creator' {
   return isMyKb(kb) ? 'mine' : 'creator'
 }
 
-function showKbOriginBadge(kb: { creator_id?: string; creator_name?: string }): boolean {
+function showKbOriginBadge(kb: {
+  creator_id?: string
+  creator_name?: string
+  creator_deleted?: boolean
+}): boolean {
   return shouldShowResourceOriginBadge({
     section: kbSectionOf(kb),
     variant: kbOriginVariant(kb),
     creatorName: kb.creator_name,
+    creatorDeleted: kb.creator_deleted,
     showSectionHeaders: true,
   })
 }

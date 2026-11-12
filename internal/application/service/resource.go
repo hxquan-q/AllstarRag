@@ -20,6 +20,11 @@ import (
 
 const defaultResourceGrantTTL = 2 * time.Hour
 
+// ErrResourceNotFound 表示资源目录里查不到 active 资源（含 state=deleted）。
+// 释放路径用它区分“上一轮清理已删过”与真实存储故障：前者是幂等成功，
+// 后者必须保留任务重试（T39 round=2，F48）。
+var ErrResourceNotFound = errors.New("resource not found")
+
 type resourceCatalog struct {
 	repo          interfaces.ResourceRepository
 	storage       interfaces.StorageBackendRepository
@@ -169,7 +174,9 @@ func (s *resourceCatalog) Resolve(ctx context.Context, reference string) (*types
 		return nil, err
 	}
 	if resource == nil {
-		return nil, fmt.Errorf("resource not found")
+		// 仓储只查 active 行：state=deleted 的资源同样落到这里，
+		// 交给调用方按幂等成功处理（见 ErrResourceNotFound）。
+		return nil, ErrResourceNotFound
 	}
 	return resource, nil
 }

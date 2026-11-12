@@ -341,12 +341,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 
 	// User is already in the correct format from service
 
-	// 能力投影:被移出所有空间的账号即使部署允许自建也不能再建空间。
+	// 能力投影(T11 / AC-44):只有平台级管理员能建空间,与 POST /tenants 的
+	// 硬门禁一致。上游 tenant.self_service_creation_enabled 不再给普通用户
+	// 放行创建能力;被移出所有空间的账号始终为 false。
 	accessRevoked := h.resolveAccessRevoked(ctx, response.User)
-	canCreateTenant := response.User != nil && response.User.CanAccessAllTenants
-	if !canCreateTenant {
-		canCreateTenant = resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
-	}
+	canCreateTenant := response.User != nil &&
+		(response.User.IsSystemAdmin || response.User.CanAccessAllTenants)
 	if accessRevoked {
 		canCreateTenant = false
 	}
@@ -755,11 +755,11 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	// 同步返回当前用户的 memberships，让前端在页面刷新（仅命中 /auth/me）
 	// 后也能恢复 currentTenantRole，避免角色信息只在 login 那一刻可用。
 	memberships := h.userService.BuildLoginMemberships(ctx, user, tenant)
-	// 被移出所有空间的账号:即使部署允许自建,也不再投影创建能力;
-	// access_revoked 供前端隐藏入口并展示提示卡片。
+	// 能力投影(T11 / AC-44):只有平台级管理员能建空间,口径必须与 /auth/login
+	// 和 POST /tenants 完全一致,否则前端会出现“登录瞬间可见、刷新后消失”。
+	// 上游 tenant.self_service_creation_enabled 不再给普通用户放行创建能力。
 	accessRevoked := h.resolveAccessRevoked(ctx, user)
-	canCreateTenant := user.CanAccessAllTenants ||
-		resolveTenantSelfServiceCreationEnabled(ctx, h.configInfo, h.systemSettingSvc)
+	canCreateTenant := user.IsSystemAdmin || user.CanAccessAllTenants
 	if accessRevoked {
 		canCreateTenant = false
 	}
@@ -979,7 +979,7 @@ func (h *AuthHandler) GetAuthConfig(c *gin.Context) {
 
 // SwitchTenant godoc
 // @Summary      切换激活空间
-// @Description  为当前用户在目标空间重新签发访问令牌；要求该用户在目标空间存在 active 成员关系（跨租户超级用户除外）。
+// @Description  为当前用户在目标空间重新签发访问令牌；要求该用户在目标空间存在 active 成员关系（跨租户超级用户和系统管理员除外）。
 // @Description  成功换签会把目标空间写入「最近活跃租户」偏好，下次登录与 refresh 都落在该空间（refresh JWT 不含 tenant_id）。
 // @Description  该偏好是账号级的：一次换签会改变该用户所有设备的下次登录/refresh 落点。偏好写入失败则整次换签失败，不会发出新 token。
 // @Tags         认证
@@ -988,7 +988,7 @@ func (h *AuthHandler) GetAuthConfig(c *gin.Context) {
 // @Param        request  body      object{tenant_id=integer,refresh_token=string}  true  "切换请求"
 // @Success      200      {object}  types.LoginResponse
 // @Failure      400      {object}  errors.AppError  "参数错误"
-// @Failure      403      {object}  errors.AppError  "无该空间成员关系或偏好写入失败"
+// @Failure      403      {object}  errors.AppError  "普通用户无该空间成员关系，或偏好写入失败；系统管理员可跨空间切换"
 // @Security     Bearer
 // @Router       /auth/switch-tenant [post]
 //

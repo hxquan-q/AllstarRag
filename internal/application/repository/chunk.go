@@ -745,6 +745,35 @@ func (r *chunkRepository) DeleteByKnowledgeList(ctx context.Context, tenantID ui
 	).Delete(&types.Chunk{}).Error
 }
 
+// HardDeleteByKnowledgeList 在单事务里物理删除这批 knowledge 的 chunks
+// （含软删行）与对应 chunk_revisions（T39 round=2，F49）。聊天历史
+// knowledge 没有替代版本可等，软删正文继续留在库里只会无限累积。
+// 先 Unscoped 收集 chunk ID，再删 revisions，最后 Unscoped 删 chunks；
+// 任一步失败整体回滚。空列表直接返回；只处理传入租户与 knowledge，
+// 重复调用幂等。
+func (r *chunkRepository) HardDeleteByKnowledgeList(
+	ctx context.Context, tenantID uint64, knowledgeIDs []string,
+) error {
+	if len(knowledgeIDs) == 0 {
+		return nil
+	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var chunkIDs []string
+		if err := tx.Unscoped().Model(&types.Chunk{}).
+			Where("tenant_id = ? AND knowledge_id IN ?", tenantID, knowledgeIDs).
+			Pluck("id", &chunkIDs).Error; err != nil {
+			return err
+		}
+		if len(chunkIDs) == 0 {
+			return nil
+		}
+		if err := tx.Where("chunk_id IN ?", chunkIDs).Delete(&types.ChunkRevision{}).Error; err != nil {
+			return err
+		}
+		return tx.Unscoped().Where("id IN ?", chunkIDs).Delete(&types.Chunk{}).Error
+	})
+}
+
 // MoveChunksByKnowledgeID updates knowledge_base_id for all chunks of a knowledge item
 func (r *chunkRepository) MoveChunksByKnowledgeID(ctx context.Context, tenantID uint64, knowledgeID string, targetKBID string) error {
 	return r.db.WithContext(ctx).Model(&types.Chunk{}).

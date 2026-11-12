@@ -17,8 +17,13 @@ import (
 )
 
 // tenant_revoked_access_test.go 覆盖「被移除空间」的两条后端防线:
-//  1. POST /tenants 对被移除用户返回 403(详情 access_revoked),超管/系统管理员不受限;
+//  1. POST /tenants 对被移除用户返回 403(详情 access_revoked),平台级管理员不受限;
 //  2. /auth/login 与 /auth/me 的 capabilities.access_revoked / can_create_tenant 取值。
+//
+// T11 / AC-44 产品决策变更:普通用户(owner/admin/contributor/viewer)不再能自助
+// 建空间,即使 tenant.self_service_creation_enabled 开启也一律 403;can_create_tenant
+// 只对平台级管理员(IsSystemAdmin 或 CanAccessAllTenants)为 true。本文件里普通用户
+// 的建空间用例因此断言 403,但「撤销判定/恢复」的原安全意图保留。
 
 type revokedMemberService struct {
 	interfaces.TenantMemberService
@@ -110,6 +115,10 @@ func TestCreateTenant_RejectsRevokedMember(t *testing.T) {
 	}
 }
 
+// TestCreateTenant_AllowsUserWithActiveWorkspace 原意:活跃用户(有活跃成员关系)
+// 不属于「被移除」,旧语义下可再建空间。T11 / AC-44 后普通用户不再能自助建空间,
+// 但「撤销判定不误伤活跃用户」的安全意图仍需保留:必须走到平台门禁、而非被
+// access_revoked 拦截。
 func TestCreateTenant_AllowsUserWithActiveWorkspace(t *testing.T) {
 	tenants := &tenantPolicyTenantService{}
 	members := &revokedMemberService{
@@ -128,17 +137,27 @@ func TestCreateTenant_AllowsUserWithActiveWorkspace(t *testing.T) {
 	}
 
 	w := doCreateTenantRequest(t, newCreateTenantTestRouter(h), `{"name":"second-workspace"}`)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201 (body=%s)", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body=%s)", w.Code, w.Body.String())
 	}
-	if tenants.createCalls != 1 {
-		t.Fatalf("CreateTenant called %d times, want 1", tenants.createCalls)
+	if tenants.createCalls != 0 {
+		t.Fatalf("CreateTenant called %d times, want 0", tenants.createCalls)
 	}
 	if members.revokedCalls != 1 {
-		t.Fatalf("HasRevokedAccess called %d times, want 1", members.revokedCalls)
+		t.Fatalf("HasRevokedAccess called %d times, want 1 (revocation check must still run)", members.revokedCalls)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "access_revoked") {
+		t.Fatalf("active user must not be denied as revoked: %s", body)
+	}
+	if !strings.Contains(body, `"details":"tenant.create_requires_platform_admin"`) {
+		t.Fatalf("want platform-admin gate detail, body=%s", body)
 	}
 }
 
+// TestCreateTenant_AllowsBrandNewUser 原意:从没加入过任何空间的新用户不算被移除。
+// T11 / AC-44 后普通新用户同样不能自助建空间;这里改为断言被平台门禁拦下、
+// 且不会创建租户或把首个空间写成 home。
 func TestCreateTenant_AllowsBrandNewUser(t *testing.T) {
 	// 从没加入过任何空间的新用户:活跃=0 但没有软删行,不算被移除。
 	tenants := &tenantPolicyTenantService{}
@@ -152,11 +171,21 @@ func TestCreateTenant_AllowsBrandNewUser(t *testing.T) {
 	}
 
 	w := doCreateTenantRequest(t, newCreateTenantTestRouter(h), `{"name":"first-workspace"}`)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("status = %d, want 201 (body=%s)", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body=%s)", w.Code, w.Body.String())
 	}
-	if users.updateCalls != 1 {
-		t.Fatalf("UpdateUser called %d times, want 1 (first workspace becomes home)", users.updateCalls)
+	if tenants.createCalls != 0 {
+		t.Fatalf("CreateTenant called %d times, want 0", tenants.createCalls)
+	}
+	if users.updateCalls != 0 {
+		t.Fatalf("UpdateUser called %d times, want 0 (no workspace should be created)", users.updateCalls)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "access_revoked") {
+		t.Fatalf("brand-new user must not be denied as revoked: %s", body)
+	}
+	if !strings.Contains(body, `"details":"tenant.create_requires_platform_admin"`) {
+		t.Fatalf("want platform-admin gate detail, body=%s", body)
 	}
 }
 
@@ -290,8 +319,9 @@ func TestLogin_ProjectsNormalCapability(t *testing.T) {
 	if !strings.Contains(body, `"access_revoked":false`) {
 		t.Fatalf("login response missing access_revoked=false: %s", body)
 	}
-	if !strings.Contains(body, `"can_create_tenant":true`) {
-		t.Fatalf("active user should keep can_create_tenant=true: %s", body)
+	// T11 / AC-44:普通活跃用户不再获得建空间能力。
+	if !strings.Contains(body, `"can_create_tenant":false`) {
+		t.Fatalf("regular active user must not advertise can_create_tenant: %s", body)
 	}
 }
 
@@ -351,7 +381,8 @@ func TestAuthMe_ProjectsNormalCapability(t *testing.T) {
 	if !strings.Contains(body, `"access_revoked":false`) {
 		t.Fatalf("/auth/me missing access_revoked=false: %s", body)
 	}
-	if !strings.Contains(body, `"can_create_tenant":true`) {
-		t.Fatalf("normal user should keep can_create_tenant=true: %s", body)
+	// T11 / AC-44:普通活跃用户不再获得建空间能力。
+	if !strings.Contains(body, `"can_create_tenant":false`) {
+		t.Fatalf("normal user must not advertise can_create_tenant: %s", body)
 	}
 }

@@ -75,6 +75,12 @@ var (
 	// 等于接管账号——因此在这里按 fail-closed 拒绝，而不是只拦在某一条
 	// HTTP 边界上。
 	ErrCannotResetPrivilegedTarget = errors.New("cannot reset this member's password from a workspace endpoint")
+
+	// ErrCannotResetElsewhereOwner 由 AdminResetPassword 返回：目标用户在其他
+	// 空间持有 active owner 成员关系，而调用方不在系统管理边界上。密码是
+	// 全局的，空间级重置会连带接管对方作为 owner 的另一个空间，因此拒绝。
+	// 同空间 owner 的重置不受影响；查询失败同样按 fail-closed 处理。
+	ErrCannotResetElsewhereOwner = errors.New("cannot reset a member who owns another workspace from a workspace endpoint")
 )
 
 // Machine-readable change-password failure reasons for HTTP details fields.
@@ -137,6 +143,12 @@ func (s *userService) complexPasswordEnabled(ctx context.Context) bool {
 	return ResolveComplexPasswordEnabled(ctx, s.config, s.systemSettingSvc)
 }
 
+// ValidatePasswordAgainstPolicy 暴露当前部署的密码策略，供用户管理等
+// 上层服务在注册之外（例如新建 co-owner）先做同样的校验（F20）。
+func (s *userService) ValidatePasswordAgainstPolicy(ctx context.Context, password string) error {
+	return ValidatePasswordPolicy(password, s.complexPasswordEnabled(ctx))
+}
+
 // Register creates a new user account
 func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) (*types.User, error) {
 	logger.Info(ctx, "Start user registration")
@@ -172,6 +184,20 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 		return nil, fmt.Errorf("invalid tenant provisioning mode %q", provisioning)
 	}
 
+	// T04 一号一空间：先生成用户 ID，并在建空间之前拿同一把按用户锁，
+	// 保证注册与 AddMember / 邀请接受 / 超管开通 owner 空间按 user_id
+	// 串行化。真实会员服务提供锁内 ensureOwnerLocked；测试替身没有时走
+	// 原路径（公开 EnsureOwner 自己加锁）。
+	userID := uuid.New().String()
+	lockedEnsurer, lockMemberWrites := s.memberService.(singleSpaceMemberWriter)
+	if lockMemberWrites {
+		releaseUserLock, lockErr := acquireUserProvisionLock(ctx, s.userRepo, userID)
+		if lockErr != nil {
+			return nil, lockErr
+		}
+		defer releaseUserLock()
+	}
+
 	var createdTenant *types.Tenant
 	if provisioning == types.TenantProvisioningCreatePersonal {
 		// Note: RetrieverEngines is left empty - system will use defaults
@@ -191,7 +217,7 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 
 	// Create user
 	user := &types.User{
-		ID:           uuid.New().String(),
+		ID:           userID,
 		Username:     req.Username,
 		Email:        req.Email,
 		PasswordHash: string(hashedPassword),
@@ -220,9 +246,15 @@ func (s *userService) Register(ctx context.Context, req *types.RegisterRequest) 
 	// user record exists and the auth middleware's orphan-tenant recovery
 	// path will recreate the membership on next login.
 	if createdTenant != nil && s.memberService != nil {
-		if _, err := s.memberService.EnsureOwner(ctx, user.ID, createdTenant.ID); err != nil {
+		var ensureErr error
+		if lockMemberWrites {
+			_, ensureErr = lockedEnsurer.ensureOwnerLocked(ctx, user.ID, createdTenant.ID)
+		} else {
+			_, ensureErr = s.memberService.EnsureOwner(ctx, user.ID, createdTenant.ID)
+		}
+		if ensureErr != nil {
 			logger.Errorf(ctx, "Failed to create owner membership for user %s tenant %d: %v",
-				user.ID, createdTenant.ID, err)
+				user.ID, createdTenant.ID, ensureErr)
 			_ = s.userRepo.DeleteUser(ctx, user.ID)
 			_ = s.tenantService.DeleteTenant(ctx, createdTenant.ID)
 			return nil, errors.New("failed to finalise workspace ownership")
@@ -575,10 +607,24 @@ func (s *userService) GetUserByID(ctx context.Context, id string) (*types.User, 
 	return s.userRepo.GetUserByID(ctx, id)
 }
 
-// GetUsersByIDs proxies to the repository batch fetch. Returns an empty
-// map for an empty input; missing ids are absent from the result.
+// GetUsersByIDs 代理仓储的批量查询：空输入返回空 map，缺失的 id 不出现在结果里。
 func (s *userService) GetUsersByIDs(ctx context.Context, ids []string) (map[string]*types.User, error) {
 	return s.userRepo.GetUsersByIDs(ctx, ids)
+}
+
+// GetDeletedUserIDs 返回账号已被墓碑化的 id 子集。它刻意做成窄的可选能力
+// （不进宽 UserRepository 接口），避免改动既有测试替身；handler 通过匿名
+// 接口断言探测该能力。
+func (s *userService) GetDeletedUserIDs(
+	ctx context.Context, ids []string,
+) (map[string]struct{}, error) {
+	repo, ok := s.userRepo.(interface {
+		GetDeletedUserIDs(context.Context, []string) (map[string]struct{}, error)
+	})
+	if !ok {
+		return map[string]struct{}{}, nil
+	}
+	return repo.GetDeletedUserIDs(ctx, ids)
 }
 
 // GetUserByEmail gets a user by email
@@ -854,6 +900,9 @@ func (s *userService) ChangePassword(ctx context.Context, userID, oldPassword, n
 // credential. Authorization and the cannot-reset-self rule live at the system
 // admin HTTP boundary; this service owns the security-critical persistence and
 // session invalidation so no caller can accidentally update only one of them.
+//
+// 生产仓储实现 passwordResetTx 时，「特权目标 / 跨空间 owner 复核 + 写密码」
+// 在同一事务内完成（用户行锁 + 事务内复核），消除 T30 与 R4b 发现的 TOCTOU。
 func (s *userService) AdminResetPassword(ctx context.Context, userID, newPassword string) error {
 	if err := ValidatePasswordPolicy(newPassword, s.complexPasswordEnabled(ctx)); err != nil {
 		return err
@@ -872,11 +921,50 @@ func (s *userService) AdminResetPassword(ctx context.Context, userID, newPasswor
 		logger.Warnf(ctx, "AdminResetPassword denied: privileged target user=%s", userID)
 		return ErrCannotResetPrivilegedTarget
 	}
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
+	// F-RESET-OWNER（T30）：非系统管理边界不得重置“在其他空间持有 owner
+	// 角色”的账号。目标可能在本空间只是 viewer/contributor，却在另一个
+	// 空间是 owner；改掉的密码是全局的，等于跨空间接管。同空间 owner 的
+	// 重置仍允许（现有用途）。查询失败按 fail-closed 拒绝。
+	onSystemAdminBoundary := callerOnSystemAdminBoundary(ctx)
+	enforceOtherOwnerCheck := !onSystemAdminBoundary && s.memberService != nil
+	callerTenantID, _ := types.TenantIDFromContext(ctx)
+	// F42（R4b）：上面的特权目标预检在事务外；事务内以已锁定的 users 行为准
+	// 再复核一次，堵住预检之后、加锁之前被并发授予平台特权的窗口。
+	// 命中时事务回滚，不写密码、不吊销 token、不写审计。
+	enforcePrivilegedTargetCheck := !onSystemAdminBoundary
+
+	// 生产路径：复核与密码写入同事务，避免“校验后、写入前”被并发提升。
+	if resetter, ok := s.userRepo.(passwordResetTx); ok {
+		if _, err := resetter.ResetPasswordTx(
+			ctx, userID, callerTenantID, enforceOtherOwnerCheck,
+			enforcePrivilegedTargetCheck, string(hashedPassword),
+		); err != nil {
+			if errors.Is(err, apprepo.ErrResetTargetPrivileged) {
+				logger.Warnf(ctx,
+					"AdminResetPassword denied: privileged target user=%s", userID)
+				return ErrCannotResetPrivilegedTarget
+			}
+			if errors.Is(err, apprepo.ErrResetTargetOwnsAnotherWorkspace) {
+				logger.Warnf(ctx,
+					"AdminResetPassword denied: target owns another workspace user=%s", userID)
+				return ErrCannotResetElsewhereOwner
+			}
+			return err
+		}
+		return s.tokenRepo.RevokeTokensByUserID(ctx, userID)
+	}
+
+	// 测试替身/无事务能力时的兼容路径（生产仓储始终实现 passwordResetTx）。
+	if enforceOtherOwnerCheck && !s.canResetPasswordFromCallerWorkspace(ctx, userID) {
+		logger.Warnf(ctx, "AdminResetPassword denied: target owns another workspace user=%s", userID)
+		return ErrCannotResetElsewhereOwner
+	}
 	user.PasswordHash = string(hashedPassword)
 	user.UpdatedAt = time.Now()
 	if err := s.userRepo.UpdateUser(ctx, user); err != nil {
@@ -884,6 +972,44 @@ func (s *userService) AdminResetPassword(ctx context.Context, userID, newPasswor
 	}
 
 	return s.tokenRepo.RevokeTokensByUserID(ctx, userID)
+}
+
+// passwordResetTx 是"事务内复核特权目标 / 跨空间 owner + 写密码"的窄接口，
+// 由真实 user repository 实现。测试替身不实现时回退事务外的检查路径。
+type passwordResetTx interface {
+	ResetPasswordTx(
+		ctx context.Context,
+		targetUserID string,
+		callerTenantID uint64,
+		enforceOtherWorkspaceOwnerCheck bool,
+		enforcePrivilegedTargetCheck bool,
+		passwordHash string,
+	) (*types.User, error)
+}
+
+// canResetPasswordFromCallerWorkspace 判断调用方所在空间是否有资格重置目标
+// 的全局密码。只要目标在“调用方当前空间之外”的任意空间持有 active owner
+// 角色，就拒绝——否则空间级重置会连带接管那个空间。查询失败按 fail-closed
+// 处理，宁可拒绝也不放行。
+func (s *userService) canResetPasswordFromCallerWorkspace(ctx context.Context, targetUserID string) bool {
+	if s.memberService == nil {
+		return false
+	}
+	callerTenantID, _ := types.TenantIDFromContext(ctx)
+	members, err := s.memberService.ListByUser(ctx, targetUserID)
+	if err != nil {
+		logger.Warnf(ctx, "AdminResetPassword: list memberships for target %s failed: %v", targetUserID, err)
+		return false
+	}
+	for _, m := range members {
+		if m == nil || m.Status != types.TenantMemberStatusActive || m.Role != types.TenantRoleOwner {
+			continue
+		}
+		if m.TenantID != callerTenantID {
+			return false
+		}
+	}
+	return true
 }
 
 // callerOnSystemAdminBoundary 判定调用方是否站在「系统管理边界」上：与
@@ -1063,9 +1189,9 @@ func (s *userService) resolveLoginTenantID(ctx context.Context, user *types.User
 		}
 	}
 
-	// Membership (or cross-tenant superuser) must still be valid. Mirrors
-	// the gate in SwitchTenant so the two entry points stay consistent.
-	if !user.CanAccessAllTenants {
+	// 平台级账号（跨空间超管或系统管理员）不需要成员关系；普通用户必须
+	// 仍有 active 成员关系。与 SwitchTenant 的门槛保持一致。
+	if !(user.CanAccessAllTenants || user.IsSystemAdmin) {
 		if s.memberService == nil {
 			logger.Warnf(ctx,
 				"resolveLoginTenantID: member service unavailable; falling back to home for user %s",
@@ -1108,7 +1234,7 @@ func (s *userService) homeOrFirstMembershipTenant(ctx context.Context, user *typ
 	if user.TenantID == 0 {
 		return s.resolveFirstMembershipTenant(ctx, user)
 	}
-	if user.CanAccessAllTenants || s.memberService == nil {
+	if user.CanAccessAllTenants || user.IsSystemAdmin || s.memberService == nil {
 		return user.TenantID
 	}
 	member, err := s.memberService.GetMembership(ctx, user.ID, user.TenantID)
@@ -1288,10 +1414,9 @@ func (s *userService) generateTokensForTenant(
 // tokens. A write failure aborts the switch so we never return a
 // token pair whose later refresh would bounce to a different workspace.
 //
-// Returns ErrMembershipNotFound when the user is not a member of the
-// target tenant. Cross-tenant superuser access (CanAccessAllTenants)
-// is allowed without a membership row, mirroring the auth middleware's
-// resolveTenantRole behaviour.
+// 目标空间没有 active 成员关系时返回 ErrMembershipNotFound。
+// 平台级账号（CanAccessAllTenants 或 IsSystemAdmin）与 auth 中间件的
+// resolveTenantRole 口径一致，允许不依赖 tenant_members 行切换空间。
 func (s *userService) SwitchTenant(
 	ctx context.Context,
 	user *types.User,
@@ -1305,9 +1430,9 @@ func (s *userService) SwitchTenant(
 		return nil, errors.New("target workspace ID is required")
 	}
 
-	// Verify membership unless the caller is a cross-tenant superuser
-	// switching outside their home tenant.
-	if !user.CanAccessAllTenants || targetTenantID == user.TenantID {
+	// 平台级账号（跨空间超管或系统管理员）切到非 home 空间时不需要
+	// tenant_members 行；普通用户仍必须有 active 成员关系。
+	if !(user.CanAccessAllTenants || user.IsSystemAdmin) || targetTenantID == user.TenantID {
 		if s.memberService == nil {
 			return nil, errors.New("workspace membership service unavailable")
 		}

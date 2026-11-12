@@ -77,9 +77,6 @@
             </div>
         </t-tooltip>
 
-        <!-- 空间选择器：仅在用户可切换空间时显示 -->
-        <TenantSelector v-if="canAccessAllTenants && !uiStore.sidebarCollapsed" />
-
         <!-- 侧栏边缘拖拽调宽，拖窄时自动收缩。
              移动抽屉是覆盖层，不做调宽；模板条件隐藏，避免不可见仍可聚焦。 -->
         <PanelResizeHandle v-if="!mobileDrawer" edge="right" :label="t('knowledgeStages.resizeDrawer')"
@@ -390,7 +387,6 @@ import { useAssistantStore } from '@/stores/assistant';
 import AssistantButton from '@/components/assistant/AssistantButton.vue';
 import { MessagePlugin, DialogPlugin, Icon as TIcon } from "tdesign-vue-next";
 import UserMenu from '@/components/UserMenu.vue';
-import TenantSelector from '@/components/TenantSelector.vue';
 import { useI18n } from 'vue-i18n';
 import { useEditorResourcesStore } from '@/stores/editorResources';
 import { useResponsiveLayout } from '@/composables/useResponsiveLayout';
@@ -610,9 +606,6 @@ const isBatchIndeterminate = computed(() =>
 const batchDisplayCount = computed(() =>
     isAllBatchSelected.value ? total.value : batchSelectedIds.value.length
 )
-
-// 是否可以访问所有空间
-const canAccessAllTenants = computed(() => authStore.canAccessAllTenants);
 
 // 是否处于知识库详情页（不包括全局聊天）
 const isInKnowledgeBase = computed<boolean>(() => {

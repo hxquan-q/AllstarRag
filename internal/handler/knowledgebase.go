@@ -754,16 +754,47 @@ func enrichKBCreatorNames(ctx context.Context, userSvc interfaces.UserService, k
 		logger.Warnf(ctx, "Failed to resolve KB creator names: %v", err)
 		return
 	}
+	missing := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if u, ok := users[id]; !ok || u == nil {
+			missing = append(missing, id)
+		}
+	}
+	deleted := lookupDeletedCreatorIDs(ctx, userSvc, missing)
 	for _, kb := range kbs {
 		if kb.CreatorID == "" {
 			continue
 		}
 		u, ok := users[kb.CreatorID]
 		if !ok || u == nil {
+			_, kb.CreatorDeleted = deleted[kb.CreatorID]
 			continue
 		}
 		kb.CreatorName = pickUserDisplayName(u)
 	}
+}
+
+// lookupDeletedCreatorIDs 找出给定 creator id 中属于墓碑账号的那些。
+// 它探测可选的 GetDeletedUserIDs 窄接口，避免改动宽 UserService；能力缺失或
+// 查询失败时返回空集合（徽章回退到通用文案，而不是让列表整体失败）。
+func lookupDeletedCreatorIDs(
+	ctx context.Context, userSvc interfaces.UserService, ids []string,
+) map[string]struct{} {
+	if userSvc == nil || len(ids) == 0 {
+		return nil
+	}
+	lookup, ok := userSvc.(interface {
+		GetDeletedUserIDs(context.Context, []string) (map[string]struct{}, error)
+	})
+	if !ok {
+		return nil
+	}
+	deleted, err := lookup.GetDeletedUserIDs(ctx, ids)
+	if err != nil {
+		logger.Warnf(ctx, "Failed to resolve deleted creator ids: %v", err)
+		return nil
+	}
+	return deleted
 }
 
 // pickUserDisplayName picks the field most users will recognise: Username

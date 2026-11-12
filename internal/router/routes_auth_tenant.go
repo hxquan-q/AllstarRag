@@ -23,7 +23,9 @@ import (
 //   - POST   /:id/members/create     Admin+/系统管理员（系统管理员当前工作区
 //     角色低于 admin 也放行，由 handler「系统管理员按 owner」矩阵把关）
 //   - POST   /:id/members/:user_id/reset-password  Admin+/系统管理员（同上）
-//   - PUT    /:id/members/:user_id   Owner+ (only Owner can change roles)
+//   - PUT    /:id/members/:user_id   Owner+ / 系统管理员 (system admins
+//     pass regardless of their workspace role; target-level owner
+//     protection is enforced in the handler)
 //   - DELETE /:id/members/:user_id   Owner+ (only Owner can remove members)
 //   - POST   /:id/leave              Viewer+ (any member can quit on their own)
 //
@@ -41,9 +43,10 @@ import (
 // EnableCrossTenantAccess flag, replacing the 12-line if-block that
 // previously opened ListAllTenants and SearchTenants.
 //
-// JWT behavior for POST /tenants and GET /tenants remains unchanged. Platform
-// API keys may create tenants through system_tenants_manage; workspace keys
-// remain default-denied on tenant-catalog operations.
+// POST /tenants 是平台级建空间入口（T11 / AC-44），不再是上游的
+// self-service 行为：只有系统管理员 / 跨空间超管 / 平台 API Key 能创建。
+// GET /tenants 仍按当前空间列出。平台 API Key 通过 system_tenants_manage
+// 创建空间；workspace key 对租户目录操作保持默认拒绝。
 func RegisterTenantRoutes(
 	r *gin.RouterGroup,
 	handler *handler.TenantHandler,
@@ -71,14 +74,15 @@ func RegisterTenantRoutes(
 		if memberHandler != nil {
 			tenantRoutes.GET("/current/members", g.Viewer(), memberHandler.ListCurrentWorkspaceMembers)
 		}
-		// 创建空间对所有已登录用户开放：用户可以为自己再开一个工作区，
-		// handler 内部会调 EnsureOwner 把调用者写成新空间的 Owner。
-		// 跨空间超管走同一个端点，但能携带 storage_quota / status 等
-		// 全字段（见 handler.CreateTenant 内部分支）。
-		// 安全说明：这里不挂 g.CrossTenant()，因为 self-service 创建
-		// 不需要跨空间特权；handler 也不读写 X-Tenant-ID 指向的现有
-		// 空间，所以越过 PathTenantMatch 守卫不会扩大攻击面。
-		// 创建空间不对 API key 开放（注册在原始 group，默认拒绝）。
+		// 创建空间是平台级操作（T11 / AC-44）：只有系统管理员、跨空间
+		// 超管或平台 API Key 能创建；普通用户（owner/admin/contributor/
+		// viewer）即使上游 self_service 开关开启，也会被 handler 返回 403。
+		// 跨空间超管走同一个端点，可携带 storage_quota / status 等全字段
+		// （见 handler.CreateTenant 内部分支）。
+		// 安全说明：这里不挂 g.CrossTenant()；平台级判定在 handler 内完成
+		// （见 tenant_policy.go 的产品覆盖说明）。
+		// workspace API key 对建空间保持默认拒绝；平台 key 通过
+		// system_tenants_manage 能力放行。
 		g.apiKeyRoute(tenantRoutes, http.MethodPost, "",
 			apiKeyPlatform(types.APIKeyCapabilitySystemTenantsManage), handler.CreateTenant)
 		g.apiKeyRoute(tenantRoutes, http.MethodGet, "", apiKeyManageTenantSettings(apiKeyFullAccess()), handler.ListTenants)
@@ -115,33 +119,38 @@ func RegisterTenantRoutes(
 
 			// Tenant member management (PR 3 of #1303). Listing is
 			// Viewer+ so any active member can see the roster; mutation
-			// is Owner+ because membership changes are the highest-impact
-			// tenant op. /:id/leave is Viewer+ — any member can quit on
-			// their own; the service still rejects when it would leave
-			// the tenant without an Owner.
+			// is Admin+ (Owner/普通管理员) because membership changes are the
+			// highest-impact tenant op. /:id/leave is Viewer+ — any member
+			// can quit on their own; the service still rejects when it would
+			// leave the tenant without an Owner.
 			if memberHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), memberHandler.ListMembers)
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.AddMember)
+				// T06：普通管理员拿到 co-owner 能力集，成员治理入口放宽到
+				// Admin+；目标级保护（不能操作 owner/同级/自己）在 service
+				// 内判定，不靠路由守卫单独兜底（C4）。
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.AddMember)
 				// 建号接口：路由层只保证 Admin+/系统管理员，细粒度角色矩阵
-				// （owner 可建 admin/contributor/viewer，admin 只能建 viewer，
-				// 禁止建 owner）在 handler 内判定，见 service.CanCreateRole；
-				// 系统管理员即使当前工作区角色低于 admin 也放行进 handler，
-				// 按「系统管理员按 owner」矩阵处理（tenant_member.go
-				// CreateMemberAccount 内）。JWT-only：不通过 apiKeyRoute
-				// 声明，API key 默认拒绝。
+				// （owner/普通管理员可建 admin/viewer，禁止建 owner/contributor）
+				// 在 handler 内判定，见 service.CanCreateRole；系统管理员即使
+				// 当前工作区角色低于 admin 也放行进 handler，按「系统管理员按
+				// owner」矩阵处理（tenant_member.go CreateMemberAccount 内）。
+				// JWT-only：不通过 apiKeyRoute 声明，API key 默认拒绝。
 				tenantByID.POST("/members/create", g.AdminOrSystemAdmin(), memberHandler.CreateMemberAccount)
 				// 重置成员密码：路由层只保证 Admin+/系统管理员，细粒度矩阵
-				// （owner 可重置 admin/contributor/viewer，admin 只能重置
-				// contributor/viewer，不能重置同级/上级/本人）在 handler 内
-				// 判定，见 service.CanResetRole；系统管理员即使当前工作区角色
-				// 低于 admin 也放行进 handler，按「系统管理员按 owner」矩阵
-				// 处理（tenant_member.go ResetMemberPassword 内），特权目标
-				// 保护（F1 门禁）不变。JWT-only：不通过 apiKeyRoute 声明，
-				// API key 默认拒绝。
+				// （owner 可重置 admin/viewer，普通管理员只能重置 viewer，
+				// 不能重置同级/上级/本人）在 handler 内判定，见
+				// service.CanResetRole；系统管理员即使当前工作区角色低于 admin
+				// 也放行进 handler，按「系统管理员按 owner」矩阵处理
+				// （tenant_member.go ResetMemberPassword 内），特权目标保护
+				// （F1 门禁）不变。JWT-only：不通过 apiKeyRoute 声明，API key
+				// 默认拒绝。
 				tenantByID.POST("/members/:user_id/reset-password",
 					g.AdminOrSystemAdmin(), memberHandler.ResetMemberPassword)
-				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.UpdateMemberRole)
-				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), memberHandler.RemoveMember)
+				// 改角色：Owner/普通管理员或系统管理员。超管不需要在本空间持有
+				// owner 角色；目标级 owner/同级保护（不能直接降级 owner，必须走
+				// transfer-owner）在 handler.UpdateMemberRole 内兜底。
+				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.UpdateMemberRole)
+				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.RemoveMember)
 				tenantByID.POST("/leave", g.Viewer(), memberHandler.LeaveTenant)
 			}
 
@@ -150,31 +159,112 @@ func RegisterTenantRoutes(
 			// so the invitee gets to confirm via /me/invitations
 			// before any tenant_members row is written. List is
 			// Viewer+ so any member can see pending invites in the
-			// management view; create/revoke are Owner+ to match the
+			// management view; create/revoke are Admin+ to match the
 			// existing /members mutation gates. nil-skip pattern
 			// mirrors memberHandler above for environments built
 			// without the invitation dependency wired.
 			if invitationHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), invitationHandler.ListTenantInvitations)
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), invitationHandler.CreateInvitation)
-				g.apiKeyRoute(tenantByID, http.MethodDelete, "/invitations/:inv_id", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), invitationHandler.RevokeInvitation)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.CreateInvitation)
+				g.apiKeyRoute(tenantByID, http.MethodDelete, "/invitations/:inv_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.RevokeInvitation)
 				// Share-link create lives under /invite-links so the URL
 				// reads as "create a link" rather than another flavour
 				// of /invitations; the underlying row still lives in the
 				// tenant_invitations table and shows up in the GET above.
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links", apiKeyManageMembers(apiKeyFullAccess()), g.Owner(), invitationHandler.CreateInviteLink)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.CreateInviteLink)
 			}
 
-			// Audit log feed (PR 6 of #1303). Admin+ so denied-action
-			// histories don't surface to ordinary members; the
-			// PathTenantMatch group already prevents cross-tenant
-			// reads. nil-skip mirrors the memberHandler pattern above
-			// for environments wired without the audit dependency.
+			// 空间操作记录（上游 PR 6 of #1303）。T06 起本空间 owner / 普通
+			// 管理员与系统管理员可只读（contributor/viewer 仍 403）；跨空间
+			// 读取已由组级 PathTenantMatch 拦截。不声明 apiKeyRoute，API Key
+			// 走网关默认拒绝。auditLogHandler 为 nil 时跳过注册。
 			if auditLogHandler != nil {
-				tenantByID.GET("/audit-log", g.Admin(), auditLogHandler.ListTenantAuditLog)
+				tenantByID.GET("/audit-log", g.AdminOrSystemAdmin(), auditLogHandler.ListTenantAuditLog)
 			}
 		}
 	}
+}
+
+// RegisterUserManagementRoutes 注册 Owner/普通管理员与系统管理员的成员管理接口
+// （封禁 / 解封 / 彻底删除 / 空间交接 / 用户管理列表）。拆成独立的
+// Register* 函数，避免改动 RegisterTenantRoutes 的签名和既有调用点。
+//
+// 守卫与 02-plan §3.1 的契约一致：
+//   - /tenants/:id 组级：g.PathTenantMatch()（URL 空间必须等于当前激活
+//     空间；跨空间超管按既有规则放行）；
+//   - 封禁/解封/彻底删除/用户管理列表：g.AdminOrSystemAdmin()；
+//   - 空间交接：g.OwnerOrSystemAdmin() —— 系统管理员即使当前工作区角色
+//     低于 owner 也放行。
+//
+// 目标级保护（不能操作自己、owner 目标、系统管理员、别处 owner、跨租户
+// 解封）在 UserManagementService 内判定。
+func RegisterUserManagementRoutes(
+	r *gin.RouterGroup,
+	h *handler.UserManagementHandler,
+	g *rbacGuards,
+) {
+	if h == nil {
+		return
+	}
+	tenantByID := r.Group("/tenants/:id", g.PathTenantMatch())
+	// T06：封禁/解封/彻底删除/用户管理列表放宽到普通管理员；目标保护
+	// （owner/同级/自己）与跨空间规则在 UserManagementService 内判定。
+	// 封禁/注销在事务内复核目标成员角色未变（CP3 B2），路由层注释的
+	// 快照语义因此不再暴露「校验后被提权」的窗口。
+	tenantByID.POST("/members/:user_id/ban", g.AdminOrSystemAdmin(), h.BanMember)
+	tenantByID.POST("/members/:user_id/unban", g.AdminOrSystemAdmin(), h.UnbanMember)
+	tenantByID.POST("/members/:user_id/purge", g.AdminOrSystemAdmin(), h.PurgeMember)
+	// owner 空间交接：owner 只能传自己，系统管理员可传任意 owner。
+	// 唯一 owner 模型下这是 owner 身份变更的唯一入口，保持 owner-only。
+	tenantByID.POST("/transfer-owner", g.OwnerOrSystemAdmin(), h.TransferOwner)
+	// 用户管理列表（左目录计数 + 右列表）：普通管理员可见本空间成员，
+	// 系统管理员即使当前工作区角色低于 admin 也放行。业务判权在
+	// UserManagementService.ListUsers 再证一次（C4）。
+	tenantByID.GET("/user-management", g.AdminOrSystemAdmin(), h.ListUsers)
+}
+
+// RegisterPlatformUserManagementRoutes 注册平台级账号操作接口（T35）：
+//   - POST /system/admin/users/:user_id/ban
+//   - POST /system/admin/users/:user_id/unban
+//   - POST /system/admin/users/:user_id/purge
+//
+// 平台接口按 users.id 定位账号，不依赖当前工作区成员关系，因此：
+//   - 不挂 g.PathTenantMatch()（URL 中没有空间维度）；
+//   - 组级只挂 g.SystemAdmin()，非系统管理员 403；
+//   - 不走 apiKeyGroup 声明 → API Key 授权表查不到该路由，网关默认拒绝。
+//
+// 目标保护与跨空间规则仍在 UserManagementService 内完成，服务层会再证
+// 一次系统管理员身份（C4）。
+func RegisterPlatformUserManagementRoutes(
+	r *gin.RouterGroup,
+	h *handler.UserManagementHandler,
+	g *rbacGuards,
+) {
+	if h == nil {
+		return
+	}
+	adminRoutes := r.Group("/system/admin", g.SystemAdmin())
+	adminRoutes.POST("/users/:user_id/ban", h.PlatformBanUser)
+	adminRoutes.POST("/users/:user_id/unban", h.PlatformUnbanUser)
+	adminRoutes.POST("/users/:user_id/purge", h.PlatformPurgeUser)
+}
+
+// RegisterOwnerManagementRoutes 注册仅系统管理员可用的 owner 分配接口：
+//   - POST /system/admin/users/:user_id/owner-space
+//
+// 唯一 owner 模型下不再提供 owner 邀请创建路径。拆成独立的 Register*
+// 函数，避免改动 RegisterSystemAdminRoutes 的签名和既有调用点。组级统一
+// 挂 g.SystemAdmin()，与 /system/admin 下其他路由同一口径。
+func RegisterOwnerManagementRoutes(
+	r *gin.RouterGroup,
+	h *handler.OwnerManagementHandler,
+	g *rbacGuards,
+) {
+	if h == nil {
+		return
+	}
+	adminRoutes := r.Group("/system/admin", g.SystemAdmin())
+	adminRoutes.POST("/users/:user_id/owner-space", h.ProvisionOwnerSpace)
 }
 
 // RegisterMyInvitationRoutes wires the per-user invitation inbox under
@@ -264,6 +354,9 @@ func RegisterAuthRoutes(r *gin.RouterGroup, handler *handler.AuthHandler, g *rba
 	// for any valid API key. Chat clients / MCP call it to discover "who am I";
 	// leaving it default-deny was why scoped keys got a 403 here.
 	g.apiKeyRoute(r, http.MethodGet, "/auth/me", apiKeyAny(), handler.GetCurrentUser)
+	// /auth/capabilities：所有已认证用户可读，返回当前角色→能力的唯一投影。
+	// 未认证由全局 middleware.Auth 返回 401；不要加入无认证白名单。
+	r.GET("/auth/capabilities", handler.GetCapabilities)
 	r.PUT("/auth/me/preferences", handler.UpdateMyPreferences)
 	r.POST("/auth/change-password", handler.ChangePassword)
 }

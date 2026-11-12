@@ -46,9 +46,12 @@ func TestPostgresMigrationsServeAgentHistory(t *testing.T) {
 	requirePostgresIndexValid(t, db)
 
 	// Down and up again: DROP/CREATE INDEX CONCURRENTLY through golang-migrate.
+	// The index belongs to 000106 and newer migrations ship after it, so pin
+	// the version explicitly instead of assuming 000106 is the latest.
 	m, err := migrate.New("file://migrations/versioned", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = m.Close() })
+	require.NoError(t, ignoreNoChange(m.Migrate(versionedMigrationBefore(t, root, 107))))
 	require.NoError(t, m.Steps(-1))
 	var indexes int
 	require.NoError(t, db.QueryRow(
@@ -56,6 +59,12 @@ func TestPostgresMigrationsServeAgentHistory(t *testing.T) {
 	require.Zero(t, indexes, "the down migration drops the index")
 	require.NoError(t, m.Steps(1))
 	requirePostgresIndexValid(t, db)
+	// Finish where the test started: back on the latest migration.
+	require.NoError(t, m.Up())
+	finalVersion, finalDirty, err := m.Version()
+	require.NoError(t, err)
+	require.Equal(t, uint(latestVersionedMigration(t, root)), finalVersion)
+	require.False(t, finalDirty)
 
 	ctx := context.Background()
 	conn, err := db.Conn(ctx)

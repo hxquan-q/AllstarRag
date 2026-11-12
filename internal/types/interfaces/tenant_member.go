@@ -44,6 +44,11 @@ type TenantMemberRepository interface {
 	// gorm.ErrRecordNotFound if no active row matches.
 	UpdateRole(ctx context.Context, userID string, tenantID uint64, role types.TenantRole) error
 
+	// TransferOwnershipTx 在单个事务内完成空间交接：(to) 升为 owner、
+	// (from) 降为 admin。事务内按 user_id 升序锁定两条成员行并复核
+	// 角色与状态，任一步失败整体回滚，不做跨事务补偿（T40）。
+	TransferOwnershipTx(ctx context.Context, tenantID uint64, fromUserID, toUserID string) error
+
 	// SoftDelete marks the active membership as deleted. The user record
 	// itself is untouched.
 	SoftDelete(ctx context.Context, userID string, tenantID uint64) error

@@ -368,9 +368,10 @@ test('Settings.vue mobile nav: internal entry starts on the list, deep links ent
     /watch\(\s*\(\) => \[visible\.value, route\.path, route\.query\.section\] as const,\s*\(\[isVisible, path, section\]\) => \{\s*if \(!isVisible \|\| path !== '\/platform\/settings'\) return\s*if \(!mobileLayout\.value\) return\s*mobileShowNav\.value = !\(typeof section === 'string' && section !== ''\)/,
   )
   // 客户移动态没有 ?section= 时停在分区列表，不自动补默认分区（否则列表会被拉进内容）。
+  // T23 后默认分区由 visibleOrDefaultSection() 计算，移动态仍在 syncSettingsRoute 之前 return。
   assert.match(
     settings,
-    /if \(typeof section !== 'string'\) \{\s*\/\/[\s\S]*?if \(mobileLayout\.value\) return\s*syncSettingsRoute\(currentSection\.value \|\| 'general'\)/,
+    /if \(typeof section !== 'string'\) \{[\s\S]*?if \(mobileLayout\.value\) return[\s\S]*?syncSettingsRoute\(target\)/,
   )
 })
 
