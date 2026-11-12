@@ -163,7 +163,11 @@ export const useAuthStore = defineStore('auth', () => {
     // surface Owner — the backend caps the temporary grant at Admin too
     // (Owner-only ops like tenant deletion stay reserved for a real
     // Owner inside the target tenant).
-    if (canAccessAllTenants.value) return 'admin'
+    // 与后端 step2 两分支对齐：is_system_admin 无条件给临时 Admin；
+    // can_access_all_tenants 需 crossTenantSwitch 场景。两个标志任一
+    // 命中都按 Admin 渲染（8084 演练实证 is_system_admin-only 超管切换
+    // 后曾因漏认此分支导致设置分区全部隐藏）。
+    if (canAccessAllTenants.value || isSystemAdmin.value) return 'admin'
     return ''
   })
 
