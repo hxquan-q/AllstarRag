@@ -39,7 +39,8 @@ func TestCapabilitiesForOwnerMatrix(t *testing.T) {
 	require.NotContains(t, got, CapOwnerProvision,
 		"only a system administrator may provision an owner space (02-plan 3.2)")
 	require.ElementsMatch(t, want, got,
-		"owner matrix must be exactly the documented set; a missing or extra entry means a second, drifting source of truth")
+		"owner matrix must be exactly the documented set; a missing or extra entry means a second, "+
+			"drifting source of truth")
 }
 
 // TestCapabilitiesForAdminMatrix 锁定 admin（普通管理员）的能力集合：

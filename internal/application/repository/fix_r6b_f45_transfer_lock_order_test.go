@@ -68,7 +68,7 @@ func TestR6BTransferOwnershipLocksUsersBeforeMembers(t *testing.T) {
 	t40SeedMember(t, db, to, tenantID, types.TenantRoleAdmin, types.TenantMemberStatusActive)
 
 	recorder := &r6bSQLRecorder{Interface: logger.Default}
-	db.Config.Logger = recorder
+	db.Logger = recorder
 
 	require.NoError(t, transfer.TransferOwnershipTx(ctx, tenantID, from, to))
 

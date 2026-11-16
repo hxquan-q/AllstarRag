@@ -75,50 +75,50 @@ func t44SeedStandardFixture(t *testing.T, db *gorm.DB) []string {
 	t.Helper()
 	require.NoError(t, db.Create(&types.Tenant{ID: 10, Name: "空间A", Status: "active"}).Error)
 
-	min := func(m int) time.Time { return t44BaseTime.Add(time.Duration(m) * time.Minute) }
+	minTime := func(m int) time.Time { return t44BaseTime.Add(time.Duration(m) * time.Minute) }
 
 	// 有 active 成员关系 → 排除
-	t44SeedUser(t, db, "u-member", "member@example.com", "member", min(1), true)
+	t44SeedUser(t, db, "u-member", "member@example.com", "member", minTime(1), true)
 	require.NoError(t, db.Create(&types.TenantMember{
 		UserID: "u-member", TenantID: 10,
-		Role: types.TenantRoleViewer, Status: types.TenantMemberStatusActive, JoinedAt: min(1),
+		Role: types.TenantRoleViewer, Status: types.TenantMemberStatusActive, JoinedAt: minTime(1),
 	}).Error)
 
 	// 无任何关系 → 命中（第 1 个）
-	t44SeedUser(t, db, "u-loner", "loner@example.com", "loner", min(2), true)
+	t44SeedUser(t, db, "u-loner", "loner@example.com", "loner", minTime(2), true)
 
 	// 只有 suspended 关系（非 active）→ 命中（第 2 个）
-	t44SeedUser(t, db, "u-suspended-member", "suspended@example.com", "suspended", min(3), true)
+	t44SeedUser(t, db, "u-suspended-member", "suspended@example.com", "suspended", minTime(3), true)
 	require.NoError(t, db.Create(&types.TenantMember{
 		UserID: "u-suspended-member", TenantID: 10,
-		Role: types.TenantRoleViewer, Status: types.TenantMemberStatusSuspended, JoinedAt: min(3),
+		Role: types.TenantRoleViewer, Status: types.TenantMemberStatusSuspended, JoinedAt: minTime(3),
 	}).Error)
 
 	// 只有 invited 关系（邀请已发、账号未入组）→ 命中：invited 不算
 	// active 成员关系，该账号当前确实不属于任何空间，超管应能看到并处置。
-	t44SeedUser(t, db, "u-invited-only", "invited@example.com", "invited", min(4), true)
+	t44SeedUser(t, db, "u-invited-only", "invited@example.com", "invited", minTime(4), true)
 	require.NoError(t, db.Create(&types.TenantMember{
 		UserID: "u-invited-only", TenantID: 10,
-		Role: types.TenantRoleViewer, Status: types.TenantMemberStatusInvited, JoinedAt: min(4),
+		Role: types.TenantRoleViewer, Status: types.TenantMemberStatusInvited, JoinedAt: minTime(4),
 	}).Error)
 
 	// 墓碑用户（无关系，deleted_at 非空）→ 排除
-	t44SeedUser(t, db, "u-tombstone", "tombstone@example.com", "tombstone", min(5), true)
+	t44SeedUser(t, db, "u-tombstone", "tombstone@example.com", "tombstone", minTime(5), true)
 	require.NoError(t, db.Exec(
 		"UPDATE users SET deleted_at = ? WHERE id = ?", time.Now(), "u-tombstone").Error)
 
 	// 系统管理员（无关系）→ 排除（有 system_admin 目录）
-	t44SeedUser(t, db, "u-sysadmin", "sysadmin@example.com", "sysadmin", min(6), true)
+	t44SeedUser(t, db, "u-sysadmin", "sysadmin@example.com", "sysadmin", minTime(6), true)
 	require.NoError(t, db.Exec(
 		"UPDATE users SET is_system_admin = true WHERE id = ?", "u-sysadmin").Error)
 
 	// 跨空间超管账号（无关系）→ 排除（同为超管目录口径）
-	t44SeedUser(t, db, "u-all-tenants", "alltenants@example.com", "alltenants", min(7), true)
+	t44SeedUser(t, db, "u-all-tenants", "alltenants@example.com", "alltenants", minTime(7), true)
 	require.NoError(t, db.Exec(
 		"UPDATE users SET can_access_all_tenants = true WHERE id = ?", "u-all-tenants").Error)
 
 	// 封禁的无关系账号 → 命中（第 4 个）：超管需要能看到并解封/注销
-	t44SeedUser(t, db, "u-banned-loner", "bannedloner@example.com", "bannedloner", min(8), false)
+	t44SeedUser(t, db, "u-banned-loner", "bannedloner@example.com", "bannedloner", minTime(8), false)
 
 	return []string{"u-loner", "u-suspended-member", "u-invited-only", "u-banned-loner"}
 }

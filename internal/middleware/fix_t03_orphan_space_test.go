@@ -31,7 +31,7 @@ func countT03ActiveOwners(svc *fakeMemberService, tenantID uint64) int {
 
 // CountActiveOwners 让测试替身可被未来的窄接口类型断言识别；
 // 生产接口当前没有该方法时也不影响编译。
-func (f *fakeMemberService) CountActiveOwners(ctx context.Context, tenantID uint64) (int64, error) {
+func (f *fakeMemberService) CountActiveOwners(_ context.Context, tenantID uint64) (int64, error) {
 	return int64(countT03ActiveOwners(f, tenantID)), nil
 }
 

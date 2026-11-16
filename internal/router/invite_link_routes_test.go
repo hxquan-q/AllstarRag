@@ -33,7 +33,9 @@ func TestInviteLinkRoutesAreAdminManagedAndImmutable(t *testing.T) {
 	if createEnd < 0 {
 		t.Fatal("无法定位创建路由行尾")
 	}
-	if !strings.Contains(text[createStart:createStart+createEnd], "g.AdminOrSystemAdmin()") {
+	// 路由注册可能因 lll 拆为多行，守卫在同一函数调用的后续行；
+	// 取创建行起 300 字符窗口覆盖换行场景。
+	if !strings.Contains(text[createStart:createStart+300], "g.AdminOrSystemAdmin()") {
 		t.Fatal("POST /invite-links 必须由 g.AdminOrSystemAdmin() 守卫")
 	}
 

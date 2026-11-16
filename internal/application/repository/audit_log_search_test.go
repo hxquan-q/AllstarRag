@@ -56,10 +56,22 @@ func seedAuditSearchUsers(t *testing.T, db *gorm.DB) {
 func seedAuditSearchRows(t *testing.T, db *gorm.DB) map[string]uint64 {
 	t.Helper()
 	rows := []*types.AuditLog{
-		{TenantID: 7, ActorUserID: "u-alice", Action: types.AuditActionMemberAdded, TargetUserID: "u-bob", Outcome: types.AuditOutcomeSuccess},
-		{TenantID: 7, ActorUserID: "u-bob", Action: types.AuditActionMemberBanned, TargetUserID: "u-alice", Outcome: types.AuditOutcomeSuccess},
-		{TenantID: 7, ActorUserID: "u-alice", Action: types.AuditActionMemberPurged, TargetUserID: "u-carol", Outcome: types.AuditOutcomeSuccess},
-		{TenantID: 8, ActorUserID: "u-alice", Action: types.AuditActionMemberAdded, TargetUserID: "u-carol", Outcome: types.AuditOutcomeSuccess},
+		{
+			TenantID: 7, ActorUserID: "u-alice",
+			Action: types.AuditActionMemberAdded, TargetUserID: "u-bob", Outcome: types.AuditOutcomeSuccess,
+		},
+		{
+			TenantID: 7, ActorUserID: "u-bob", Action: types.AuditActionMemberBanned, TargetUserID: "u-alice",
+			Outcome: types.AuditOutcomeSuccess,
+		},
+		{
+			TenantID: 7, ActorUserID: "u-alice", Action: types.AuditActionMemberPurged, TargetUserID: "u-carol",
+			Outcome: types.AuditOutcomeSuccess,
+		},
+		{
+			TenantID: 8, ActorUserID: "u-alice", Action: types.AuditActionMemberAdded, TargetUserID: "u-carol",
+			Outcome: types.AuditOutcomeSuccess,
+		},
 	}
 	ids := map[string]uint64{}
 	for _, row := range rows {
