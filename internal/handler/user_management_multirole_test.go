@@ -27,9 +27,8 @@ type umMultiRoleFake struct {
 	multiCalls       int
 	scopedMultiCalls int
 
-	gotRoles  []types.TenantRole
-	gotScope  interfaces.UserManagementListScope
-	lastError error
+	gotRoles []types.TenantRole
+	gotScope interfaces.UserManagementListScope
 }
 
 func (f *umMultiRoleFake) ListUsers(

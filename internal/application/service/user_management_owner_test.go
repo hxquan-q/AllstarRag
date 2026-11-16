@@ -167,12 +167,6 @@ func omOwnerCountTenants(t *testing.T, env *omOwnerEnv) int64 {
 	return n
 }
 
-func omOwnerCountUsers(t *testing.T, env *omOwnerEnv) int64 {
-	t.Helper()
-	var n int64
-	require.NoError(t, env.db.Model(&types.User{}).Count(&n).Error)
-	return n
-}
 
 func omOwnerRequireAppStatus(t *testing.T, err error, status int) {
 	t.Helper()

@@ -19,7 +19,7 @@ func TestT06UpdateMemberRoleAdminCanManageViewer(t *testing.T) {
 	called := false
 	var gotRole types.TenantRole
 	ms := &roleGuardMemberService{
-		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+		getMembership: func(_ context.Context, _ string, tenantID uint64) (*types.TenantMember, error) {
 			return activeMember("u-viewer", tenantID, types.TenantRoleViewer), nil
 		},
 		updateRole: func(_ context.Context, _ string, _ uint64, newRole types.TenantRole) error {
@@ -44,7 +44,7 @@ func TestT06UpdateMemberRoleAdminCanManageViewer(t *testing.T) {
 func TestT06UpdateMemberRoleOwnerSelfChangeRejected(t *testing.T) {
 	called := false
 	ms := &roleGuardMemberService{
-		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+		getMembership: func(_ context.Context, _ string, tenantID uint64) (*types.TenantMember, error) {
 			return activeMember("u-owner", tenantID, types.TenantRoleOwner), nil
 		},
 		updateRole: func(context.Context, string, uint64, types.TenantRole) error {

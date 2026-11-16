@@ -27,7 +27,7 @@ func (r *userRepository) UnbanUserTx(
 	ctx context.Context,
 	tenantID uint64,
 	targetUserID string,
-	actorID string,
+	_ string,
 	isSystemAdmin bool,
 	expectedTargetRole types.TenantRole,
 ) (*types.User, error) {

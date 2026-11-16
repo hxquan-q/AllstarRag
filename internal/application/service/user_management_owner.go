@@ -213,32 +213,6 @@ func (s *userManagementService) ownerDepsReady() error {
 	return nil
 }
 
-// mapUserIdentityError 把注册时的重复身份错误映射成 409。
-func mapUserIdentityError(err error) error {
-	switch {
-	case errors.Is(err, ErrUserEmailExists):
-		return apperrors.NewConflictError(
-			"this email is already registered; invite or add the existing user instead")
-	case errors.Is(err, ErrUserUsernameExists):
-		return apperrors.NewConflictError("this username is already taken")
-	case errors.Is(err, ErrUserIdentityConflict):
-		return apperrors.NewConflictError("this email or username is already taken")
-	default:
-		return err
-	}
-}
-
-// mapMembershipError 把入组冲突映射成 409；目标账号已在本空间时同样
-// 属于身份冲突，交由上层决定是否提示邀请。
-func mapMembershipError(err error) error {
-	switch {
-	case errors.Is(err, ErrMembershipAlreadyExists):
-		return apperrors.NewConflictError("this user is already a member of the workspace")
-	default:
-		return err
-	}
-}
-
 // ensureTargetUser 读取目标用户，不存在时返回 404。
 func (s *userManagementService) ensureTargetUser(
 	ctx context.Context,

@@ -34,7 +34,7 @@ func (r *userRepository) LockUserProvision(
 	ctx context.Context,
 	userID string,
 ) (func(), error) {
-	switch r.db.Dialector.Name() {
+	switch r.db.Name() {
 	case "postgres":
 		tx := r.db.WithContext(ctx).Begin()
 		if tx.Error != nil {

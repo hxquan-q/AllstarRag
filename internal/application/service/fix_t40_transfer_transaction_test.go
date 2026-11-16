@@ -114,7 +114,7 @@ func (s *t40RecordingMemberService) UpdateRoleGuarded(
 		) error
 	})
 	if !ok {
-		return s.TenantMemberService.UpdateRole(ctx, userID, tenantID, newRole)
+		return s.UpdateRole(ctx, userID, tenantID, newRole)
 	}
 	return guarded.UpdateRoleGuarded(ctx, userID, tenantID, expectedRole, newRole, allowOwnerDemotion)
 }

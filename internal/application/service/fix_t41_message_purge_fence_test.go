@@ -470,7 +470,7 @@ func TestT41PurgeLocksSessionsBeforeDeletingMessages(t *testing.T) {
 	t33SeedMessage(t, env, "m-lock-order", "s-lock-order", "user", "existing message", "", nil)
 
 	recorder := &t41SQLRecorder{Interface: logger.Default}
-	env.db.Config.Logger = recorder
+	env.db.Logger = recorder
 
 	require.NoError(t, env.svc.PurgeUser(
 		umCallerCtx("actor", umTenantA, types.TenantRoleOwner, false),

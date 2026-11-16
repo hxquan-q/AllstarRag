@@ -128,7 +128,8 @@ func RegisterTenantRoutes(
 				// T06：普通管理员拿到 co-owner 能力集，成员治理入口放宽到
 				// Admin+；目标级保护（不能操作 owner/同级/自己）在 service
 				// 内判定，不靠路由守卫单独兜底（C4）。
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/members", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.AddMember)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/members",
+					apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.AddMember)
 				// 建号接口：路由层只保证 Admin+/系统管理员，细粒度角色矩阵
 				// （owner/普通管理员可建 admin/viewer，禁止建 owner/contributor）
 				// 在 handler 内判定，见 service.CanCreateRole；系统管理员即使
@@ -149,8 +150,10 @@ func RegisterTenantRoutes(
 				// 改角色：Owner/普通管理员或系统管理员。超管不需要在本空间持有
 				// owner 角色；目标级 owner/同级保护（不能直接降级 owner，必须走
 				// transfer-owner）在 handler.UpdateMemberRole 内兜底。
-				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.UpdateMemberRole)
-				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.RemoveMember)
+				g.apiKeyRoute(tenantByID, http.MethodPut, "/members/:user_id",
+					apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.UpdateMemberRole)
+				g.apiKeyRoute(tenantByID, http.MethodDelete, "/members/:user_id",
+					apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), memberHandler.RemoveMember)
 				tenantByID.POST("/leave", g.Viewer(), memberHandler.LeaveTenant)
 			}
 
@@ -165,13 +168,19 @@ func RegisterTenantRoutes(
 			// without the invitation dependency wired.
 			if invitationHandler != nil {
 				g.apiKeyRoute(tenantByID, http.MethodGet, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.Viewer(), invitationHandler.ListTenantInvitations)
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/invitations", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.CreateInvitation)
-				g.apiKeyRoute(tenantByID, http.MethodDelete, "/invitations/:inv_id", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.RevokeInvitation)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/invitations",
+					apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(),
+					invitationHandler.CreateInvitation)
+				g.apiKeyRoute(tenantByID, http.MethodDelete, "/invitations/:inv_id",
+					apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(),
+					invitationHandler.RevokeInvitation)
 				// Share-link create lives under /invite-links so the URL
 				// reads as "create a link" rather than another flavour
 				// of /invitations; the underlying row still lives in the
 				// tenant_invitations table and shows up in the GET above.
-				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links", apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(), invitationHandler.CreateInviteLink)
+				g.apiKeyRoute(tenantByID, http.MethodPost, "/invite-links",
+					apiKeyManageMembers(apiKeyFullAccess()), g.AdminOrSystemAdmin(),
+					invitationHandler.CreateInviteLink)
 			}
 
 			// 空间操作记录（上游 PR 6 of #1303）。T06 起本空间 owner / 普通

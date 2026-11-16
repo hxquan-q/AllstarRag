@@ -47,7 +47,7 @@ func (h *AuthHandler) GetCapabilities(c *gin.Context) {
 	if _, err := h.userService.GetCurrentUser(ctx); err != nil {
 		logger.Errorf(ctx, "Failed to get current user for capabilities: %v", err)
 		appErr := errors.NewUnauthorizedError("Failed to get user information").WithDetails(err.Error())
-		c.Error(appErr)
+		_ = c.Error(appErr)
 		return
 	}
 

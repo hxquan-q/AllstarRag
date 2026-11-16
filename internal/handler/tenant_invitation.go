@@ -286,7 +286,7 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 		return
 	}
 	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("invalid role"))
+		_ = c.Error(apperrors.NewValidationError("invalid role"))
 		return
 	}
 	// T05：产品层只分配 admin / viewer；owner 走开通/交接，contributor 停用。

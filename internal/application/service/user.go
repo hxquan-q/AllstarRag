@@ -80,7 +80,8 @@ var (
 	// 空间持有 active owner 成员关系，而调用方不在系统管理边界上。密码是
 	// 全局的，空间级重置会连带接管对方作为 owner 的另一个空间，因此拒绝。
 	// 同空间 owner 的重置不受影响；查询失败同样按 fail-closed 处理。
-	ErrCannotResetElsewhereOwner = errors.New("cannot reset a member who owns another workspace from a workspace endpoint")
+	ErrCannotResetElsewhereOwner = errors.New(
+		"cannot reset a member who owns another workspace from a workspace endpoint")
 )
 
 // Machine-readable change-password failure reasons for HTTP details fields.
@@ -1191,7 +1192,7 @@ func (s *userService) resolveLoginTenantID(ctx context.Context, user *types.User
 
 	// 平台级账号（跨空间超管或系统管理员）不需要成员关系；普通用户必须
 	// 仍有 active 成员关系。与 SwitchTenant 的门槛保持一致。
-	if !(user.CanAccessAllTenants || user.IsSystemAdmin) {
+	if !user.CanAccessAllTenants && !user.IsSystemAdmin {
 		if s.memberService == nil {
 			logger.Warnf(ctx,
 				"resolveLoginTenantID: member service unavailable; falling back to home for user %s",
@@ -1432,7 +1433,7 @@ func (s *userService) SwitchTenant(
 
 	// 平台级账号（跨空间超管或系统管理员）切到非 home 空间时不需要
 	// tenant_members 行；普通用户仍必须有 active 成员关系。
-	if !(user.CanAccessAllTenants || user.IsSystemAdmin) || targetTenantID == user.TenantID {
+	if (!user.CanAccessAllTenants && !user.IsSystemAdmin) || targetTenantID == user.TenantID {
 		if s.memberService == nil {
 			return nil, errors.New("workspace membership service unavailable")
 		}

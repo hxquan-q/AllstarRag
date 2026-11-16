@@ -292,7 +292,7 @@ func (h *TenantHandler) CreateTenant(c *gin.Context) {
 	// 建空间入口，属于产品决策回退，必须与用户确认。
 	if !catalogManager {
 		logger.Warnf(ctx, "Tenant creation denied: user %s is not a platform administrator", caller.ID)
-		c.Error(errors.NewForbiddenError("only platform administrators can create workspaces").
+		_ = c.Error(errors.NewForbiddenError("only platform administrators can create workspaces").
 			WithDetails("tenant.create_requires_platform_admin"))
 		return
 	}

@@ -10,12 +10,6 @@ import (
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
-// userProvisionLocker 是仓储层“按用户串行化 owner 空间开通”的窄接口。
-// 具体 *userRepository 在 PG/MySQL 上用 users 行锁事务，SQLite 用进程锁。
-type userProvisionLocker interface {
-	LockUserProvision(ctx context.Context, userID string) (func(), error)
-}
-
 // provisionFallbackLocks 仅在仓储不支持 LockUserProvision（测试替身）时兜底。
 // 键为 userID；条目数与被开通为 owner 的账号数同阶，保留不删除。
 var provisionFallbackLocks sync.Map

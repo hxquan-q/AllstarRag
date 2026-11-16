@@ -13,6 +13,7 @@ import (
 //   - all：全平台全部非墓碑用户。
 type UserManagementListScope string
 
+// 空间筛选口径的三个取值（含义见 UserManagementListScope 文档注释）。
 const (
 	UserManagementScopeCurrent UserManagementListScope = "current"
 	UserManagementScopeOther   UserManagementListScope = "other"

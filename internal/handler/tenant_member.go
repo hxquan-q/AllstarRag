@@ -561,9 +561,11 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 			return
 		}
 		if errors.Is(err, service.ErrCannotResetElsewhereOwner) {
-			logger.Warnf(ctx, "ResetMemberPassword denied: target owns another workspace user=%s tenant=%d actor_role=%s",
+			logger.Warnf(ctx,
+				"ResetMemberPassword denied: target owns another workspace user=%s tenant=%d actor_role=%s",
 				targetUserID, tenantID, actorRole)
-			_ = c.Error(apperrors.NewForbiddenError("this member owns another workspace; ask a system administrator to reset the password"))
+			_ = c.Error(apperrors.NewForbiddenError(
+				"this member owns another workspace; ask a system administrator to reset the password"))
 			return
 		}
 		if service.IsPasswordPolicyError(err) {

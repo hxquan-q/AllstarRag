@@ -15,9 +15,10 @@ linters:
     rules:
       # swag annotations and struct tags cannot wrap, so a parameter with its
       # enum list, a composed response type or a field's swag tags have to
-      # stay on one line.
+      # stay on one line. This includes godoc blocks where swag lines are
+      # indented with a tab, and @Description bodies that read like prose.
       - linters: [lll]
-        source: '^\s*// @(Param|Success|Failure|x-)|(swaggertype|extensions):"'
+        source: '^\s*//\s*@(Param|Success|Failure|Description|x-)|(swaggertype|extensions):"'
 formatters:
   enable:
     - gofmt
