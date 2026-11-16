@@ -43,7 +43,7 @@ fi
 # BRAND_CONFIG_JSON 不直接拼进 JS：先转成 base64 字符串字面量，浏览器端再
 # JSON.parse 校验。这样即使运维传了尾逗号、坏引号或多行文本，生成的
 # config.js 本身仍是合法 JS，坏配置只回退默认品牌，不会让整份运行时配置失效（M13）。
-DEFAULT_BRAND_JSON='{"productName":"小爱知识库","logoUrl":"/brand/allstar-logo.png","logoWidth":150,"faviconUrl":"/favicon.ico","primaryColor":"#0EA5E9","loginSubtitle":"金蝶产品知识，随问随答","chatDisclaimer":"回答由 AI 根据知识库生成，仅供参考"}'
+DEFAULT_BRAND_JSON='{"productName":"小爱知识库","logoUrl":"/brand/allstar-logo.png","logoWidth":150,"faviconUrl":"/favicon.ico","wordmarkUrl":"/brand/xiaoi-wordmark.png","primaryColor":"#0EA5E9","loginSubtitle":"金蝶产品知识，随问随答","chatDisclaimer":"回答由 AI 根据知识库生成，仅供参考"}'
 BRAND_EXPR="$DEFAULT_BRAND_JSON"
 
 if [ -n "${BRAND_CONFIG_JSON:-}" ]; then

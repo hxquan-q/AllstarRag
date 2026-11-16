@@ -19,6 +19,7 @@ window.__RUNTIME_CONFIG__ = {
     logoUrl: '/brand/allstar-logo.png',
     logoWidth: 150,
     faviconUrl: '/favicon.ico',
+    wordmarkUrl: '/brand/xiaoi-wordmark.png',
     primaryColor: '#0EA5E9',
     loginSubtitle: '金蝶产品知识，随问随答',
     chatDisclaimer: '回答由 AI 根据知识库生成，仅供参考',

@@ -27,8 +27,8 @@
                     fill="currentColor" stroke="currentColor" stroke-width="0.3" />
             </svg>
             <!-- 产品名改用字标图片（保留左侧小图标，白底用 multiply 融入白色顶栏） -->
-            <span class="customer-topbar__wordmark" role="img" aria-label="小爱知识库">
-                <img src="/brand/xiaoi-wordmark.png" alt="小爱知识库" />
+            <span class="customer-topbar__wordmark" role="img" :aria-label="brandConfig.productName">
+                <img :src="brandConfig.wordmarkUrl" :alt="brandConfig.productName" />
             </span>
         </span>
 
@@ -44,6 +44,7 @@
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { brandConfig } from '@/brand'
 import { useUIStore } from '@/stores/ui'
 import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 

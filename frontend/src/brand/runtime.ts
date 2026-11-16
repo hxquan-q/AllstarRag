@@ -111,6 +111,7 @@ export function readBrandConfig(raw: unknown): BrandConfig {
     logoUrl: pickString(raw, 'logoUrl', DEFAULT_BRAND.logoUrl),
     logoWidth: pickLogoWidth(raw, DEFAULT_BRAND.logoWidth),
     faviconUrl: pickString(raw, 'faviconUrl', DEFAULT_BRAND.faviconUrl),
+    wordmarkUrl: pickString(raw, 'wordmarkUrl', DEFAULT_BRAND.wordmarkUrl),
     primaryColor,
     actionColor: pickActionColor(raw, primaryColor),
     loginSubtitle: pickString(raw, 'loginSubtitle', DEFAULT_BRAND.loginSubtitle),

@@ -20,6 +20,9 @@ export interface BrandConfig {
    *  仅作用于登录页 logo；侧栏 logo 固定 108px（.logo 类，与管理员一致），不受此值影响。 */
   logoWidth: number
   faviconUrl: string
+  /** 客户顶栏字标图片地址，默认 `/brand/xiaoi-wordmark.png`。
+   *  仅作用于客户版顶栏，不影响左上角 logo 与 favicon。 */
+  wordmarkUrl: string
   /** 主色，只接受 #RGB / #RRGGBB */
   primaryColor: string
   /** 可点击按钮等需要白字对比度的深一档颜色 */
