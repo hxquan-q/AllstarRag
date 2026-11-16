@@ -167,7 +167,6 @@ func omOwnerCountTenants(t *testing.T, env *omOwnerEnv) int64 {
 	return n
 }
 
-
 func omOwnerRequireAppStatus(t *testing.T, err error, status int) {
 	t.Helper()
 	umRequireHTTPStatus(t, err, status)
