@@ -2,7 +2,12 @@ package types
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestApplyBuiltinAgentLocalizationOverlaysYAMLLocale(t *testing.T) {
@@ -152,5 +157,85 @@ func TestApplyBuiltinAgentLocalizationKeepsEmptyPromptEmpty(t *testing.T) {
 	}
 	if agent.Config.ContextTemplate != "" {
 		t.Errorf("ContextTemplate = %q, want empty", agent.Config.ContextTemplate)
+	}
+}
+
+// T03 票级复跑边界：红用例只覆盖英文品牌短语，这里锁中文短语、替换顺序、
+// 小写技术标识与空串。
+func TestScrubBuiltinAgentBrandWords(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"英文长短短语与单独品牌", "WeKnora Assistant on WeKnora Cloud, then WeKnora.", "XiaoAi Assistant on XiaoAi Cloud, then XiaoAi."},
+		{"中文品牌短语", "WeKnora 助手管理 WeKnora 知识库，WeKnora 云服务同步。", "小爱助手管理 小爱知识库，小爱云同步。"},
+		{"小写技术标识不动", "aud=weknora search_weknora_docs .weknora/requirements.json", "aud=weknora search_weknora_docs .weknora/requirements.json"},
+		{"空串保持空", "", ""},
+		{"不重复替换", "WeKnora Cloud Assistant", "XiaoAi Cloud Assistant"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := scrubBuiltinAgentBrandWords(tc.in); got != tc.want {
+				t.Fatalf("scrubBuiltinAgentBrandWords(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// T03 票级复跑：无 DB 记录的内置 agent 直接读 YAML。这里直接解析随仓库
+// 发布的配置，锁 5 个语言的名称/描述与保留的技术标识。
+func TestBuiltinAgentYAMLHasNoVisibleWeKnoraBrand(t *testing.T) {
+	agentsData, err := os.ReadFile(filepath.Join("..", "..", "config", "builtin_agents.yaml"))
+	if err != nil {
+		t.Fatalf("read builtin_agents.yaml: %v", err)
+	}
+	var file builtinAgentsFile
+	if err := yaml.Unmarshal(agentsData, &file); err != nil {
+		t.Fatalf("parse builtin_agents.yaml: %v", err)
+	}
+	var entry *BuiltinAgentEntry
+	for i := range file.BuiltinAgents {
+		if file.BuiltinAgents[i].ID == "builtin-weknora-assistant" {
+			entry = &file.BuiltinAgents[i]
+			break
+		}
+	}
+	if entry == nil {
+		t.Fatal("builtin-weknora-assistant not found in YAML")
+	}
+	if entry.Config.SystemPromptID != "weknora_assistant" {
+		t.Errorf("system_prompt_id = %q, want weknora_assistant (technical id must stay)", entry.Config.SystemPromptID)
+	}
+	wantNames := map[string]string{
+		"default": "XiaoAi Assistant",
+		"zh-CN":   "小爱助手",
+		"zh-TW":   "小愛助手",
+		"ja-JP":   "XiaoAi アシスタント",
+		"ko-KR":   "XiaoAi 어시스턴트",
+	}
+	for locale, want := range wantNames {
+		got, ok := entry.I18n[locale]
+		if !ok {
+			t.Errorf("locale %s missing", locale)
+			continue
+		}
+		if got.Name != want {
+			t.Errorf("%s name = %q, want %q", locale, got.Name, want)
+		}
+		if got.Description == "" {
+			t.Errorf("%s description is empty", locale)
+		}
+		if strings.Contains(got.Description, "WeKnora") {
+			t.Errorf("%s description still contains WeKnora: %q", locale, got.Description)
+		}
+	}
+
+	promptData, err := os.ReadFile(filepath.Join("..", "..", "config", "prompt_templates", "agent_system_prompt.yaml"))
+	if err != nil {
+		t.Fatalf("read agent_system_prompt.yaml: %v", err)
+	}
+	if strings.Contains(string(promptData), "WeKnora") {
+		t.Error("agent_system_prompt.yaml still contains visible WeKnora brand word")
 	}
 }
