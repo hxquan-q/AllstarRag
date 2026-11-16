@@ -149,6 +149,32 @@ func ApplyBuiltinAgentLocalization(ctx context.Context, agent *CustomAgent) {
 		agent.Description = localized.Description
 	}
 	agent.Avatar = localized.Avatar
+
+	// 改名前置入数据库的内置 agent 提示词可能仍自称 WeKnora。读路径只做
+	// 文本净化,不改数据库,也不碰租户自定义的其它 Config 字段。非内置
+	// agent 走不到这里(GetBuiltinAgentWithContext 对它们返回 nil)。
+	agent.Config.SystemPrompt = scrubBuiltinAgentBrandWords(agent.Config.SystemPrompt)
+	agent.Config.ContextTemplate = scrubBuiltinAgentBrandWords(agent.Config.ContextTemplate)
+}
+
+// builtinAgentBrandReplacements 按顺序执行:先替换较长的品牌短语,最后才换
+// 单独的 "WeKnora",避免 "WeKnora Cloud" 被替换成半截。只匹配品牌词精确
+// 大小写;小写 weknora 技术标识(aud=weknora、工具名、URL)和其它字符不动。
+var builtinAgentBrandReplacements = [][2]string{
+	{"WeKnora Cloud", "XiaoAi Cloud"},
+	{"WeKnora Assistant", "XiaoAi Assistant"},
+	{"WeKnora 助手", "小爱助手"},
+	{"WeKnora 云服务", "小爱云"},
+	{"WeKnora 知识库", "小爱知识库"},
+	{"WeKnora", "XiaoAi"},
+}
+
+// scrubBuiltinAgentBrandWords 净化内置 agent 提示词中的品牌词;空串保持空串。
+func scrubBuiltinAgentBrandWords(s string) string {
+	for _, pair := range builtinAgentBrandReplacements {
+		s = strings.ReplaceAll(s, pair[0], pair[1])
+	}
+	return s
 }
 
 var builtinAgentEntriesTestMu sync.Mutex
