@@ -853,10 +853,23 @@ func (s *tenantMemberService) deleteMembershipRow(
 	return s.repo.SoftDelete(ctx, userID, tenantID)
 }
 
+// userColumnUpdater 是「按列更新用户行」的窄接口，由真实 user repository
+// 实现。cleanupRemovedMemberState 用它只写 tenant_id / preferences 列，不整行
+// Save——整行 Save 会把读到的旧用户快照（含 password_hash）写回，覆盖并发
+// 完成的密码重置（F2 安全热修）。测试替身未实现时回退旧的整行更新路径，
+// 保持既有行为。
+type userColumnUpdater interface {
+	UpdateUserColumns(ctx context.Context, userID string, updates map[string]any) error
+}
+
 // cleanupRemovedMemberState drops stale home/preference pointers that
 // reference the removed tenant and revokes the user's sessions so any
 // JWT still scoped to that tenant cannot keep serving 403-only UI.
 // All steps are best-effort and nil-safe for partial DI graphs in tests.
+//
+// F2 安全热修：指针清理只 UPDATE 需要改的列（tenant_id / preferences /
+// updated_at），不再 Save 完整 User 行——移除流程读到的用户快照可能早于
+// 一次并发密码重置，整行写回会把旧 password_hash 复活。
 func (s *tenantMemberService) cleanupRemovedMemberState(ctx context.Context, userID string, tenantID uint64) {
 	if s.userRepo != nil {
 		user, err := s.userRepo.GetUserByID(ctx, userID)
@@ -865,21 +878,33 @@ func (s *tenantMemberService) cleanupRemovedMemberState(ctx context.Context, use
 				"RemoveMember cleanup: failed to load user %s after removing tenant %d: %v",
 				userID, tenantID, err)
 		} else if user != nil {
-			changed := false
+			updates := map[string]any{}
 			if user.TenantID == tenantID {
+				// tenant_id 是可空列：写 NULL（写 0 会违反 PostgreSQL 的
+				// tenant 外键，与 UpdateUser 的空值口径一致）。
+				updates["tenant_id"] = nil
 				user.TenantID = 0
-				changed = true
 			}
 			if user.Preferences.LastActiveTenantID != nil && *user.Preferences.LastActiveTenantID == tenantID {
 				user.Preferences.LastActiveTenantID = nil
-				changed = true
+				// UserPreferences 实现 driver.Valuer，GORM 自动序列化 jsonb 列。
+				updates["preferences"] = user.Preferences
 			}
-			if changed {
-				user.UpdatedAt = time.Now()
-				if err := s.userRepo.UpdateUser(ctx, user); err != nil {
+			if len(updates) > 0 {
+				now := time.Now()
+				updates["updated_at"] = now
+				writeErr := func() error {
+					if colUpdater, ok := s.userRepo.(userColumnUpdater); ok {
+						return colUpdater.UpdateUserColumns(ctx, user.ID, updates)
+					}
+					// 兼容路径（测试替身）：沿用整行更新。
+					user.UpdatedAt = now
+					return s.userRepo.UpdateUser(ctx, user)
+				}()
+				if writeErr != nil {
 					logger.Warnf(ctx,
 						"RemoveMember cleanup: failed to clear stale tenant pointers for user %s tenant %d: %v",
-						userID, tenantID, err)
+						userID, tenantID, writeErr)
 				}
 			}
 		}

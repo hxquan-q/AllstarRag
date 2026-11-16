@@ -82,6 +82,13 @@ var (
 	// 同空间 owner 的重置不受影响；查询失败同样按 fail-closed 处理。
 	ErrCannotResetElsewhereOwner = errors.New(
 		"cannot reset a member who owns another workspace from a workspace endpoint")
+
+	// ErrCannotResetInactiveMember 由 AdminResetPassword 返回：目标不是调用方
+	// 空间的 active 成员（suspended / invited）。用户迁移后旧空间的 suspended
+	// 关系不构成重置其全局密码的资格（F1 安全热修），事务内复核命中时拒绝，
+	// 不写密码、不吊销 token。
+	ErrCannotResetInactiveMember = errors.New(
+		"target is not an active member of the caller's workspace")
 )
 
 // Machine-readable change-password failure reasons for HTTP details fields.
@@ -956,6 +963,12 @@ func (s *userService) AdminResetPassword(ctx context.Context, userID, newPasswor
 					"AdminResetPassword denied: target owns another workspace user=%s", userID)
 				return ErrCannotResetElsewhereOwner
 			}
+			if errors.Is(err, apprepo.ErrResetTargetNotActiveMember) {
+				logger.Warnf(ctx,
+					"AdminResetPassword denied: target not active member of caller workspace user=%s tenant=%d",
+					userID, callerTenantID)
+				return ErrCannotResetInactiveMember
+			}
 			return err
 		}
 		return s.tokenRepo.RevokeTokensByUserID(ctx, userID)
@@ -986,6 +999,22 @@ type passwordResetTx interface {
 		enforcePrivilegedTargetCheck bool,
 		passwordHash string,
 	) (*types.User, error)
+}
+
+// SetHomeTenantIfEmpty 把仍无 home 空间（NULL/0）的用户指向 tenantID，只做
+// tenant_id / updated_at 两列的条件更新，返回是否实际写入。供邀请 auto-accept
+// 的 home 回填使用：不整行 Save，避免把调用方早先读出的用户快照（含
+// password_hash）写回、覆盖并发修改（F2 安全热修，与 adoptHomeTenantIfEmpty
+// 同口径）。刻意不进 interfaces.UserService：那是全量契约，加方法会迫使所有
+// 逐方法显式实现该接口的测试替身跟着补实现；handler 走窄接口类型断言。
+func (s *userService) SetHomeTenantIfEmpty(
+	ctx context.Context, userID string, tenantID uint64,
+) (bool, error) {
+	writer, ok := s.userRepo.(emptyHomeTenantWriter)
+	if !ok {
+		return false, errors.New("user repository does not support conditional home-tenant update")
+	}
+	return writer.SetTenantIDIfEmpty(ctx, userID, tenantID)
 }
 
 // canResetPasswordFromCallerWorkspace 判断调用方所在空间是否有资格重置目标

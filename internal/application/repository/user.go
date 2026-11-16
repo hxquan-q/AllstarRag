@@ -176,6 +176,21 @@ func (r *userRepository) UpdateUser(ctx context.Context, user *types.User) error
 	return r.db.WithContext(ctx).Omit("is_active").Save(user).Error
 }
 
+// UpdateUserColumns 只更新给定列（map 键为数据库列名，如 tenant_id /
+// preferences / updated_at），不触碰其他列。与 UpdateUser 的整行 Save 相反，
+// 它不会把调用方持有的旧快照写回，供并发敏感路径（cleanupRemovedMemberState
+// 等）使用，避免覆盖并发完成的密码重置（F2 安全热修）。updates 必须非空。
+// 默认作用域排除已软删的墓碑行，旧快照不会复活已删除账号。
+// 刻意不放进 interfaces.UserRepository（原因同 HardDeleteUser）：那是全量
+// 契约，加方法会迫使所有逐方法显式实现该接口的测试替身跟着补实现；
+// 消费方通过窄接口类型断言使用。
+func (r *userRepository) UpdateUserColumns(ctx context.Context, id string, updates map[string]any) error {
+	return r.db.WithContext(ctx).
+		Model(&types.User{}).
+		Where("id = ?", id).
+		Updates(updates).Error
+}
+
 // DeleteUser deletes a user
 func (r *userRepository) DeleteUser(ctx context.Context, id string) error {
 	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&types.User{}).Error
