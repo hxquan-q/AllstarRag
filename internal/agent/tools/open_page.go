@@ -66,7 +66,7 @@ var SettingsSections = map[string]openPageSection{
 	"memory":                {"长期记忆", "Long-term memory"},
 	"models":                {"模型管理", "Model Management"},
 	"ollama":                {"Ollama", "Ollama"},
-	"weknoracloud":          {"WeKnora Cloud", "WeKnora Cloud"},
+	"weknoracloud":          {"小爱云", "XiaoAi Cloud"},
 	"websearch":             {"网络搜索", "Web Search"},
 	"vectorstore":           {"向量数据库引擎", "Vector DB Engine"},
 	"parser":                {"解析引擎", "Parser Engine"},
@@ -159,7 +159,7 @@ func IsPageButtonTool(name string) bool {
 }
 
 const openPageDescription = "" +
-	"Show the user a button that opens a WeKnora page: a knowledge base or one of its documents, " +
+	"Show the user a button that opens a XiaoAi page: a knowledge base or one of its documents, " +
 	"a Wiki page, an agent's editor at a given tab, the model settings, the MCP services, any section " +
 	"of the settings dialog (personal preferences, profile, workspace, engines, integrations, system), " +
 	"a toolbox tool, or the agent, knowledge base or shared space lists. settings section system-global " +
@@ -179,7 +179,7 @@ const openPageDescription = "" +
 	"click. Name what they still need to fill in."
 
 const viewPageDescription = "" +
-	"Open a WeKnora page in the user's browser now and get back what it shows, to answer about a page " +
+	"Open a XiaoAi page in the user's browser now and get back what it shows, to answer about a page " +
 	"they do not have open: a setting's current value, what a settings section or list shows. It takes " +
 	"the same targets as open_page, without drafts. The user can go back from the card. If their page " +
 	"has unsaved changes it is not left and they get a button instead; then ask them to open it and " +

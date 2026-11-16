@@ -392,7 +392,7 @@ func (s *AutomationService) validate(ctx context.Context, a *types.Automation) (
 func (s *AutomationService) runnableAssistant(ctx context.Context) (*types.CustomAgent, error) {
 	assistant, err := s.agents.GetAgentByID(ctx, types.BuiltinWeKnoraAssistantID)
 	if err != nil || assistant == nil || !types.GrantsOperationCatalog(assistant) || !assistant.IsAgentMode() {
-		return nil, errors.New("the WeKnora assistant is unavailable in this workspace")
+		return nil, errors.New("the XiaoAi assistant is unavailable in this workspace")
 	}
 	return assistant, nil
 }

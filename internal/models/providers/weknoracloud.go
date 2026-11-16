@@ -61,10 +61,10 @@ const WeKnoraCloudBaseURL = "https://weknora.weixin.qq.com"
 func newWeKnoraCloudProvider() *Definition {
 	return &Definition{
 		ID:           WeKnoraCloudID,
-		Name:         "WeKnora Cloud",
-		Names:        map[string]string{"zh-CN": "WeKnora 云服务"},
-		Description:  "WeKnora managed models: chat, embedding, rerank, vlm",
-		Descriptions: map[string]string{"zh-CN": "WeKnora云服务，模型：chat, embedding, rerank, vlm"},
+		Name:         "XiaoAi Cloud",
+		Names:        map[string]string{"zh-CN": "小爱云"},
+		Description:  "XiaoAi managed models: chat, embedding, rerank, vlm",
+		Descriptions: map[string]string{"zh-CN": "小爱云服务，模型：chat, embedding, rerank, vlm"},
 		Website:      WeKnoraCloudBaseURL,
 		Icon:         weKnoraCloudIcon,
 		API:          api.APIOpenAICompletions,

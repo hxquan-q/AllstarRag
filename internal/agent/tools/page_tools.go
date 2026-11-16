@@ -20,7 +20,7 @@ const (
 )
 
 const readPageDescription = "" +
-	"Read the WeKnora page the user has open beside this chat, as they see it now: headings, lists and " +
+	"Read the XiaoAi page the user has open beside this chat, as they see it now: headings, lists and " +
 	"tables, messages and errors on screen, and form fields with their current values, including changes " +
 	"not saved yet. An open dialog or drawer is read instead of the page behind it. Use it when the user " +
 	"points at their screen (\"this error\", \"these documents\", \"what I wrote here\", \"the selected ones\") " +
@@ -139,7 +139,7 @@ func NewFillPageTool(actor approval.PageActor) *FillPageTool {
 }
 
 const selectTabDescription = "" +
-	"Open a tab on the WeKnora page the user has beside this chat, then return what that panel shows. " +
+	"Open a tab on the XiaoAi page the user has beside this chat, then return what that panel shows. " +
 	"Pass the ref of a tab line from a recent read_page, e.g. tab \"用户管理\" [ref=e3]. Selecting a tab " +
 	"only changes which panel is visible. It does not press buttons, save, confirm a dialog, or fill a " +
 	"password: tell the user which button to use. If the tab is already selected, the current page is " +
