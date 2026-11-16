@@ -82,6 +82,14 @@ type MessageService interface {
 type MessageRepository interface {
 	// CreateMessage creates a message
 	CreateMessage(ctx context.Context, message *types.Message) (*types.Message, error)
+	// CreateMessageInSessionTx 在单事务内先锁定目标会话、再复核作用域与账号
+	// 状态，最后写入消息与 artifacts。锁把消息写入与注销清理串行化：purge
+	// 先完成时写入复核失败；写入先提交时 purge 会删掉这条消息。
+	// tenantID/ownerID 的复核语义与 sessionRepository.Get 一致（ownerID 为空
+	// 时不过滤）。
+	CreateMessageInSessionTx(
+		ctx context.Context, message *types.Message, tenantID uint64, ownerID string,
+	) (*types.Message, error)
 	// GetMessage gets a message
 	GetMessage(ctx context.Context, sessionID string, id string) (*types.Message, error)
 	// GetMessagesBySession gets all messages of a session

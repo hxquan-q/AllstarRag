@@ -113,6 +113,10 @@ type ChunkRepository interface {
 	DeleteChunksByKnowledgeID(ctx context.Context, tenantID uint64, knowledgeID string) error
 	// DeleteByKnowledgeList deletes all chunks for a knowledge list
 	DeleteByKnowledgeList(ctx context.Context, tenantID uint64, knowledgeIDs []string) error
+	// HardDeleteByKnowledgeList 在单事务里物理删除这批 knowledge 的 chunks
+	// （含软删行）与对应 chunk_revisions。空列表返回 nil；只处理传入租户与
+	// knowledge，重复调用幂等。聊天历史注销清理用它避免正文在库里累积。
+	HardDeleteByKnowledgeList(ctx context.Context, tenantID uint64, knowledgeIDs []string) error
 	// ListImageInfoByKnowledgeIDs returns non-empty (knowledge_id, image_info) pairs for image cleanup.
 	ListImageInfoByKnowledgeIDs(ctx context.Context, tenantID uint64, knowledgeIDs []string) ([]ChunkImageInfo, error)
 	// ListImageAssets returns one page of a KB's de-duplicated image assets

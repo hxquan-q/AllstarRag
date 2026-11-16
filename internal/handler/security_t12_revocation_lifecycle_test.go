@@ -5,6 +5,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -21,7 +22,8 @@ import (
 
 // security_t12_revocation_lifecycle_test.go 是 T12 对 R1-1 的独立复验:
 // 软删成员行的来源不同,access_revoked 的结论也必须不同。
-//  1. 删除空间:tenant 软删 + 成员级联软删 -> 原成员不再被撤销,可重建空间;
+//  1. 删除空间:tenant 软删 + 成员级联软删 -> 原成员不再被撤销;但 T11 / AC-44
+//     后普通用户仍不能自助建空间,重建走超管 ProvisionOwnerSpace;
 //  2. 被 owner 移出(空间存活)-> 仍撤销,创建 403;
 //  3. 主动退出(空间存活)-> 当前保守拦截(已知语义,不是缺陷)。
 // 前两条用真实 repo+service+sqlite 驱动,不依赖实现方新增的单元断言。
@@ -132,22 +134,32 @@ func TestT12_R1_1_DeletedWorkspaceAllowsRecreate(t *testing.T) {
 		t.Fatal("after deleting the workspace: revoked=true, want false (cascade must not count as removal)")
 	}
 
-	// 真实 handler 路径:可以再次创建空间,并自动成为新空间 Owner。
+	// 真实 handler 路径:T11 / AC-44 后普通用户不再能自助建空间,即使空间
+	// 已被删除也不算被移出。原「可重建」的产品能力转移到超管(ProvisionOwnerSpace),
+	// 这里保留原意:删除空间不会让账号进入 access_revoked 状态,请求被平台级
+	// 门禁拦下而不是撤销拦截,且不会留下新建的空间/成员行。
 	tenants := &tenantPolicyTenantService{}
 	h := t12NewCreateTenantHandler(memberSvc, user, tenants)
 	w := t09PostTenant(t, newT09CreateTenantRouter(h), `{"name":"rebuilt-workspace"}`, nil)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("recreate after delete: status = %d, want 201 (body=%s)", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("recreate after delete: status = %d, want 403 (AC-44: only platform admins create workspaces)", w.Code)
 	}
-	if tenants.createCalls != 1 {
-		t.Fatalf("CreateTenant calls = %d, want 1", tenants.createCalls)
+	if tenants.createCalls != 0 {
+		t.Fatalf("CreateTenant calls = %d, want 0", tenants.createCalls)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "access_revoked") {
+		t.Fatalf("after deleting the workspace: must not be denied as revoked, body=%s", body)
+	}
+	if !strings.Contains(body, `"details":"tenant.create_requires_platform_admin"`) {
+		t.Fatalf("after deleting the workspace: want platform-admin gate detail, body=%s", body)
 	}
 	memberships, err := memberSvc.ListByUser(ctx, user)
 	if err != nil {
 		t.Fatalf("ListByUser: %v", err)
 	}
-	if len(memberships) != 1 || memberships[0].TenantID != 99 || memberships[0].Role != types.TenantRoleOwner {
-		t.Fatalf("new owner membership = %+v, want one owner row on tenant 99", memberships)
+	if len(memberships) != 0 {
+		t.Fatalf("memberships after denied recreate = %+v, want none", memberships)
 	}
 }
 

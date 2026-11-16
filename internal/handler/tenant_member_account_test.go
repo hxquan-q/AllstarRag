@@ -229,9 +229,9 @@ func validCreateBody(role types.TenantRole) map[string]any {
 
 // ---------- CreateMemberAccount：AC-1 / AC-4 ----------
 
-func TestCreateMemberAccount_OwnerCanCreateAllNonOwnerRoles(t *testing.T) {
+func TestCreateMemberAccount_OwnerCanCreateAdminAndViewer(t *testing.T) {
 	for _, role := range []types.TenantRole{
-		types.TenantRoleAdmin, types.TenantRoleContributor, types.TenantRoleViewer,
+		types.TenantRoleAdmin, types.TenantRoleViewer,
 	} {
 		t.Run(string(role), func(t *testing.T) {
 			ms := &accountTestMemberService{}
@@ -267,19 +267,21 @@ func TestCreateMemberAccount_OwnerCanCreateAllNonOwnerRoles(t *testing.T) {
 	}
 }
 
-func TestCreateMemberAccount_AdminCanOnlyCreateViewer(t *testing.T) {
-	// admin -> viewer 允许
-	ms := &accountTestMemberService{}
-	us := &accountTestUserService{}
-	h := NewTenantMemberHandler(ms, us)
-	w := doAccountJSON(t, accountTestRouter(h), http.MethodPost, "/tenants/1/members/create",
-		validCreateBody(types.TenantRoleViewer), accountCtxOpts{userID: "u-admin", role: types.TenantRoleAdmin})
-	if w.Code != http.StatusCreated {
-		t.Fatalf("admin creating viewer: expected 201, got %d body=%s", w.Code, w.Body.String())
+func TestCreateMemberAccount_AdminCanCreateAdminAndViewer(t *testing.T) {
+	// 普通管理员 = co-owner 能力集：admin / viewer 都允许（AC-5 / T05）。
+	for _, allowed := range []types.TenantRole{types.TenantRoleAdmin, types.TenantRoleViewer} {
+		ms := &accountTestMemberService{}
+		us := &accountTestUserService{}
+		h := NewTenantMemberHandler(ms, us)
+		w := doAccountJSON(t, accountTestRouter(h), http.MethodPost, "/tenants/1/members/create",
+			validCreateBody(allowed), accountCtxOpts{userID: "u-admin", role: types.TenantRoleAdmin})
+		if w.Code != http.StatusCreated {
+			t.Fatalf("admin creating %s: expected 201, got %d body=%s", allowed, w.Code, w.Body.String())
+		}
 	}
 
-	// admin -> admin / contributor 越权（AC-1）
-	for _, role := range []types.TenantRole{types.TenantRoleAdmin, types.TenantRoleContributor} {
+	// contributor 不再分配（AC-2 / T05）
+	for _, role := range []types.TenantRole{types.TenantRoleContributor} {
 		t.Run("deny-"+string(role), func(t *testing.T) {
 			ms := &accountTestMemberService{}
 			us := &accountTestUserService{}
@@ -532,7 +534,7 @@ func validResetBody() map[string]any {
 
 func TestResetMemberPassword_OwnerMatrix(t *testing.T) {
 	for _, targetRole := range []types.TenantRole{
-		types.TenantRoleAdmin, types.TenantRoleContributor, types.TenantRoleViewer,
+		types.TenantRoleAdmin, types.TenantRoleViewer,
 	} {
 		t.Run(string(targetRole), func(t *testing.T) {
 			ms := &accountTestMemberService{
@@ -560,11 +562,30 @@ func TestResetMemberPassword_OwnerMatrix(t *testing.T) {
 			}
 		})
 	}
+
+	// contributor 不再分配（AC-2 / T05）；owner 重置 contributor 必须 403。
+	t.Run("deny-contributor", func(t *testing.T) {
+		ms := &accountTestMemberService{
+			getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+				return &types.TenantMember{UserID: userID, TenantID: tenantID, Role: types.TenantRoleContributor}, nil
+			},
+		}
+		us := &accountTestUserService{}
+		h := NewTenantMemberHandler(ms, us)
+		w := doAccountJSON(t, accountTestRouter(h), http.MethodPost, "/tenants/1/members/u-target/reset-password",
+			validResetBody(), accountCtxOpts{userID: "u-owner", role: types.TenantRoleOwner})
+		if w.Code != http.StatusForbidden {
+			t.Fatalf("owner resetting contributor must 403, got %d body=%s", w.Code, w.Body.String())
+		}
+		if us.resetCalls != 0 {
+			t.Fatalf("denied reset must not change any password")
+		}
+	})
 }
 
 func TestResetMemberPassword_AdminMatrix(t *testing.T) {
 	for _, targetRole := range []types.TenantRole{
-		types.TenantRoleContributor, types.TenantRoleViewer,
+		types.TenantRoleViewer,
 	} {
 		t.Run("allow-"+string(targetRole), func(t *testing.T) {
 			ms := &accountTestMemberService{
@@ -583,7 +604,7 @@ func TestResetMemberPassword_AdminMatrix(t *testing.T) {
 	}
 
 	for _, targetRole := range []types.TenantRole{
-		types.TenantRoleAdmin, types.TenantRoleOwner,
+		types.TenantRoleAdmin, types.TenantRoleContributor, types.TenantRoleOwner,
 	} {
 		t.Run("deny-"+string(targetRole), func(t *testing.T) {
 			ms := &accountTestMemberService{

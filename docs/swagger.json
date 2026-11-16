@@ -1258,6 +1258,40 @@
                 }
             }
         },
+        "/auth/capabilities": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "返回当前工作区角色、是否系统管理员，以及由唯一能力矩阵投影出的能力列表。前端据此门控菜单与按钮；真正的权限由后端逐接口校验。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证"
+                ],
+                "summary": "获取当前用户能力",
+                "responses": {
+                    "200": {
+                        "description": "当前用户能力",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.GetCapabilitiesResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "未认证",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/change-password": {
             "post": {
                 "security": [
@@ -1846,7 +1880,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "为当前用户在目标空间重新签发访问令牌；要求该用户在目标空间存在 active 成员关系（跨租户超级用户除外）。\n成功换签会把目标空间写入「最近活跃租户」偏好，下次登录与 refresh 都落在该空间（refresh JWT 不含 tenant_id）。\n该偏好是账号级的：一次换签会改变该用户所有设备的下次登录/refresh 落点。偏好写入失败则整次换签失败，不会发出新 token。",
+                "description": "为当前用户在目标空间重新签发访问令牌；要求该用户在目标空间存在 active 成员关系（跨租户超级用户和系统管理员除外）。\n成功换签会把目标空间写入「最近活跃租户」偏好，下次登录与 refresh 都落在该空间（refresh JWT 不含 tenant_id）。\n该偏好是账号级的：一次换签会改变该用户所有设备的下次登录/refresh 落点。偏好写入失败则整次换签失败，不会发出新 token。",
                 "consumes": [
                     "application/json"
                 ],
@@ -1890,7 +1924,7 @@
                         }
                     },
                     "403": {
-                        "description": "无该空间成员关系或偏好写入失败",
+                        "description": "普通用户无该空间成员关系，或偏好写入失败；系统管理员可跨空间切换",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -13490,7 +13524,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "已登录用户用共享邀请链接 token 加入空间，不创建新账号；对已是成员的用户幂等。",
+                "description": "已登录用户用共享邀请链接 token 加入空间，不创建新账号；对已是成员的用户幂等。\n非超管账号已属于其他空间时返回 409（一号一空间）；链接角色为历史 owner/contributor 时返回 400。",
                 "consumes": [
                     "application/json"
                 ],
@@ -13518,6 +13552,18 @@
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "链接角色已不可分配（历史 owner/contributor）",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "409": {
+                        "description": "已属于其他空间（一号一空间）",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
                     },
                     "410": {
@@ -13562,7 +13608,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "当前登录用户接受一条 pending 邀请；服务端会同时写入 tenant_members 行。",
+                "description": "当前登录用户接受一条 pending 邀请；服务端会同时写入 tenant_members 行。\n非超管账号已属于其他空间时返回 409（一号一空间）；历史 owner/contributor 邀请角色不可分配时返回 400。",
                 "produces": [
                     "application/json"
                 ],
@@ -13582,6 +13628,41 @@
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "邀请角色已不可分配（历史 owner/contributor）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "不是邀请接收人",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "邀请不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "已属于其他空间（一号一空间）或邀请已失效/已处理",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -21215,6 +21296,293 @@
                 }
             }
         },
+        "/system/admin/users/{user_id}/ban": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "系统管理员按 user_id 封禁任意账号（不依赖当前空间成员关系）：置 is_active=false 并吊销全部 token，写 tenant_id=0 的系统审计",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "平台用户管理"
+                ],
+                "summary": "平台封禁账号",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "封禁原因（可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberStatusChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "最小账号摘要（不含 preferences / 密码哈希 / 成员关系）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求体非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "非系统管理员、操作自己或目标是最后一名活跃系统管理员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标账号不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/admin/users/{user_id}/owner-space": {
+            "post": {
+                "description": "系统管理员把已有账号设为 owner：已有独立空间则复用，否则新建空间并成为唯一 owner",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理"
+                ],
+                "summary": "设置账号为 owner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "空间名（可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.provisionOwnerSpaceRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求体非法或缺少 user_id",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "仅系统管理员可调用",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标账号不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "目标账号已属于其他空间（一号一空间）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/admin/users/{user_id}/purge": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "系统管理员按 user_id 墓碑化任意账号（跨空间/无成员关系均可）：清空 PII、清理个人数据并写系统审计；owner 需先交接、系统管理员需先撤权，不可恢复",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "平台用户管理"
+                ],
+                "summary": "平台注销账号",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "确认邮箱与原因（原因可选）",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberPurgeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "仅包含被处理账号 id",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求体非法或 confirm_email 与目标邮箱不一致",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "非系统管理员、操作自己、目标仍有特权或 owner 未交接",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标账号不存在（含重复删除）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/admin/users/{user_id}/unban": {
+            "post": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "系统管理员按 user_id 解封任意账号：恢复登录能力，不恢复历史 token，不受「最近一次 ban 必须在当前空间」限制",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "平台用户管理"
+                ],
+                "summary": "平台解封账号",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "解封原因（可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberStatusChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "最小账号摘要（不含 preferences / 密码哈希 / 成员关系）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求体非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "非系统管理员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标账号不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/system/capabilities": {
             "get": {
                 "description": "返回当前部署版本及实际注册的后端路由所对应的功能能力；仅 supported=false 表示入口应隐藏",
@@ -21498,7 +21866,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "创建新的空间。任意已登录用户均可调用以建立自己的新工作区，\n调用方会被自动设为该空间的 Owner。跨空间超管仍可像以前一样\n通过本接口创建任意空间。\n当 tenant.auto_create_api_key（或 WEKNORA_TENANT_AUTO_CREATE_API_KEY）\n开启时，会自动创建一个 full_access API Key，并在响应体的 data.api_key 字段返回其明文 token。",
+                "description": "创建新的空间。仅平台级管理员可调用：系统管理员、跨空间超管，\n或持有 system_tenants_manage 的平台 API Key。其余角色\n（owner/admin/contributor/viewer）一律返回 403，与上游\ntenant.self_service_creation_enabled 开关无关。\n调用方会被自动设为该空间的 Owner。\n当 tenant.auto_create_api_key（或 WEKNORA_TENANT_AUTO_CREATE_API_KEY）\n开启时，会自动创建一个 full_access API Key，并在响应体的 data.api_key 字段返回其明文 token。",
                 "consumes": [
                     "application/json"
                 ],
@@ -21530,6 +21898,12 @@
                     },
                     "400": {
                         "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "仅平台级管理员可创建空间",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -22428,6 +22802,12 @@
                         "description": "按 actor_user_id 精确过滤",
                         "name": "actor",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）",
+                        "name": "q",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -22439,6 +22819,12 @@
                     },
                     "400": {
                         "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "403": {
+                        "description": "本空间 owner/普通管理员或系统管理员以外，或路径空间与当前空间不一致",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -22506,7 +22892,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 通过邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。",
+                "description": "Owner 或普通管理员通过邮箱邀请已注册用户加入空间；只能分配 admin / viewer（owner 走开通/交接，contributor 停止分配）。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。",
                 "consumes": [
                     "application/json"
                 ],
@@ -22553,6 +22939,41 @@
                                 }
                             ]
                         }
+                    },
+                    "400": {
+                        "description": "参数或角色非法 / 历史邀请角色不可分配",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权（不能邀请 owner/contributor）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "邮箱未注册",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "已是成员、已有待接受邀请，或目标账号已属于其他空间（一号一空间）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -22564,7 +22985,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。",
+                "description": "Owner 或普通管理员取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。",
                 "produces": [
                     "application/json"
                 ],
@@ -22593,6 +23014,27 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "邀请不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -22659,6 +23101,12 @@
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
                     },
+                    "403": {
+                        "description": "角色越权（不能分配 owner/contributor）",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
                     "500": {
                         "description": "创建后补写配额/有效期失败",
                         "schema": {
@@ -22697,6 +23145,13 @@
                         "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "角色并发变化（ErrMembershipChanged）或最后一位 Owner 不能离开",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
                         }
                     }
                 }
@@ -22797,6 +23252,41 @@
                             "type": "object",
                             "additionalProperties": true
                         }
+                    },
+                    "400": {
+                        "description": "请求体或角色非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权（不能分配 owner/contributor）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "邮箱未注册",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "已是成员，或目标账号已属于其他空间（一号一空间）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -22808,7 +23298,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "工作区 Owner（系统管理员按 Owner 处理）可创建 admin/contributor/viewer，\nAdmin 只能创建 viewer；任何人都不能创建 owner。一次请求完成建号与入组。",
+                "description": "工作区 Owner 或普通管理员（系统管理员按 Owner 处理）可创建 admin/viewer；\ncontributor 停止分配，任何人都不能创建 owner。一次请求完成建号与入组。",
                 "consumes": [
                     "application/json"
                 ],
@@ -22853,14 +23343,14 @@
                         }
                     },
                     "403": {
-                        "description": "角色越权",
+                        "description": "角色越权（不能创建 owner/contributor）",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
                         }
                     },
                     "409": {
-                        "description": "邮箱或用户名已注册",
+                        "description": "邮箱或用户名已注册，或目标账号已属于其他空间（一号一空间）",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -22883,7 +23373,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 修改某位成员在当前空间内的角色；不能将最后一位 Owner 降级",
+                "description": "Owner、普通管理员或系统管理员修改某位成员在当前空间内的角色。\n只能分配 admin / viewer；不能把任何人提升为 owner，owner 只能通过 transfer-owner 交接产生。\nowner 目标不能通过本接口降级/改角色，必须先走 transfer-owner 交接；\n普通管理员不能修改另一位普通管理员（同级保护），也不能修改 owner。\n非系统管理员不能修改系统管理员 / 跨空间超管 / 在任意空间持有 owner 的账号。\n最后一位 Owner 的服务层原子保护保留。",
                 "consumes": [
                     "application/json"
                 ],
@@ -22910,7 +23400,7 @@
                         "required": true
                     },
                     {
-                        "description": "目标角色",
+                        "description": "目标角色（admin/viewer）",
                         "name": "request",
                         "in": "body",
                         "required": true,
@@ -22925,6 +23415,34 @@
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
                         }
+                    },
+                    "400": {
+                        "description": "请求体或角色非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "角色越权或目标保护（owner/同级/自己/特权账号）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标不是本空间 active 成员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             },
@@ -22934,7 +23452,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "Owner 将某位成员从当前空间中移除（软删除 tenant_members 行）；\n不能移除最后一位 Owner",
+                "description": "Owner、普通管理员或系统管理员将某位成员从当前空间中移除（软删除 tenant_members 行）；\n普通管理员只能移除 viewer，不能移除 owner（必须先交接）或同级普通管理员；\n不能移除最后一位 Owner",
                 "produces": [
                     "application/json"
                 ],
@@ -22964,6 +23482,195 @@
                         "schema": {
                             "$ref": "#/definitions/internal_handler.SuccessResponse"
                         }
+                    },
+                    "403": {
+                        "description": "角色越权或目标保护（owner/同级/自己）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标不是本空间 active 成员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "不能移除最后一位 Owner；或目标角色并发变化（ErrMembershipChanged），刷新后重试",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/members/{user_id}/ban": {
+            "post": {
+                "description": "将目标账号置为不可登录并吊销其全部 token，保留成员关系；Owner/普通管理员不能操作自己、owner 或同级普通管理员，特权账号需系统管理员",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "封禁空间成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "封禁原因（可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberStatusChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求体非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "无权限或目标保护（不能操作自己 / owner / 系统管理员 / 跨空间超管）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标不是本空间 active 成员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "目标角色并发变化（ErrMembershipChanged），刷新后重试",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/members/{user_id}/purge": {
+            "post": {
+                "description": "墓碑化目标账号：清空 PII、清理成员/邀请/token/个人数据并写审计；资产保留。不可恢复",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "彻底删除空间成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "确认邮箱与原因（原因可选）",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberPurgeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求体非法或 confirm_email 与目标邮箱不一致",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "无权限、目标保护、owner 未交接或跨空间账号需超管",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标不是本空间 active 成员（含重复删除）",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "目标角色并发变化（ErrMembershipChanged），刷新后重试",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
                     }
                 }
             }
@@ -22975,7 +23682,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "工作区 Owner（系统管理员按 Owner 处理）可重置 admin/contributor/viewer 的密码，\nAdmin 只能重置 contributor/viewer；\n不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
+                "description": "工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；\n不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
                 "consumes": [
                     "application/json"
                 ],
@@ -23035,6 +23742,253 @@
                     },
                     "404": {
                         "description": "目标不是本空间成员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/members/{user_id}/unban": {
+            "post": {
+                "description": "恢复目标账号的登录能力，不恢复历史 token；普通 Owner/普通管理员只能解封在本空间被封禁的账号，跨租户解封需系统管理员",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "解封空间成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "用户 ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "解封原因（可选）",
+                        "name": "request",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.memberStatusChangeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求体非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "无权限、目标保护或跨租户解封需超管",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "目标不是本空间 active 成员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "目标角色并发变化（ErrMembershipChanged），刷新后重试",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/transfer-owner": {
+            "post": {
+                "description": "把 owner 身份交给本空间 active 普通管理员（admin），目标需先提升为 admin；owner 只能传自己，系统管理员可传任意 owner",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "交接空间 owner",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "交接目标（from 可选）",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.transferOwnerRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "请求体非法、缺少 to_user_id、from/to 相同、目标不是 active admin 或已被封禁",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "非本空间 owner、系统管理员以外不能代他人交接，或目标为特权/别处 owner",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "源 owner 或目标成员关系不存在",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "交接期间成员角色已变化，需刷新重试",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/tenants/{id}/user-management": {
+            "get": {
+                "security": [
+                    {
+                        "Bearer": []
+                    }
+                ],
+                "description": "返回空间内 active 成员（含被封禁账号），支持角色过滤、邮箱/用户名搜索与分页；role_counts 恒为 owner/admin/viewer 三个桶（contributor 仅历史存储值，不进入目录）；scope=other/all（系统管理员专属）切换到跨空间多空间聚合视图，memberships 列出各空间成员关系；scope=all 另下发 no_membership_count（无任何空间成员关系的普通账号数）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "空间成员"
+                ],
+                "summary": "列出用户管理成员",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "空间 ID",
+                        "name": "id",
+                        "in": "path"
+                    },
+                    {
+                        "type": "string",
+                        "default": "current",
+                        "description": "空间筛选：current（默认，仅本空间）/other（其它空间有成员关系的用户）/all（全平台用户），other/all 仅系统管理员",
+                        "name": "scope",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "角色筛选：viewer/admin/owner，缺省为全部；支持逗号分隔多值（如 admin,viewer），每个值必须合法；多空间视图匹配任意空间的成员关系角色",
+                        "name": "role",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "仅 scope=all 且系统管理员：只返回无任何 active 成员关系的普通账号（无空间目录）；只接受 true/false，与 role 互斥",
+                        "name": "without_membership",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按邮箱/用户名模糊筛选",
+                        "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码（从 1 起）",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 20,
+                        "description": "每页数量（最大 100）",
+                        "name": "page_size",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "成员列表",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handler.UserManagementListResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "role/scope 非法、分页参数非法、without_membership 非 true/false 或非 scope=all、role 与 without_membership 同用",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "非本空间 owner/普通管理员或系统管理员；scope=other/all 及 without_membership 非系统管理员",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -26526,6 +27480,12 @@
                 "rbac.member_removed",
                 "rbac.member_role_changed",
                 "rbac.member_left",
+                "rbac.member_banned",
+                "rbac.member_unbanned",
+                "rbac.member_purged",
+                "system.owner_provisioned",
+                "rbac.owner_transferred",
+                "system.owner_invite_created",
                 "rbac.member_password_reset",
                 "rbac.access_denied",
                 "rbac.invitation_sent",
@@ -26591,6 +27551,12 @@
                 "AuditActionMemberRemoved",
                 "AuditActionMemberRoleChanged",
                 "AuditActionMemberLeft",
+                "AuditActionMemberBanned",
+                "AuditActionMemberUnbanned",
+                "AuditActionMemberPurged",
+                "AuditActionOwnerProvisioned",
+                "AuditActionOwnerTransferred",
+                "AuditActionOwnerInviteCreated",
                 "AuditActionMemberPasswordReset",
                 "AuditActionAccessDenied",
                 "AuditActionInvitationSent",
@@ -27885,6 +28851,11 @@
                 "created_by": {
                     "description": "Created by user ID",
                     "type": "string"
+                },
+                "creator_deleted": {
+                    "description": "CreatorDeleted 由列表 handler 批量回填：CreatedBy 指向的用户已被墓碑化时为 true。\n内建 agent 与老数据保持 false，避免被误标成「已注销用户」。",
+                    "type": "boolean",
+                    "x-agent": true
                 },
                 "creator_name": {
                     "description": "CreatorName 由 list handler 在返回前批量回填，作用同 KnowledgeBase.CreatorName：\n让前端列表卡片区分「我创建」与「同空间其他成员创建」。不落库，内建 agent / 老数据\n仍可能为空。",
@@ -30300,6 +31271,10 @@
                 "created_at": {
                     "description": "Creation time of the knowledge base",
                     "type": "string"
+                },
+                "creator_deleted": {
+                    "description": "CreatorDeleted 由列表 handler 批量回填：CreatorID 指向的用户已被墓碑化时为 true。\n与 CreatorName 配合，前端才能区分「已注销」与「老数据没有名字」。",
+                    "type": "boolean"
                 },
                 "creator_id": {
                     "description": "CreatorID records the user ID of whoever originally created the KB.\nUsed by the workspace-level RBAC middleware to let Contributors edit\ntheir own KBs without granting them access to everyone else's.\nNullable for backward compatibility with rows created before the\nRBAC migration backfilled the column to the workspace Owner.",
@@ -37692,6 +38667,52 @@
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementListItem": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "is_active": {
+                    "type": "boolean"
+                },
+                "memberships": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementMembership"
+                    }
+                },
+                "role": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                },
+                "username": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementMembership": {
+            "type": "object",
+            "properties": {
+                "role": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.TenantRole"
+                },
+                "tenant_id": {
+                    "type": "integer"
+                },
+                "tenant_name": {
+                    "type": "string"
+                }
+            }
+        },
         "gorm.DeletedAt": {
             "type": "object",
             "properties": {
@@ -37961,6 +38982,23 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "internal_handler.CapabilitiesResponse": {
+            "type": "object",
+            "properties": {
+                "capabilities": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "is_system_admin": {
+                    "type": "boolean"
+                },
+                "role": {
+                    "type": "string"
                 }
             }
         },
@@ -38651,6 +39689,18 @@
                 }
             }
         },
+        "internal_handler.GetCapabilitiesResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/internal_handler.CapabilitiesResponse"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
         "internal_handler.GetDeploymentCapabilitiesResponse": {
             "type": "object",
             "properties": {
@@ -39191,6 +40241,10 @@
                 "created_at": {
                     "description": "Creation time of the knowledge base",
                     "type": "string"
+                },
+                "creator_deleted": {
+                    "description": "CreatorDeleted 由列表 handler 批量回填：CreatorID 指向的用户已被墓碑化时为 true。\n与 CreatorName 配合，前端才能区分「已注销」与「老数据没有名字」。",
+                    "type": "boolean"
                 },
                 "creator_id": {
                     "description": "CreatorID records the user ID of whoever originally created the KB.\nUsed by the workspace-level RBAC middleware to let Contributors edit\ntheir own KBs without granting them access to everyone else's.\nNullable for backward compatibility with rows created before the\nRBAC migration backfilled the column to the workspace Owner.",
@@ -41846,6 +42900,42 @@
                 }
             }
         },
+        "internal_handler.UserManagementListData": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementListItem"
+                    }
+                },
+                "no_membership_count": {
+                    "type": "integer"
+                },
+                "role_counts": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                },
+                "total": {
+                    "type": "integer"
+                }
+            }
+        },
+        "internal_handler.UserManagementListResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/internal_handler.UserManagementListData"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
         "internal_handler.ValidateTokenResponse": {
             "type": "object",
             "properties": {
@@ -42418,6 +43508,25 @@
                 }
             }
         },
+        "internal_handler.memberPurgeRequest": {
+            "type": "object",
+            "properties": {
+                "confirm_email": {
+                    "type": "string"
+                },
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handler.memberStatusChangeRequest": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string"
+                }
+            }
+        },
         "internal_handler.platformAPIKeyCreateRequest": {
             "type": "object",
             "properties": {
@@ -42431,6 +43540,14 @@
                     "type": "integer"
                 },
                 "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "internal_handler.provisionOwnerSpaceRequest": {
+            "type": "object",
+            "properties": {
+                "space_name": {
                     "type": "string"
                 }
             }
@@ -42760,6 +43877,17 @@
                 },
                 "scope_type": {
                     "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.APIKeyScopeType"
+                }
+            }
+        },
+        "internal_handler.transferOwnerRequest": {
+            "type": "object",
+            "properties": {
+                "from_user_id": {
+                    "type": "string"
+                },
+                "to_user_id": {
+                    "type": "string"
                 }
             }
         },

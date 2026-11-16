@@ -54,6 +54,12 @@ var (
 	// a single sentinel so an attacker can't probe which slots used
 	// to exist.
 	ErrInvitationTokenInvalid = errors.New("invitation token is invalid or has been revoked")
+
+	// ErrInvitationRoleNotAssignable 表示邀请/分享链接使用了产品层不再分配
+	// 的角色（owner / contributor）。T05：只分配 admin / viewer；历史邀请
+	// 在接受时同样拒绝，并提示重新邀请。handler 映射为 400。
+	ErrInvitationRoleNotAssignable = errors.New(
+		"this invitation role is no longer assignable; invite the user as admin or viewer")
 )
 
 // defaultInvitationTTL is the lifetime of a pending invitation before
@@ -154,6 +160,10 @@ func (s *tenantInvitationService) Create(
 	if err := rejectAPIKeyOwnerAssignment(ctx, role); err != nil {
 		return nil, err
 	}
+	// T05：产品层只分配 admin / viewer。owner 走开通/交接，contributor 停用。
+	if !IsAssignableMemberRole(role) {
+		return nil, ErrInvitationRoleNotAssignable
+	}
 	// Reject early if the invitee is already an active member; the
 	// handler renders this as "they're already in" rather than the
 	// generic conflict.
@@ -163,6 +173,14 @@ func (s *tenantInvitationService) Create(
 	}
 	if existing != nil && existing.Status == types.TenantMemberStatusActive {
 		return nil, ErrAlreadyMember
+	}
+	// 一号一空间（T04 / AC-16）：邀请对象已属于其他空间（active/invited）
+	// 时拒绝，避免发出注定无法接受的跨空间邀请。分享链接没有 invitee，
+	// 不做用户级校验。
+	if checker, ok := s.memberSvc.(singleSpaceMemberChecker); ok {
+		if err := checker.assertSingleSpaceMembership(ctx, inviteeUserID, tenantID); err != nil {
+			return nil, err
+		}
 	}
 
 	now := s.now()
@@ -233,20 +251,64 @@ func (s *tenantInvitationService) Accept(
 		// Treat it as expired regardless.
 		return nil, ErrInvitationExpired
 	}
+	// T05：历史 owner / contributor 邀请不能写入成员行。校验必须在
+	// MarkStatusIfPending 之前，拒绝时邀请保持 pending。
+	if !IsAssignableMemberRole(inv.Role) {
+		return nil, ErrInvitationRoleNotAssignable
+	}
 
-	now := s.now()
-	if err := s.repo.MarkStatusIfPending(ctx, invID, types.TenantInvitationStatusAccepted, now); err != nil {
+	// 一号一空间（T04 / AC-15/16）：真实会员服务能共享按用户锁时，
+	// 归属校验与邀请状态更新、成员写入必须在同一把锁内完成，且校验
+	// 必须先于 MarkStatusIfPending（拒绝时邀请保持 pending）。
+	if writer, ok := s.memberSvc.(singleSpaceMemberWriter); ok {
+		return s.acceptUnderUserLock(ctx, inv, writer)
+	}
+	return s.acceptWithoutUserLock(ctx, inv)
+}
+
+// acceptUnderUserLock 是 Accept 的加锁路径。调用方已确认会员服务支持
+// 锁内写入，避免在 PG advisory lock 上重复加锁自锁。
+func (s *tenantInvitationService) acceptUnderUserLock(
+	ctx context.Context,
+	inv *types.TenantInvitation,
+	writer singleSpaceMemberWriter,
+) (*types.TenantMember, error) {
+	release, err := writer.lockUser(ctx, inv.InviteeUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	// 锁内重读邀请行（N7 / N18）：等待用户锁期间邀请可能已被撤销/过期，
+	// 预读快照不能作为写成员行的依据。失败的返回值与既有撤销/过期一致。
+	fresh, err := s.repo.GetByID(ctx, inv.ID)
+	if err != nil {
+		return nil, err
+	}
+	if fresh == nil || fresh.Status != types.TenantInvitationStatusPending {
+		return nil, ErrInvitationNotPending
+	}
+	if fresh.IsExpired(s.now()) {
+		return nil, ErrInvitationExpired
+	}
+	if !IsAssignableMemberRole(fresh.Role) {
+		return nil, ErrInvitationRoleNotAssignable
+	}
+	inv = fresh
+
+	if err := writer.assertSingleSpaceMembership(ctx, inv.InviteeUserID, inv.TenantID); err != nil {
+		return nil, err
+	}
+	if err := s.repo.MarkStatusIfPending(
+		ctx, inv.ID, types.TenantInvitationStatusAccepted, s.now(),
+	); err != nil {
 		// Another goroutine (concurrent click) won the race. Honour
 		// the state machine.
 		return nil, ErrInvitationNotPending
 	}
 
-	// Create the actual tenant_members row. Cross-service hop: the
-	// member service handles its own audit (rbac.member_added) and
-	// also enforces the (user, tenant) uniqueness invariant via the
-	// repo. If it fails here the invitation is already accepted —
-	// see comment above for why we don't rollback the invitation.
-	member, err := s.memberSvc.AddMember(ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy)
+	member, err := writer.addMemberLocked(
+		ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy)
 	if err != nil {
 		// Special-case "already a member": that's the idempotent
 		// outcome we want. Return the existing membership instead of
@@ -260,7 +322,38 @@ func (s *tenantInvitationService) Accept(
 		}
 		logger.Errorf(ctx,
 			"invitation %d accepted but tenant_members insert failed: %v",
-			invID, err)
+			inv.ID, err)
+		return nil, err
+	}
+
+	s.emitInvitationAccepted(ctx, inv)
+	return member, nil
+}
+
+// acceptWithoutUserLock 是会员服务替身不支持锁内写入时的回退路径，
+// 行为与 T04 之前保持一致（先标记 accepted，再建成员行）。
+func (s *tenantInvitationService) acceptWithoutUserLock(
+	ctx context.Context,
+	inv *types.TenantInvitation,
+) (*types.TenantMember, error) {
+	if err := s.repo.MarkStatusIfPending(
+		ctx, inv.ID, types.TenantInvitationStatusAccepted, s.now(),
+	); err != nil {
+		return nil, ErrInvitationNotPending
+	}
+
+	member, err := s.memberSvc.AddMember(ctx, inv.InviteeUserID, inv.TenantID, inv.Role, inv.InvitedBy)
+	if err != nil {
+		if errors.Is(err, ErrMembershipAlreadyExists) {
+			existing, getErr := s.memberSvc.GetMembership(ctx, inv.InviteeUserID, inv.TenantID)
+			if getErr == nil && existing != nil {
+				s.emitInvitationAccepted(ctx, inv)
+				return existing, nil
+			}
+		}
+		logger.Errorf(ctx,
+			"invitation %d accepted but tenant_members insert failed: %v",
+			inv.ID, err)
 		return nil, err
 	}
 
@@ -514,6 +607,10 @@ func (s *tenantInvitationService) CreateShareLink(
 	if err := rejectAPIKeyOwnerAssignment(ctx, role); err != nil {
 		return nil, "", err
 	}
+	// T05：分享链接同样只分配 admin / viewer。
+	if !IsAssignableMemberRole(role) {
+		return nil, "", ErrInvitationRoleNotAssignable
+	}
 	token, err := generateShareLinkToken()
 	if err != nil {
 		return nil, "", err
@@ -590,9 +687,56 @@ func (s *tenantInvitationService) AcceptByToken(
 	if err != nil {
 		return nil, err
 	}
+	// T05：历史 owner / contributor 分享链接不能写入成员行。
+	if !IsAssignableMemberRole(inv.Role) {
+		return nil, ErrInvitationRoleNotAssignable
+	}
+	// 一号一空间（T04 / AC-15/16）：分享链接加入同样在按用户锁内做归属
+	// 校验再写成员行；拒绝时不产生成员关系。
+	if writer, ok := s.memberSvc.(singleSpaceMemberWriter); ok {
+		release, lockErr := writer.lockUser(ctx, newUserID)
+		if lockErr != nil {
+			return nil, lockErr
+		}
+		defer release()
+		// 锁内重读分享链接（N18）：LookupByToken 只是锁前快速失败；等待
+		// 期间链接可能已被撤销/过期，撤销成功后不能再写成员行。无效/过期
+		// /撤销统一返回 ErrInvitationTokenInvalid（与 LookupByToken 一致）。
+		fresh, freshErr := s.repo.GetByID(ctx, inv.ID)
+		if freshErr != nil {
+			return nil, freshErr
+		}
+		if fresh == nil ||
+			fresh.Status != types.TenantInvitationStatusPending ||
+			fresh.IsExpired(s.now()) {
+			return nil, ErrInvitationTokenInvalid
+		}
+		if !IsAssignableMemberRole(fresh.Role) {
+			return nil, ErrInvitationRoleNotAssignable
+		}
+		inv = fresh
+		if err := writer.assertSingleSpaceMembership(ctx, newUserID, inv.TenantID); err != nil {
+			return nil, err
+		}
+		member, addErr := writer.addMemberLocked(
+			ctx, newUserID, inv.TenantID, inv.Role, inv.InvitedBy)
+		return s.finishTokenAccept(ctx, inv, newUserID, member, addErr)
+	}
 	member, err := s.memberSvc.AddMember(ctx, newUserID, inv.TenantID, inv.Role, inv.InvitedBy)
-	if err != nil {
-		if errors.Is(err, ErrMembershipAlreadyExists) {
+	return s.finishTokenAccept(ctx, inv, newUserID, member, err)
+}
+
+// finishTokenAccept 收敛分享链接加入成功/失败后的簿记：幂等返回已有
+// 成员、用量计数、关闭 direct invitation、审计。
+func (s *tenantInvitationService) finishTokenAccept(
+	ctx context.Context,
+	inv *types.TenantInvitation,
+	newUserID string,
+	member *types.TenantMember,
+	addErr error,
+) (*types.TenantMember, error) {
+	if addErr != nil {
+		if errors.Is(addErr, ErrMembershipAlreadyExists) {
 			existing, getErr := s.memberSvc.GetMembership(ctx, newUserID, inv.TenantID)
 			if getErr == nil && existing != nil {
 				s.reconcilePendingInvitation(ctx, inv.TenantID, newUserID)
@@ -601,8 +745,8 @@ func (s *tenantInvitationService) AcceptByToken(
 		}
 		logger.Errorf(ctx,
 			"share-link %d accept failed for user %s: %v",
-			inv.ID, newUserID, err)
-		return nil, err
+			inv.ID, newUserID, addErr)
+		return nil, addErr
 	}
 	// Bump usage counter so the management UI can show "N 人已加入".
 	// Best-effort: a failure here doesn't undo the membership the user

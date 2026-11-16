@@ -2,12 +2,15 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"time"
 
 	"gorm.io/gorm"
 
+	apperrors "github.com/Tencent/WeKnora/internal/errors"
+	"github.com/Tencent/WeKnora/internal/sandbox/workspace"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -38,6 +41,102 @@ func (r *messageRepository) CreateMessage(
 		return nil, err
 	}
 	return message, nil
+}
+
+// CreateMessageInSessionTx 在单事务内锁定目标会话、复核作用域与账号状态，
+// 再写入消息与 artifacts。
+//
+// 消息写入与注销清理共用 sessions 行锁：purge 先拿到锁时这里的复核会失败
+// （返回 ErrSessionNotFound，与会话不可见语义一致）；这里先提交时 purge 的
+// 删除会覆盖它。事务内只锁 session、不锁 users，与 purge 的
+// users → sessions 锁序同向，避免反向锁。
+func (r *messageRepository) CreateMessageInSessionTx(
+	ctx context.Context, message *types.Message, tenantID uint64, ownerID string,
+) (*types.Message, error) {
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockMessageSessionTx(tx, message.SessionID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return apperrors.ErrSessionNotFound
+			}
+			return err
+		}
+		session, err := findMessageSessionTx(tx, tenantID, ownerID, message.SessionID)
+		if err != nil {
+			return err
+		}
+		if err := checkMessageSessionOwnerTx(tx, session.UserID); err != nil {
+			return err
+		}
+		if err := tx.Create(message).Error; err != nil {
+			return err
+		}
+		return insertMessageArtifacts(tx, []*types.Message{message})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return message, nil
+}
+
+// lockMessageSessionTx 先锁目标会话行再复核。PostgreSQL/MySQL 用
+// SELECT ... FOR UPDATE；SQLite 沿用 lockPurgeTarget 的空更新取写锁。
+// 先锁后复核保证与注销清理串行化；会话不存在时返回 gorm.ErrRecordNotFound。
+func lockMessageSessionTx(tx *gorm.DB, sessionID string) error {
+	if tx.Name() == "sqlite" {
+		return tx.Model(&types.Session{}).
+			Where("id = ?", sessionID).
+			UpdateColumn("updated_at", gorm.Expr("updated_at")).Error
+	}
+	var session types.Session
+	return forUpdate(tx).Model(&types.Session{}).Select("id").
+		Where("id = ?", sessionID).Take(&session).Error
+}
+
+// findMessageSessionTx 在锁内复核会话仍在 tenantID/ownerID 作用域内。
+// 作用域语义与 sessionRepository.Get 一致（ownerID 为空不过滤）。
+func findMessageSessionTx(
+	tx *gorm.DB, tenantID uint64, ownerID, sessionID string,
+) (*types.Session, error) {
+	var session types.Session
+	err := applySessionUserScope(
+		tx.Where("tenant_id = ? AND id = ?", tenantID, sessionID), ownerID,
+	).First(&session).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, apperrors.ErrSessionNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &session, nil
+}
+
+// checkMessageSessionOwnerTx 复核会话 owner 仍是可写账号。只对规范 UUID 的
+// web 账号查 users；API/IM/embed 会话（非规范 owner）或没有 users 行的 id
+// 保持既有可见性，跳过复核。已墓碑化或封禁一律按会话不可见处理。
+// 这里只做普通读，不锁 users 行。
+func checkMessageSessionOwnerTx(tx *gorm.DB, ownerID string) error {
+	if !workspace.IsCanonicalUUID(ownerID) {
+		return nil
+	}
+	var row struct {
+		ID        string
+		IsActive  bool
+		DeletedAt gorm.DeletedAt
+	}
+	err := tx.Unscoped().Model(&types.User{}).
+		Select("id", "is_active", "deleted_at").
+		Where("id = ?", ownerID).
+		Take(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if row.DeletedAt.Valid || !row.IsActive {
+		return apperrors.ErrSessionNotFound
+	}
+	return nil
 }
 
 // GetMessage retrieves a message

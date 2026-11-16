@@ -470,12 +470,20 @@ func enrichAgentCreatorNames(ctx context.Context, userSvc interfaces.UserService
 		logger.Warnf(ctx, "Failed to resolve agent creator names: %v", err)
 		return
 	}
+	missing := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if u, ok := users[id]; !ok || u == nil {
+			missing = append(missing, id)
+		}
+	}
+	deleted := lookupDeletedCreatorIDs(ctx, userSvc, missing)
 	for _, ag := range agents {
 		if ag.IsBuiltin || ag.CreatedBy == "" {
 			continue
 		}
 		u, ok := users[ag.CreatedBy]
 		if !ok || u == nil {
+			_, ag.CreatorDeleted = deleted[ag.CreatedBy]
 			continue
 		}
 		ag.CreatorName = pickUserDisplayName(u)

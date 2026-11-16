@@ -11,6 +11,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // sessionRepository implements the SessionRepository interface
@@ -42,6 +43,35 @@ func (r *sessionRepository) Create(ctx context.Context, session *types.Session) 
 			return err
 		}
 		return tx.Create(session).Error
+	}); err != nil {
+		return nil, err
+	}
+	return session, nil
+}
+
+// CreateIdempotent 供 automation 与委托代理运行建会话：保留调用方预分配的
+// ID（BeforeCreate 钩子会改写它，因此跳过钩子），重复 ID 视为成功而非报错。
+// 插入前先用与 Create 相同的围栏锁住 canonical web 用户，使注销与本插入在
+// users 行上串行：墓碑用户在任何行写入之前就被拒绝。
+func (r *sessionRepository) CreateIdempotent(
+	ctx context.Context, session *types.Session,
+) (*types.Session, error) {
+	if session.CreatedAt.IsZero() || session.UpdatedAt.IsZero() {
+		now := time.Now()
+		if session.CreatedAt.IsZero() {
+			session.CreatedAt = now
+		}
+		if session.UpdatedAt.IsZero() {
+			session.UpdatedAt = now
+		}
+	}
+	if err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := lockLiveWebUser(tx, session.UserID); err != nil {
+			return err
+		}
+		return tx.Session(&gorm.Session{SkipHooks: true}).
+			Clauses(clause.OnConflict{DoNothing: true}).
+			Create(session).Error
 	}); err != nil {
 		return nil, err
 	}

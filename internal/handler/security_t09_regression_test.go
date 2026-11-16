@@ -129,7 +129,12 @@ func TestT09_CreateTenant_RealServiceRejectsRevokedUser(t *testing.T) {
 func TestT09_CreateTenant_ReinvitedUserRecovers(t *testing.T) {
 	// T02 修正:旧版用 db.Create 直接塞活跃行冒充「重新邀请被接受」,
 	// 属伪覆盖。现改走真实链路:owner 建邀请 → 被移除用户调 accept 端点
-	// (AddMember 新插活跃行)后,撤销状态应解除(POST /tenants 403→201)。
+	// (AddMember 新插活跃行)后,撤销状态应解除。
+	//
+	// T11 / AC-44 产品决策变更:普通用户(含恢复访问的 viewer)不再能自助
+	// 建空间。因此恢复后 POST /tenants 仍为 403,但原因必须是平台级门禁
+	// (tenant.create_requires_platform_admin),而不是 access_revoked;
+	// 同时直接断言 HasRevokedAccess 已转为 false,保留「重新受邀恢复访问」原意。
 	const removedEmail = "t09-removed-user@example.com"
 	env := newRejoinEnv(t)
 	env.seedRemovedViewer(t, 1, t09RevokedUser, removedEmail)
@@ -144,21 +149,40 @@ func TestT09_CreateTenant_ReinvitedUserRecovers(t *testing.T) {
 	}
 	router := newT09CreateTenantRouter(h)
 
-	// 恢复前:403。
-	if w := t09PostTenant(t, router, `{"name":"before-reinvite"}`, nil); w.Code != http.StatusForbidden {
+	// 恢复前:403,且是撤销拦截。
+	w := t09PostTenant(t, router, `{"name":"before-reinvite"}`, nil)
+	if w.Code != http.StatusForbidden {
 		t.Fatalf("before re-invite: status = %d, want 403 (body=%s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"details":"access_revoked"`) {
+		t.Fatalf("before re-invite: want access_revoked detail, body=%s", w.Body.String())
 	}
 
 	// 重新邀请被接受:真实邀请 + accept 端点完成恢复。
 	invID := env.rejoinCreatePerUserInvitation(t, 1, removedEmail)
 	env.rejoinAcceptPerUser(t, invID, t09RevokedUser)
 
-	w := t09PostTenant(t, router, `{"name":"after-reinvite"}`, nil)
-	if w.Code != http.StatusCreated {
-		t.Fatalf("after re-invite: status = %d, want 201 (body=%s)", w.Code, w.Body.String())
+	revoked, err := env.members.HasRevokedAccess(context.Background(), t09RevokedUser)
+	if err != nil {
+		t.Fatalf("HasRevokedAccess after re-invite: %v", err)
 	}
-	if tenants.createCalls != 1 {
-		t.Fatalf("CreateTenant called %d times, want 1", tenants.createCalls)
+	if revoked {
+		t.Fatal("after re-invite: HasRevokedAccess = true, want false (access should be restored)")
+	}
+
+	w = t09PostTenant(t, router, `{"name":"after-reinvite"}`, nil)
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("after re-invite: status = %d, want 403 (AC-44: only platform admins create workspaces)", w.Code)
+	}
+	if tenants.createCalls != 0 {
+		t.Fatalf("CreateTenant called %d times, want 0", tenants.createCalls)
+	}
+	body := w.Body.String()
+	if strings.Contains(body, "access_revoked") {
+		t.Fatalf("after re-invite: must not be denied as revoked, body=%s", body)
+	}
+	if !strings.Contains(body, `"details":"tenant.create_requires_platform_admin"`) {
+		t.Fatalf("after re-invite: want platform-admin gate detail, body=%s", body)
 	}
 }
 

@@ -56,11 +56,13 @@ export interface ListAuditLogParams {
   action?: AuditAction
   outcome?: AuditOutcome
   actor?: string
+  // 关键词：匹配 action、操作人/目标的用户名或邮箱（后端大小写不敏感）。
+  q?: string
 }
 
 /**
  * List the per-tenant audit log. Cursor-paginated by descending id.
- * Backend: GET /api/v1/tenants/:id/audit-log (Admin+).
+ * Backend: GET /api/v1/tenants/:id/audit-log（仅本空间 owner 和系统管理员可读）。
  *
  * The first call should pass no cursor. Each subsequent page should
  * pass `after_id = previousResponse.next_cursor` until next_cursor
@@ -76,6 +78,7 @@ export async function listAuditLog(
   if (params.action) qs.append('action', params.action)
   if (params.outcome) qs.append('outcome', params.outcome)
   if (params.actor) qs.append('actor', params.actor)
+  if (params.q) qs.append('q', params.q)
   const tail = qs.toString()
   const url = `/api/v1/tenants/${tenantId}/audit-log${tail ? '?' + tail : ''}`
   return (await get(url)) as unknown as ListAuditLogResponse

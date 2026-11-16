@@ -279,7 +279,8 @@
                   <span>{{ $t('agent.builtin') }}</span>
                 </div>
                 <ResourceOriginBadge v-else-if="showAgentOriginBadge(agent)" :variant="agentOriginVariant(agent)"
-                  :creator-name="(agent as any).creator_name" />
+                  :creator-name="(agent as any).creator_name"
+                  :creator-deleted="(agent as any).creator_deleted" />
               </div>
             </div>
           </template>
@@ -440,7 +441,8 @@
                   <span>{{ $t('agent.builtin') }}</span>
                 </div>
                 <ResourceOriginBadge v-else-if="showAgentOriginBadge(agent)" :variant="agentOriginVariant(agent)"
-                  :creator-name="(agent as any).creator_name" />
+                  :creator-name="(agent as any).creator_name"
+                  :creator-deleted="(agent as any).creator_deleted" />
               </div>
             </div>
           </template>
@@ -1327,11 +1329,16 @@ function agentOriginVariant(agent: { created_by?: string }): 'mine' | 'creator' 
   return isMyAgent(agent) ? 'mine' : 'creator'
 }
 
-function showAgentOriginBadge(agent: { created_by?: string; creator_name?: string }): boolean {
+function showAgentOriginBadge(agent: {
+  created_by?: string
+  creator_name?: string
+  creator_deleted?: boolean
+}): boolean {
   return shouldShowResourceOriginBadge({
     section: agentSectionOf(agent),
     variant: agentOriginVariant(agent),
     creatorName: (agent as any).creator_name,
+    creatorDeleted: (agent as any).creator_deleted,
     showSectionHeaders: true,
   })
 }

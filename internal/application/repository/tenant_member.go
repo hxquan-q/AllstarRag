@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"time"
 
@@ -17,6 +18,20 @@ import (
 // The service layer maps this to its own ErrLastOwner sentinel (same
 // semantic; just kept separate so the repo doesn't import service).
 var ErrLastOwner = errors.New("repository: last active owner")
+
+// ErrRoleChanged 由 UpdateRoleGuarded 返回：成员行当前的 role 已与调用方
+// 预读的 expectedRole 不一致。服务层据此拒绝“先查角色、再更新”的过期序列
+// （T32）。
+var ErrRoleChanged = errors.New("repository: membership role changed")
+
+// ErrOwnerDemotionRequiresTransfer 由 UpdateRoleGuarded 返回：试图把 owner
+// 直接降为非 owner，但没有走 transfer-owner 交接路径（T32 / AC-13 / AC-20）。
+var ErrOwnerDemotionRequiresTransfer = errors.New("repository: owner demotion requires transfer")
+
+// ErrTargetBanned 由 TransferOwnershipTx 返回：交接目标账号已被封禁
+// （users.is_active=false）。服务层据此返回 400，而不是把错误当成
+// “角色已变化”的 409（T40）。
+var ErrTargetBanned = errors.New("repository: transfer target is banned")
 
 // forUpdateClause returns the gorm SELECT ... FOR UPDATE clause. Kept
 // in one place so we can swap it out for `clause.Locking{Strength: "UPDATE"}`
@@ -163,6 +178,174 @@ func (r *tenantMemberRepository) UpdateRole(ctx context.Context, userID string, 
 		return gorm.ErrRecordNotFound
 	}
 	return nil
+}
+
+// UpdateRoleGuarded 在单事务内做带比较交换（CAS）的角色变更（T32）：
+// 先锁目标成员行，复核当前 role 仍等于 expectedRole，才执行更新。
+// 直接把 owner 降为非 owner 需要 allowOwnerDemotion=true，该参数只给
+// transfer-owner 交接流程使用；“最后一个 owner”约束也在同一把锁内复核。
+func (r *tenantMemberRepository) UpdateRoleGuarded(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	expectedRole, newRole types.TenantRole,
+	allowOwnerDemotion bool,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var current types.TenantMember
+		err := tx.Clauses(forUpdateClause()).
+			Where("user_id = ? AND tenant_id = ? AND status = ?",
+				userID, tenantID, types.TenantMemberStatusActive).
+			First(&current).Error
+		if err != nil {
+			return err
+		}
+		if current.Role != expectedRole {
+			return ErrRoleChanged
+		}
+		if current.Role == types.TenantRoleOwner && newRole != types.TenantRoleOwner {
+			if !allowOwnerDemotion {
+				return ErrOwnerDemotionRequiresTransfer
+			}
+			var otherOwners []types.TenantMember
+			err := tx.Clauses(forUpdateClause()).
+				Where("tenant_id = ? AND user_id <> ? AND role = ? AND status = ?",
+					tenantID, userID, types.TenantRoleOwner, types.TenantMemberStatusActive).
+				Find(&otherOwners).Error
+			if err != nil {
+				return err
+			}
+			if len(otherOwners) == 0 {
+				return ErrLastOwner
+			}
+		}
+		res := tx.Model(&types.TenantMember{}).
+			Where("user_id = ? AND tenant_id = ? AND role = ?", userID, tenantID, expectedRole).
+			Updates(map[string]any{
+				"role":       newRole,
+				"updated_at": time.Now(),
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrRoleChanged
+		}
+		return nil
+	})
+}
+
+// TransferOwnershipTx 在单个事务内完成空间 owner 交接（T40）。
+//
+// 锁序：先锁目标 users 行，再把 from/to 两个 user_id 排序，按升序逐行对
+// 成员行 SELECT ... FOR UPDATE。这与 PurgeUserTx / ResetPasswordTx 的
+// users→members 全局锁序一致，避免并发注销/重置密码与交接互相等待形成
+// 锁环（R6 F45）。成员行仍按 user_id 升序加锁，并发交接（A→C 与 B→D）
+// 因此按相同顺序加锁，不会交叉等待。SQLite 没有行锁，先对目标 users 行
+// 做一次空更新拿到库级写锁，再在同一事务里继续，避免读后升级写时的
+// SQLITE_BUSY。
+//
+// 事务内复核（不依赖服务层预检）：to 用户必须存在且 is_active=true；
+// from 必须是 active owner；to 必须是 active admin。任一不满足即返回
+// error 且零改动。
+//
+// 顺序必须是「先降 from→admin，再升 to→owner」：迁移 000137/000054 建立
+// 的部分唯一索引 idx_tenant_members_tenant_owner_unique 是语句级立即
+// 生效（PG 部分索引不可 DEFERRABLE、SQLite 同理），先提升 to 会与仍为
+// owner 的 from 撞索引。任一 UPDATE 未命中返回 ErrRoleChanged，整单
+// 回滚，不做跨事务补偿；两步在同一事务内，库中不会出现零 owner 状态。
+func (r *tenantMemberRepository) TransferOwnershipTx(
+	ctx context.Context,
+	tenantID uint64,
+	fromUserID, toUserID string,
+) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if tx.Name() == "sqlite" {
+			if err := tx.Unscoped().Model(&types.User{}).
+				Where("id = ?", toUserID).
+				UpdateColumn("updated_at", gorm.Expr("updated_at")).Error; err != nil {
+				return err
+			}
+		}
+		var targetUser types.User
+		if err := lockUserRows(tx).
+			Where("id = ?", toUserID).
+			First(&targetUser).Error; err != nil {
+			return err
+		}
+		if !targetUser.IsActive {
+			return ErrTargetBanned
+		}
+
+		lockIDs := []string{fromUserID, toUserID}
+		sort.Strings(lockIDs)
+		if tx.Name() == "sqlite" {
+			if err := tx.Model(&types.TenantMember{}).
+				Where("tenant_id = ? AND user_id IN ?", tenantID, lockIDs).
+				UpdateColumn("updated_at", gorm.Expr("updated_at")).Error; err != nil {
+				return err
+			}
+		}
+
+		locked := make(map[string]*types.TenantMember, len(lockIDs))
+		for _, userID := range lockIDs {
+			var member types.TenantMember
+			err := tx.Clauses(forUpdateClause()).
+				Where("tenant_id = ? AND user_id = ?", tenantID, userID).
+				First(&member).Error
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			locked[userID] = &member
+		}
+
+		from := locked[fromUserID]
+		if from == nil || from.Status != types.TenantMemberStatusActive ||
+			from.Role != types.TenantRoleOwner {
+			return ErrRoleChanged
+		}
+		to := locked[toUserID]
+		// 唯一 owner 模型：交接目标必须是本空间 active 普通管理员（admin）。
+		// viewer/contributor 需先提升为 admin；源 owner 同样只能降为 admin。
+		if to == nil || to.Status != types.TenantMemberStatusActive ||
+			to.Role != types.TenantRoleAdmin {
+			return ErrRoleChanged
+		}
+
+		now := time.Now()
+		// 先降源、再升目标：唯一 owner 部分索引立即生效，顺序反过来必撞索引。
+		res := tx.Model(&types.TenantMember{}).
+			Where("tenant_id = ? AND user_id = ? AND status = ? AND role = ?",
+				tenantID, fromUserID, types.TenantMemberStatusActive, types.TenantRoleOwner).
+			Updates(map[string]any{
+				"role":       types.TenantRoleAdmin,
+				"updated_at": now,
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrRoleChanged
+		}
+
+		res = tx.Model(&types.TenantMember{}).
+			Where("tenant_id = ? AND user_id = ? AND status = ? AND role = ?",
+				tenantID, toUserID, types.TenantMemberStatusActive, types.TenantRoleAdmin).
+			Updates(map[string]any{
+				"role":       types.TenantRoleOwner,
+				"updated_at": now,
+			})
+		if res.Error != nil {
+			return res.Error
+		}
+		if res.RowsAffected == 0 {
+			return ErrRoleChanged
+		}
+		return nil
+	})
 }
 
 // SoftDelete marks the membership row as deleted. GORM's soft-delete

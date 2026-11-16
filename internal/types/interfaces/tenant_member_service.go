@@ -70,3 +70,15 @@ type TenantMemberService interface {
 type MemberPasswordResetAuditor interface {
 	AuditMemberPasswordReset(ctx context.Context, tenantID uint64, targetUserID string, targetRole types.TenantRole)
 }
+
+// RoleChangeTargetValidator 是 TenantMemberService 实现的可选窄接口：
+// 实现它的服务能在改角色前校验 AC-5/AC-6 目标保护——非系统管理员不能
+// 修改系统管理员、跨空间超管、或在别处持有 owner 的账号。
+//
+// 单独成接口而不并进 TenantMemberService，是为了不破坏既有逐方法实现该
+// 接口的测试替身。真实服务在本空间成员关系之外还需要读 users 行与跨空间
+// 成员关系，因此判定放在 service 层；handler 在调用前对该窄接口做类型
+// 断言，缺失时跳过（生产容器始终注入真实服务）。
+type RoleChangeTargetValidator interface {
+	ValidateRoleChangeTarget(ctx context.Context, tenantID uint64, targetUserID string) error
+}

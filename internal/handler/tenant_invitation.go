@@ -21,7 +21,7 @@ import (
 
 // TenantInvitationHandler exposes the tenant-scoped CRUD on the
 // `tenant_invitations` table plus the user-self-service inbox endpoints
-// (/me/invitations*). Route-level RBAC: tenant routes are Owner-gated
+// (/me/invitations*). Route-level RBAC: tenant routes are Admin-gated
 // (POST/DELETE) or Viewer-gated (GET); inbox routes only require
 // authentication (the service enforces "only invitee can act").
 type TenantInvitationHandler struct {
@@ -70,12 +70,12 @@ type createInvitationRequest struct {
 func parseInvitationIDFromPath(c *gin.Context) (uint64, bool) {
 	raw := strings.TrimSpace(c.Param("inv_id"))
 	if raw == "" {
-		c.Error(apperrors.NewValidationError("invitation id is required"))
+		_ = c.Error(apperrors.NewValidationError("invitation id is required"))
 		return 0, false
 	}
 	v, err := strconv.ParseUint(raw, 10, 64)
 	if err != nil || v == 0 {
-		c.Error(apperrors.NewValidationError("invitation id must be a positive integer"))
+		_ = c.Error(apperrors.NewValidationError("invitation id must be a positive integer"))
 		return 0, false
 	}
 	return v, true
@@ -129,10 +129,10 @@ func projectInvitation(
 }
 
 // projectInvitationWithLink layers invite_url on top of projectInvitation
-// for share-link rows that are still pending. The Owner-facing list and
-// the create response go through here so a "copy link" button can sit
-// on every active row — Owners can dispatch the link on demand without
-// the "copy now or revoke" pressure.
+// for share-link rows that are still pending. The list facing Admins and
+// above and the create response go through here so a "copy link" button
+// can sit on every active row — Admins and above can dispatch the link
+// on demand without the "copy now or revoke" pressure.
 //
 // The /me/invitations inbox path does NOT use this helper: per-user
 // invitees don't have a token to copy.
@@ -224,18 +224,22 @@ func (h *TenantInvitationHandler) ListTenantInvitations(c *gin.Context) {
 	rows, total, err := h.invitationService.ListTenantInvitationsPage(ctx, tenantID, includeTerminal, page, pageSize)
 	if err != nil {
 		logger.Errorf(ctx, "ListTenantInvitationsPage failed: tenant=%d err=%v", tenantID, err)
-		c.Error(apperrors.NewInternalServerError("failed to list invitations").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewInternalServerError("failed to list invitations").WithDetails(err.Error()))
 		return
 	}
 
 	usersByID := h.hydrateUsers(c, rows)
-	showShareLinks := types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleOwner)
+	// 共享链接内嵌注册 token：本空间普通管理员及以上（含 owner）与平台级
+	// 系统管理员可见可复制，其他角色只看到脱敏后的元数据。
+	showShareLinks := types.TenantRoleFromContext(ctx).HasPermission(types.TenantRoleAdmin) ||
+		types.IsSystemAdminFromContext(ctx)
 	resp := make([]types.TenantInvitationResponse, 0, len(rows))
 	for _, inv := range rows {
 		// Within the tenant view we don't bother hydrating tenant name
 		// (the caller already knows the tenant). Pass an empty map.
-		// Share-link URLs embed the registration token — only Owners may
-		// re-copy them; other roles see metadata without invite_url.
+		// Share-link URLs embed the registration token — Admins and
+		// above may re-copy them; other roles see metadata without
+		// invite_url.
 		if showShareLinks {
 			resp = append(resp, h.projectInvitationWithLink(inv, usersByID, nil))
 		} else {
@@ -255,13 +259,18 @@ func (h *TenantInvitationHandler) ListTenantInvitations(c *gin.Context) {
 
 // CreateInvitation godoc
 // @Summary      发出空间邀请
-// @Description  Owner 通过邮箱邀请已注册用户加入空间。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。
+// @Description  Owner 或普通管理员通过邮箱邀请已注册用户加入空间；只能分配 admin / viewer（owner 走开通/交接，contributor 停止分配）。开启 tenant.auto_accept_invitation 后被邀请人立即自动加入（响应为成员结构），否则需在 /me/invitations 接受后成为成员。
 // @Tags         空间邀请
 // @Accept       json
 // @Produce      json
 // @Param        id       path  string                   true  "空间 ID"
 // @Param        request  body  createInvitationRequest  true  "邀请请求"
 // @Success      201  {object}  handler.DataResponse{data=types.TenantInvitationResponse}
+// @Failure      400  {object}  map[string]interface{}  "参数或角色非法 / 历史邀请角色不可分配"
+// @Failure      403  {object}  map[string]interface{}  "角色越权（不能邀请 owner/contributor）"
+// @Failure      404  {object}  map[string]interface{}  "邮箱未注册"
+// @Failure      409  {object}  map[string]interface{}  "已是成员、已有待接受邀请，或目标账号已属于其他空间（一号一空间）"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/invitations [post]
 func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
@@ -273,24 +282,30 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 
 	var req createInvitationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
 		return
 	}
 	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("role must be one of owner/admin/contributor/viewer"))
+		_ = c.Error(apperrors.NewValidationError("invalid role"))
+		return
+	}
+	// T05：产品层只分配 admin / viewer；owner 走开通/交接，contributor 停用。
+	if !service.IsAssignableMemberRole(req.Role) {
+		_ = c.Error(apperrors.NewForbiddenError(
+			"role must be admin or viewer; owner is assigned via provisioning or handover"))
 		return
 	}
 
 	user, err := h.userService.GetUserByEmail(ctx, strings.TrimSpace(req.Email))
 	if err != nil {
 		if errors.Is(err, apprepo.ErrUserNotFound) {
-			c.Error(apperrors.NewNotFoundError(
+			_ = c.Error(apperrors.NewNotFoundError(
 				"user with this email is not registered; ask them to sign up first"))
 			return
 		}
 		logger.Errorf(ctx, "GetUserByEmail failed: email=%s err=%v",
 			secutils.SanitizeForLog(req.Email), err)
-		c.Error(apperrors.NewInternalServerError("failed to look up user").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewInternalServerError("failed to look up user").WithDetails(err.Error()))
 		return
 	}
 
@@ -306,7 +321,7 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 		h.systemSettingSvc.GetBool(ctx, "tenant.auto_accept_invitation", "WEKNORA_TENANT_AUTO_ACCEPT_INVITATION", false) {
 		if h.memberService == nil {
 			logger.Errorf(ctx, "auto_accept_invitation enabled but memberService is nil; tenant=%d", tenantID)
-			c.Error(apperrors.NewInternalServerError("failed to add member"))
+			_ = c.Error(apperrors.NewInternalServerError("failed to add member"))
 			return
 		}
 		h.autoAcceptInvitationAndRespond(c, ctx, user, tenantID, req.Role, invitedBy)
@@ -317,17 +332,21 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvalidTenantRole):
-			c.Error(apperrors.NewValidationError(err.Error()))
+			_ = c.Error(apperrors.NewValidationError(err.Error()))
 		case errors.Is(err, service.ErrAPIKeyCannotAssignOwner):
-			c.Error(apperrors.NewForbiddenError(err.Error()))
+			_ = c.Error(apperrors.NewForbiddenError(err.Error()))
 		case errors.Is(err, service.ErrPendingInvitationExists):
-			c.Error(apperrors.NewConflictError(err.Error()))
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
 		case errors.Is(err, service.ErrAlreadyMember):
-			c.Error(apperrors.NewConflictError(err.Error()))
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrUserAlreadyInSpace):
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrInvitationRoleNotAssignable):
+			_ = c.Error(apperrors.NewValidationError(err.Error()))
 		default:
 			logger.Errorf(ctx, "CreateInvitation failed: user=%s tenant=%d err=%v",
 				user.ID, tenantID, err)
-			c.Error(apperrors.NewInternalServerError("failed to create invitation").WithDetails(err.Error()))
+			_ = c.Error(apperrors.NewInternalServerError("failed to create invitation").WithDetails(err.Error()))
 		}
 		return
 	}
@@ -377,7 +396,7 @@ func (h *TenantInvitationHandler) autoAcceptInvitationAndRespond(
 			logger.Errorf(ctx,
 				"auto_accept: member added but default tenant update failed: user=%s tenant=%d err=%v",
 				user.ID, tenantID, updateErr)
-			c.Error(apperrors.NewInternalServerError(
+			_ = c.Error(apperrors.NewInternalServerError(
 				"member added but default workspace update failed").WithDetails(updateErr.Error()))
 			return
 		}
@@ -387,12 +406,15 @@ func (h *TenantInvitationHandler) autoAcceptInvitationAndRespond(
 
 // RevokeInvitation godoc
 // @Summary      撤销待接受邀请
-// @Description  Owner 取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。
+// @Description  Owner 或普通管理员取消一条还在 pending 的邀请；已 accepted/declined/revoked/expired 的行不可再撤销。
 // @Tags         空间邀请
 // @Produce      json
 // @Param        id      path  string  true  "空间 ID"
 // @Param        inv_id  path  string  true  "邀请 ID"
 // @Success      200  {object}  handler.SuccessResponse
+// @Failure      403  {object}  map[string]interface{}  "角色越权"
+// @Failure      404  {object}  map[string]interface{}  "邀请不存在"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /tenants/{id}/invitations/{inv_id} [delete]
 func (h *TenantInvitationHandler) RevokeInvitation(c *gin.Context) {
@@ -415,29 +437,29 @@ func (h *TenantInvitationHandler) RevokeInvitation(c *gin.Context) {
 	inv, err := h.invitationService.GetByID(ctx, invID)
 	if err != nil {
 		logger.Errorf(ctx, "GetByID invitation failed: id=%d err=%v", invID, err)
-		c.Error(apperrors.NewInternalServerError("failed to load invitation").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewInternalServerError("failed to load invitation").WithDetails(err.Error()))
 		return
 	}
 	if inv == nil {
-		c.Error(apperrors.NewNotFoundError("invitation not found"))
+		_ = c.Error(apperrors.NewNotFoundError("invitation not found"))
 		return
 	}
 	if inv.TenantID != tenantID {
 		// Render the same 404 as "missing" so we don't leak existence
 		// across tenants.
-		c.Error(apperrors.NewNotFoundError("invitation not found"))
+		_ = c.Error(apperrors.NewNotFoundError("invitation not found"))
 		return
 	}
 
 	if err := h.invitationService.Revoke(ctx, invID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvitationNotFound):
-			c.Error(apperrors.NewNotFoundError("invitation not found"))
+			_ = c.Error(apperrors.NewNotFoundError("invitation not found"))
 		case errors.Is(err, service.ErrInvitationNotPending):
-			c.Error(apperrors.NewConflictError(err.Error()))
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
 		default:
 			logger.Errorf(ctx, "RevokeInvitation failed: id=%d err=%v", invID, err)
-			c.Error(apperrors.NewInternalServerError("failed to revoke invitation").WithDetails(err.Error()))
+			_ = c.Error(apperrors.NewInternalServerError("failed to revoke invitation").WithDetails(err.Error()))
 		}
 		return
 	}
@@ -458,7 +480,7 @@ func (h *TenantInvitationHandler) ListMyInvitations(c *gin.Context) {
 	ctx := c.Request.Context()
 	caller, ok := types.UserIDFromContext(ctx)
 	if !ok || caller == "" {
-		c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
+		_ = c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
 		return
 	}
 	includeTerminal := strings.EqualFold(c.Query("include_terminal"), "true")
@@ -466,7 +488,7 @@ func (h *TenantInvitationHandler) ListMyInvitations(c *gin.Context) {
 	rows, err := h.invitationService.ListByInvitee(ctx, caller, includeTerminal)
 	if err != nil {
 		logger.Errorf(ctx, "ListByInvitee invitations failed: user=%s err=%v", caller, err)
-		c.Error(apperrors.NewInternalServerError("failed to list invitations").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewInternalServerError("failed to list invitations").WithDetails(err.Error()))
 		return
 	}
 
@@ -497,14 +519,14 @@ func (h *TenantInvitationHandler) CountMyPendingInvitations(c *gin.Context) {
 	ctx := c.Request.Context()
 	caller, ok := types.UserIDFromContext(ctx)
 	if !ok || caller == "" {
-		c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
+		_ = c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
 		return
 	}
 
 	count, err := h.invitationService.CountPendingByInvitee(ctx, caller)
 	if err != nil {
 		logger.Errorf(ctx, "CountPendingByInvitee failed: user=%s err=%v", caller, err)
-		c.Error(apperrors.NewInternalServerError("failed to count pending invitations").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewInternalServerError("failed to count pending invitations").WithDetails(err.Error()))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{
@@ -516,17 +538,23 @@ func (h *TenantInvitationHandler) CountMyPendingInvitations(c *gin.Context) {
 // AcceptMyInvitation godoc
 // @Summary      接受邀请
 // @Description  当前登录用户接受一条 pending 邀请；服务端会同时写入 tenant_members 行。
+// @Description  非超管账号已属于其他空间时返回 409（一号一空间）；历史 owner/contributor 邀请角色不可分配时返回 400。
 // @Tags         我的邀请
 // @Produce      json
 // @Param        inv_id  path  string  true  "邀请 ID"
 // @Success      200  {object}  map[string]interface{}
+// @Failure      400  {object}  map[string]interface{}  "邀请角色已不可分配（历史 owner/contributor）"
+// @Failure      403  {object}  map[string]interface{}  "不是邀请接收人"
+// @Failure      404  {object}  map[string]interface{}  "邀请不存在"
+// @Failure      409  {object}  map[string]interface{}  "已属于其他空间（一号一空间）或邀请已失效/已处理"
+// @Failure      500  {object}  map[string]interface{}  "内部错误"
 // @Security     Bearer
 // @Router       /me/invitations/{inv_id}/accept [post]
 func (h *TenantInvitationHandler) AcceptMyInvitation(c *gin.Context) {
 	ctx := c.Request.Context()
 	caller, ok := types.UserIDFromContext(ctx)
 	if !ok || caller == "" {
-		c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
+		_ = c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
 		return
 	}
 	invID, ok := parseInvitationIDFromPath(c)
@@ -538,17 +566,21 @@ func (h *TenantInvitationHandler) AcceptMyInvitation(c *gin.Context) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvitationNotFound):
-			c.Error(apperrors.NewNotFoundError("invitation not found"))
+			_ = c.Error(apperrors.NewNotFoundError("invitation not found"))
 		case errors.Is(err, service.ErrInvitationForbidden):
-			c.Error(apperrors.NewForbiddenError(err.Error()))
+			_ = c.Error(apperrors.NewForbiddenError(err.Error()))
 		case errors.Is(err, service.ErrInvitationNotPending):
-			c.Error(apperrors.NewConflictError(err.Error()))
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
 		case errors.Is(err, service.ErrInvitationExpired):
-			c.Error(apperrors.NewConflictError(err.Error()))
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrUserAlreadyInSpace):
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrInvitationRoleNotAssignable):
+			_ = c.Error(apperrors.NewValidationError(err.Error()))
 		default:
 			logger.Errorf(ctx, "AcceptMyInvitation failed: id=%d user=%s err=%v",
 				invID, caller, err)
-			c.Error(apperrors.NewInternalServerError("failed to accept invitation").WithDetails(err.Error()))
+			_ = c.Error(apperrors.NewInternalServerError("failed to accept invitation").WithDetails(err.Error()))
 		}
 		return
 	}
@@ -561,7 +593,8 @@ func (h *TenantInvitationHandler) AcceptMyInvitation(c *gin.Context) {
 		if updateErr := h.userService.UpdateUser(ctx, user); updateErr != nil {
 			logger.Errorf(ctx, "AcceptMyInvitation failed to set default tenant: user=%s tenant=%d err=%v",
 				caller, member.TenantID, updateErr)
-			c.Error(apperrors.NewInternalServerError("invitation accepted but default workspace update failed").WithDetails(updateErr.Error()))
+			_ = c.Error(apperrors.NewInternalServerError(
+				"invitation accepted but default workspace update failed").WithDetails(updateErr.Error()))
 			return
 		}
 	}
@@ -588,11 +621,14 @@ type acceptInvitationByTokenRequest struct {
 // AcceptMyInvitationByToken godoc
 // @Summary      通过共享链接加入空间
 // @Description  已登录用户用共享邀请链接 token 加入空间，不创建新账号；对已是成员的用户幂等。
+// @Description  非超管账号已属于其他空间时返回 409（一号一空间）；链接角色为历史 owner/contributor 时返回 400。
 // @Tags         我的邀请
 // @Accept       json
 // @Produce      json
 // @Param        request  body      acceptInvitationByTokenRequest  true  "邀请 token"
 // @Success      200      {object}  map[string]interface{}
+// @Failure      400      {object}  apperrors.AppError  "链接角色已不可分配（历史 owner/contributor）"
+// @Failure      409      {object}  apperrors.AppError  "已属于其他空间（一号一空间）"
 // @Failure      410      {object}  apperrors.AppError  "链接无效或已撤销"
 // @Security     Bearer
 // @Router       /me/invitations/accept-by-token [post]
@@ -600,18 +636,18 @@ func (h *TenantInvitationHandler) AcceptMyInvitationByToken(c *gin.Context) {
 	ctx := c.Request.Context()
 	caller, ok := types.UserIDFromContext(ctx)
 	if !ok || caller == "" {
-		c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
+		_ = c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
 		return
 	}
 
 	var req acceptInvitationByTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("token is required").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewValidationError("token is required").WithDetails(err.Error()))
 		return
 	}
 	token := strings.TrimSpace(req.Token)
 	if token == "" {
-		c.Error(apperrors.NewValidationError("token is required"))
+		_ = c.Error(apperrors.NewValidationError("token is required"))
 		return
 	}
 
@@ -620,14 +656,18 @@ func (h *TenantInvitationHandler) AcceptMyInvitationByToken(c *gin.Context) {
 		switch {
 		case errors.Is(err, service.ErrInvitationTokenInvalid):
 			// 无效/过期/撤销统一返回 410（与 LookupInvitationByToken 一致）。
-			c.Error(&apperrors.AppError{
+			_ = c.Error(&apperrors.AppError{
 				Code:     apperrors.ErrNotFound,
 				Message:  "invitation link is invalid or has been revoked",
 				HTTPCode: http.StatusGone,
 			})
+		case errors.Is(err, service.ErrUserAlreadyInSpace):
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
+		case errors.Is(err, service.ErrInvitationRoleNotAssignable):
+			_ = c.Error(apperrors.NewValidationError(err.Error()))
 		default:
 			logger.Errorf(ctx, "AcceptMyInvitationByToken failed: user=%s err=%v", caller, err)
-			c.Error(apperrors.NewInternalServerError("failed to accept invitation").WithDetails(err.Error()))
+			_ = c.Error(apperrors.NewInternalServerError("failed to accept invitation").WithDetails(err.Error()))
 		}
 		return
 	}
@@ -638,10 +678,14 @@ func (h *TenantInvitationHandler) AcceptMyInvitationByToken(c *gin.Context) {
 		if updateErr := h.userService.UpdateUser(ctx, user); updateErr != nil {
 			logger.Errorf(ctx, "AcceptMyInvitationByToken failed to set default tenant: user=%s tenant=%d err=%v",
 				caller, member.TenantID, updateErr)
-			c.Error(apperrors.NewInternalServerError("invitation accepted but default workspace update failed").WithDetails(updateErr.Error()))
+			_ = c.Error(apperrors.NewInternalServerError(
+				"invitation accepted but default workspace update failed").WithDetails(updateErr.Error()))
 			return
 		}
 	}
+
+	// owner 邀请创建的 pending 空间在第一个成员接受后激活（T04-2）。
+	activatePendingTenant(ctx, h.tenantService, member.TenantID)
 
 	// 供前端切换空间展示用。
 	tenantName := ""
@@ -676,7 +720,7 @@ func (h *TenantInvitationHandler) DeclineMyInvitation(c *gin.Context) {
 	ctx := c.Request.Context()
 	caller, ok := types.UserIDFromContext(ctx)
 	if !ok || caller == "" {
-		c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
+		_ = c.Error(apperrors.NewUnauthorizedError("caller user id missing from context"))
 		return
 	}
 	invID, ok := parseInvitationIDFromPath(c)
@@ -687,19 +731,37 @@ func (h *TenantInvitationHandler) DeclineMyInvitation(c *gin.Context) {
 	if err := h.invitationService.Decline(ctx, invID, caller); err != nil {
 		switch {
 		case errors.Is(err, service.ErrInvitationNotFound):
-			c.Error(apperrors.NewNotFoundError("invitation not found"))
+			_ = c.Error(apperrors.NewNotFoundError("invitation not found"))
 		case errors.Is(err, service.ErrInvitationForbidden):
-			c.Error(apperrors.NewForbiddenError(err.Error()))
+			_ = c.Error(apperrors.NewForbiddenError(err.Error()))
 		case errors.Is(err, service.ErrInvitationNotPending):
-			c.Error(apperrors.NewConflictError(err.Error()))
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
 		case errors.Is(err, service.ErrInvitationExpired):
-			c.Error(apperrors.NewConflictError(err.Error()))
+			_ = c.Error(apperrors.NewConflictError(err.Error()))
 		default:
 			logger.Errorf(ctx, "DeclineMyInvitation failed: id=%d user=%s err=%v",
 				invID, caller, err)
-			c.Error(apperrors.NewInternalServerError("failed to decline invitation").WithDetails(err.Error()))
+			_ = c.Error(apperrors.NewInternalServerError("failed to decline invitation").WithDetails(err.Error()))
 		}
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// activatePendingTenant 在邀请被接受后把 pending 租户置为 active（T04-2）。
+// 系统管理员通过 owner 邀请创建的租户初始是 pending；第一个成员接受
+// 邀请后空间才真正可用。失败只记日志：成员关系已经建立，租户状态属于
+// 管理/展示态，不应让一次成功加入因为状态回写失败而失败。
+func activatePendingTenant(ctx context.Context, svc interfaces.TenantService, tenantID uint64) {
+	if svc == nil || tenantID == 0 {
+		return
+	}
+	tenant, err := svc.GetTenantByID(ctx, tenantID)
+	if err != nil || tenant == nil || tenant.Status != "pending" {
+		return
+	}
+	tenant.Status = "active"
+	if _, err := svc.UpdateTenant(ctx, tenant); err != nil {
+		logger.Warnf(ctx, "activate pending tenant %d after invitation accept failed: %v", tenantID, err)
+	}
 }

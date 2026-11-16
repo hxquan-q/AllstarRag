@@ -13,7 +13,9 @@ import { useAuthStore } from '@/stores/auth'
  * `roleIcon(role)` returns a TDesign icon name suitable for prefixing the
  * role label (e.g. in tenant switcher rows). The mapping is intentionally
  * limited to icons already known to ship in this codebase to avoid a
- * runtime "icon not found" footgun on uncommon role names.
+ * runtime "icon not found" footgun on uncommon role names. T08 收敛后界面
+ * 只有 空间拥有者/普通管理员/游客 三档；残余 contributor 行按普通管理员
+ * 归并显示，图标同样并入 admin 一档。
  */
 export function useRoleLabel() {
   const { t } = useI18n()
@@ -26,7 +28,7 @@ export function useRoleLabel() {
   const ROLE_ICONS: Record<string, string> = {
     owner: 'secured',
     admin: 'user-circle',
-    contributor: 'edit',
+    contributor: 'user-circle',
     viewer: 'browse',
   }
   const roleIcon = (role: string | null | undefined): string =>

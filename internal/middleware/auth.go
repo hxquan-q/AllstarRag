@@ -93,11 +93,43 @@ func isTenantOptionalAPI(path, method string) bool {
 		return true
 	case path == "/api/v1/auth/validate" && method == http.MethodGet:
 		return true
+	// 能力投影对已认证用户一律可读：无空间上下文时返回空能力集，
+	// 而不是 409 TENANT_REQUIRED（AC-1）。
+	case path == "/api/v1/auth/capabilities" && method == http.MethodGet:
+		return true
 	case path == "/api/v1/auth/switch-tenant" && method == http.MethodPost:
 		return true
 	case path == "/api/v1/tenants" && method == http.MethodPost:
 		return true
+	// 平台账号操作不依赖成员关系（T42 / GPT #6）：无租户系统管理员调
+	// ban/unban/purge 不应被 409 TENANT_REQUIRED 挡住。这里只窄匹配
+	// 三条路由；非系统管理员随后仍由路由组 g.SystemAdmin() 拒绝为 403，
+	// API Key 通道（isPlatformTenantOptionalAPI）不受影响。
+	case method == http.MethodPost && isPlatformUserStatusAPI(path):
+		return true
 	case strings.HasPrefix(path, "/api/v1/me/invitations"):
+		return true
+	default:
+		return false
+	}
+}
+
+// isPlatformUserStatusAPI 窄匹配三条平台账号操作路由：
+// POST /api/v1/system/admin/users/{user_id}/{ban|unban|purge}。
+// 不按整个 /system/admin/ 前缀放行，避免把其余系统管理接口暴露给无租户
+// JWT；这些路由的权限仍由路由组 g.SystemAdmin() 判定。
+func isPlatformUserStatusAPI(path string) bool {
+	path = strings.TrimSuffix(strings.TrimSpace(path), "/")
+	const prefix = "/api/v1/system/admin/users/"
+	if !strings.HasPrefix(path, prefix) {
+		return false
+	}
+	userID, action, ok := strings.Cut(strings.TrimPrefix(path, prefix), "/")
+	if !ok || userID == "" {
+		return false
+	}
+	switch action {
+	case "ban", "unban", "purge":
 		return true
 	default:
 		return false
@@ -765,24 +797,67 @@ func principalTenantIDFromClaims(claims jwt.MapClaims) uint64 {
 	}
 }
 
+// activeOwnerCounter 是认证层孤儿空间自愈依赖的可选窄接口。
+// 真实 TenantMemberService 与测试替身都可以提供；不扩进主接口，避免
+// 破坏既有的逐方法测试替身。
+type activeOwnerCounter interface {
+	CountActiveOwners(ctx context.Context, tenantID uint64) (int64, error)
+}
+
+// tenantHasActiveOwner 判断空间是否已有 active owner。
+// 优先用计数窄接口；没有时退回 ListByTenant 扫描（只算 active owner，
+// suspended/invited 不算）。查询失败返回错误，由调用方 fail-closed。
+func tenantHasActiveOwner(
+	ctx context.Context,
+	memberService interfaces.TenantMemberService,
+	tenantID uint64,
+) (bool, error) {
+	if counter, ok := memberService.(activeOwnerCounter); ok {
+		n, err := counter.CountActiveOwners(ctx, tenantID)
+		if err != nil {
+			return false, err
+		}
+		return n > 0, nil
+	}
+	members, err := memberService.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return false, err
+	}
+	for _, member := range members {
+		if member != nil &&
+			member.Role == types.TenantRoleOwner &&
+			member.Status == types.TenantMemberStatusActive {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // resolveTenantRole determines the caller's TenantRole inside targetTenantID.
 //
 // Order of resolution:
 //  1. Active TenantMember row → return that role.
-//  2. Cross-tenant superuser switch (X-Tenant-ID with CanAccessAllTenants=true)
-//     → grant Admin in the target tenant. Org admins are intentionally not
-//     promoted to Owner; tenant deletion / API-key rotation should always
-//     stay with a real Owner inside the target tenant. Cross-tenant access
-//     is also never allowed to trigger the orphan-tenant auto-promotion
-//     below — a superuser only visits, never claims ownership.
-//  3. No membership but the tenant currently has zero active members AND
-//     the caller is authenticating into their own home tenant (i.e.
-//     targetTenantID == user.TenantID and this is not a cross-tenant
-//     switch). This is the API-key-only orphan-tenant self-heal path:
-//     the registrant becomes Owner of the tenant their own user record
-//     points to. Any other path (cross-tenant switch, JWT minted for a
-//     foreign tenant, etc.) is intentionally excluded to avoid silent
-//     ownership grabs.
+//  2. 平台级管理员直通：
+//     - 系统管理员（IsSystemAdmin=true）在任何空间都没有成员关系时授予
+//     临时 Admin。这是平台级身份，与 CanAccessAllTenants 无关，也不受
+//     EnableCrossTenantAccess 开关约束；
+//     - 跨空间超管（CanAccessAllTenants=true）只在实际切换目标空间
+//     （crossTenantSwitch）时授予临时 Admin。
+//     临时角色不写入 tenant_members：org admin / 系统管理员只做管理，
+//     不成为该空间的持久 Owner（租户删除、API key 轮换仍应由空间内
+//     真实 Owner 执行）。直通也不会触发下面的孤儿空间自动晋升。
+//  3. No membership but the tenant is a strict orphan AND the caller is
+//     authenticating into their own home tenant (i.e. targetTenantID ==
+//     user.TenantID and this is not a cross-tenant switch). This is the
+//     orphan-tenant self-heal path: the registrant becomes Owner of the
+//     tenant their own user record points to. 严格孤儿（B3）：只有空间没有
+//     任何 active 成员时才自愈；仍有 active 成员但零 owner 的降级空间
+//     不再自动补 owner，按 fail-closed 交给超管处理；已有 active owner
+//     的空间同样跳过。一号一空间（T04）：非超管已属于其他空间
+//     （active/invited）时跳过自愈并 fail-closed，不能补成第二个空间的
+//     owner；超管豁免。Any other path (cross-tenant switch, JWT minted
+//     for a foreign tenant, etc.) is intentionally excluded to avoid
+//     silent ownership grabs.
 //  4. Otherwise → return ok=false. Caller decides:
 //     - When EnableRBAC=true (or cfg unavailable): treat as 403.
 //     - When EnableRBAC=false: fail open with Admin so existing deployments
@@ -825,9 +900,16 @@ func resolveTenantRole(
 			user.ID, targetTenantID, statusInfo)
 	}
 
-	// 2. 跨空间超管直通：CanAccessAllTenants 用户切到别的空间时不强制要求 membership。
-	//    注意：这里只授予临时 Admin 角色，不写入 tenant_members，避免"看一眼别人空间"
-	//    意外升级为持久化所有权。
+	// 2. 平台级管理员直通：没有成员关系时授予临时 Admin 角色，不写入
+	//    tenant_members，避免"看一眼别人空间"意外升级为持久化所有权。
+	//    系统管理员是平台级身份，不受 EnableCrossTenantAccess 开关约束；
+	//    跨空间超管仍只在实际切换空间时直通。
+	if user.IsSystemAdmin {
+		logger.Infof(ctx,
+			"[auth] resolveTenantRole step2 (system admin) -> Admin: user=%s tenant=%d",
+			user.ID, targetTenantID)
+		return types.TenantRoleAdmin, true
+	}
 	if crossTenantSwitch && user.CanAccessAllTenants {
 		logger.Infof(ctx,
 			"[auth] resolveTenantRole step2 (cross-tenant superuser) -> Admin: user=%s tenant=%d",
@@ -835,25 +917,18 @@ func resolveTenantRole(
 		return types.TenantRoleAdmin, true
 	}
 
-	// 3. 孤儿空间自愈：仅当用户登录的是自己的 home tenant、且该空间尚无任何活跃成员时
-	//    允许自动晋升为 Owner。跨空间 switch / JWT 指向他人空间的场景一律不进入此分支，
-	//    防止越权获得他人空间的 Owner 权限。
+	// 3. 孤儿空间自愈：仅当用户登录的是自己的 home tenant、且该空间是
+	//    「严格孤儿」时允许自动晋升为 Owner——空间没有任何 active 成员
+	//    （当然也没有 active owner）。跨空间 switch / JWT 指向他人空间的
+	//    场景一律不进入此分支，防止越权获得他人空间的 Owner 权限。
+	//    注意：有 viewer/admin 但 0 owner 的降级空间不再补 owner，按
+	//    fail-closed 交给超管处理；已有 active 成员（无论角色）一律跳过，
+	//    不能产生第二个 owner。suspended-only owner 仍占用唯一索引，
+	//    AddMember 会失败，此时只记录 warn 并 fail-closed。
 	isHomeTenant := !crossTenantSwitch && targetTenantID == user.TenantID
 	if isHomeTenant {
-		hasAny, anyErr := memberService.HasAnyMembers(ctx, targetTenantID)
-		if anyErr == nil && !hasAny {
-			if _, e := memberService.AddMember(
-				ctx, user.ID, targetTenantID, types.TenantRoleOwner, nil,
-			); e == nil {
-				logger.Infof(ctx,
-					"[audit] Auto-promoted user %s to Owner of orphan tenant %d (home_tenant=true)",
-					user.ID, targetTenantID,
-				)
-				return types.TenantRoleOwner, true
-			} else {
-				logger.Warnf(ctx, "Failed to auto-promote user %s in tenant %d: %v",
-					user.ID, targetTenantID, e)
-			}
+		if role, healed := tryHealOrphanTenant(ctx, memberService, user, targetTenantID); healed {
+			return role, true
 		}
 	}
 

@@ -16,8 +16,11 @@ import {
  *   不出现 agentlines，其余完全不受影响（另有集成分区，不在本用例）；
  * - deep-link 非法 section 由路由归一化到 general（customerAccess.test.ts 已覆盖）。
  *
- * 基数是合入上游后的实测值：23 + defaults + agentlines = 25。
- * 管理员侧不渲染 agentlines（C6），因此 admin/owner/crossTenant 恒为 19、systemAdmin 恒为 24。
+ * 基数是合入上游后的实测值：23 + defaults + agentlines = 25，再加上本 feature 的
+ * user-management = 26。
+ * 管理员侧不渲染 agentlines（C6）；user-management 入口自 CP3 修复轮 1（F14）起
+ * 只认能力投影 user.view（AC-12b），因此普通 admin/跨空间超管（投影为空）恒为 19、
+ * owner（投影含 user.view）与系统管理员（全量投影）可见该分区。
  */
 
 const settingsSource = readFileSync(new URL('./Settings.vue', import.meta.url), 'utf8')
@@ -59,7 +62,20 @@ const allBlock = navItemsText.slice(allStart, allEnd)
 const baseKeys = [...allBlock.matchAll(/\{\s*key:\s*'([^']+)'/g)].map((match) => match[1]!)
 assert.equal(new Set(baseKeys).size, baseKeys.length, 'base settings keys must be unique')
 
-function visibleFor(role: 'viewer' | 'admin' | 'owner', options: { systemAdmin?: boolean; crossTenant?: boolean } = {}) {
+// CP3 修复轮 1（F14）：user-management 入口只认 GET /auth/capabilities 的能力投影。
+// 这里镜像后端唯一事实源 internal/types/capabilities.go 的矩阵：
+// 系统管理员 → 全量；owner → owner 集合（含 user.view）；
+// admin/contributor/viewer（非系统管理员，含跨空间超管的当前空间角色）→ 空。
+const OWNER_CAPS = [
+  'user.view', 'user.invite', 'user.create', 'user.role.change',
+  'user.ban', 'user.unban', 'user.purge', 'user.owner.add', 'space.transfer',
+]
+const SYSTEM_ADMIN_CAPS = [...OWNER_CAPS, 'user.owner.remove', 'owner.provision']
+
+function visibleFor(
+  role: 'viewer' | 'contributor' | 'admin' | 'owner',
+  options: { systemAdmin?: boolean; crossTenant?: boolean; caps?: readonly string[] } = {},
+) {
   const auth = {
     role,
     isSystemAdmin: options.systemAdmin ?? false,
@@ -69,7 +85,10 @@ function visibleFor(role: 'viewer' | 'admin' | 'owner', options: { systemAdmin?:
       return (levels[role] ?? 0) >= (levels[min] ?? 0)
     },
   }
-  // 重新执行以注入当前 authStore（canSeeSection 闭包引用 authStore）
+  const projected = options.caps
+    ?? (options.systemAdmin ? SYSTEM_ADMIN_CAPS : role === 'owner' ? OWNER_CAPS : [])
+  const caps = new Set(projected)
+  // 重新执行以注入当前 authStore / capabilitiesStore（canSeeSection 闭包引用两者）
   const fn = runInNewContext(
     canSeeSectionText,
     {
@@ -81,19 +100,21 @@ function visibleFor(role: 'viewer' | 'admin' | 'owner', options: { systemAdmin?:
       SYSTEM_ADMIN_SECTIONS: SYSTEM_ADMIN_SETTINGS_SECTIONS,
       SETTINGS_SECTION_MIN_ROLE,
       authStore: auth,
+      capabilitiesStore: { can: (capability: string) => caps.has(capability) },
     },
   ) as never as (key: string) => boolean
   return baseKeys.filter((key) => fn(key))
 }
 
-test('settings navigation has 25 non-integration sections (30 with integrations)', () => {
-  assert.equal(baseKeys.length, 25, `base settings keys: ${baseKeys.join(', ')}`)
+test('settings navigation has 26 non-integration sections (31 with integrations)', () => {
+  assert.equal(baseKeys.length, 26, `base settings keys: ${baseKeys.join(', ')}`)
   assert.deepEqual(baseKeys.slice(0, 3), ['general', 'ollama', 'weknoracloud'])
   assert.ok(baseKeys.includes('userprofile'))
   assert.ok(baseKeys.includes('assistant'))
   assert.ok(baseKeys.includes('mymemory'))
   assert.ok(baseKeys.includes('envvars'))
   assert.ok(baseKeys.includes('agentlines'), 'T03 adds the agent lines section')
+  assert.ok(baseKeys.includes('user-management'), 'T09 adds the user management section')
 })
 
 test('customer sees exactly the four allowed sections, in the account group order', () => {
@@ -137,13 +158,38 @@ test('customer hidden sections are all filtered out', () => {
 
 test('admin keeps every workspace section; system admin adds the five global ones', () => {
   // 普通 admin / owner 看不到 5 个系统管理分区（requiresSystemAdmin）；演示用的管理员是系统管理员。
-  // 25 个基础分区里 agentlines 只对客户可见（C6），因此管理员侧为 19、系统管理员为 24。
-  assert.equal(visibleFor('admin').length, 19)
+  // 26 个基础分区里 agentlines 只对客户可见（C6）；user-management 只认能力投影
+  // （F14）：owner 的投影含 user.view 可见；普通 admin 与跨空间超管（投影为空，
+  // 不再由 canAccessAllTenants 放行）不可见。因此 admin 19、owner 20、
+  // crossTenant 19（F14 前为 20）、系统管理员 25。
+  // T20：members 分区入口隐藏（并入用户管理），各角色可见数再减 1。
+  assert.equal(visibleFor('admin').length, 18)
   assert.equal(visibleFor('owner').length, 19)
-  assert.equal(visibleFor('admin', { crossTenant: true }).length, 19)
+  assert.equal(visibleFor('admin', { crossTenant: true }).length, 18)
   const systemAdmin = visibleFor('admin', { systemAdmin: true })
   assert.equal(systemAdmin.length, 24)
-  assert.deepEqual(systemAdmin, baseKeys.filter((key) => key !== 'agentlines'))
+  assert.equal(systemAdmin.includes('members'), false)
+  assert.deepEqual(systemAdmin, baseKeys.filter((key) => key !== 'agentlines' && key !== 'members'))
+})
+
+test('user-management entry follows the user.view capability projection only (T09/AC-1, F14)', () => {
+  // owner 投影含 user.view → 可见。
+  assert.equal(visibleFor('owner').includes('user-management'), true)
+  // 系统管理员与工作区角色无关：F1/F11 后能力投影为全量（含 user.view）→ 可见。
+  assert.equal(visibleFor('owner', { systemAdmin: true }).includes('user-management'), true)
+  assert.equal(visibleFor('admin', { systemAdmin: true }).includes('user-management'), true)
+  assert.equal(visibleFor('contributor', { systemAdmin: true }).includes('user-management'), true)
+  // 普通 admin / contributor / viewer 投影为空 → 不可见（后端仍会 403，C4）。
+  assert.equal(visibleFor('admin').includes('user-management'), false)
+  assert.equal(visibleFor('contributor').includes('user-management'), false)
+  assert.equal(visibleFor('viewer').includes('user-management'), false)
+  // F14：跨空间超管不再由 canAccessAllTenants 放行；当前空间角色投影无 user.view → 隐藏。
+  assert.equal(visibleFor('admin', { crossTenant: true }).includes('user-management'), false)
+  // 能力未加载 / 投影不含 user.view 时 fail-closed，即使身份是 owner 或系统管理员。
+  assert.equal(visibleFor('owner', { caps: [] }).includes('user-management'), false)
+  assert.equal(visibleFor('admin', { systemAdmin: true, caps: [] }).includes('user-management'), false)
+  // 单一事实源：只要投影给出 user.view，入口就出现，不再叠加身份判断。
+  assert.equal(visibleFor('admin', { caps: ['user.view'] }).includes('user-management'), true)
 })
 
 test('Settings.vue renders CustomerGeneralSettings only for customers, GeneralSettings otherwise', () => {

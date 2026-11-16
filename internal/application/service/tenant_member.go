@@ -66,6 +66,22 @@ var (
 	// without an active Owner. Demoting the last Owner or removing them
 	// is forbidden; an explicit ownership transfer must happen first.
 	ErrLastOwner = errors.New("cannot demote or remove the last active owner of the tenant")
+
+	// ErrMembershipChanged 表示事务内复核发现目标角色已与调用方预读的
+	// expectedRole 不一致（并发提权/降级），应让调用方刷新后重试（T32）。
+	ErrMembershipChanged = errors.New("tenant membership role changed")
+
+	// ErrOwnerDemotionRequiresTransfer 表示直接降级 owner；必须先走
+	// transfer-owner 交接（T32 / AC-13 / AC-20）。
+	ErrOwnerDemotionRequiresTransfer = errors.New("owner demotion requires ownership transfer")
+
+	// ErrTargetPrivileged 表示目标账号是系统管理员或跨空间超管。
+	// 非系统管理员不能修改其角色（AC-5）。
+	ErrTargetPrivileged = errors.New("target is a platform administrator")
+
+	// ErrTargetOwnsWorkspace 表示目标在别的空间持有 active owner。
+	// 非系统管理员不能修改其角色（AC-6）。
+	ErrTargetOwnsWorkspace = errors.New("target owns another workspace")
 )
 
 const (
@@ -153,7 +169,28 @@ func rejectAPIKeyOwnerAssignment(ctx context.Context, role types.TenantRole) err
 // AddMember inserts a new active membership row. Returns
 // ErrMembershipAlreadyExists if the user is already an active member of
 // the tenant, and ErrInvalidTenantRole for unknown roles.
+//
+// 一号一空间（T04）：整个「查归属 + 写成员 + 回填 home」在同一把按用户
+// 的锁内完成，避免并发的 AddMember / 邀请接受 / 开通 owner 空间互相
+// 越过归属检查。锁与 ProvisionOwnerSpace 同名（LockUserProvision）。
 func (s *tenantMemberService) AddMember(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	role types.TenantRole,
+	invitedBy *string,
+) (*types.TenantMember, error) {
+	release, err := s.lockUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.addMemberLocked(ctx, userID, tenantID, role, invitedBy)
+}
+
+// addMemberLocked 是 AddMember 的锁内实现。调用方必须已持有 userID 的
+// 用户级锁；邀请接受等路径借此避免重复加锁（PG advisory lock 自锁）。
+func (s *tenantMemberService) addMemberLocked(
 	ctx context.Context,
 	userID string,
 	tenantID uint64,
@@ -171,7 +208,22 @@ func (s *tenantMemberService) AddMember(
 		return nil, err
 	}
 	if existing != nil {
+		// 挂起的旧关系不等于「已是成员」：重新邀请/重新加入要恢复该行，
+		// 否则邀请侧会把邀请标成 accepted 后拿到已挂起的旧成员（假成功）。
+		// 恢复同样受一号一空间约束：用户若已 active/invited 在别的空间，
+		// 不能借恢复挂起行变成两个空间。
+		if existing.Status == types.TenantMemberStatusSuspended {
+			if err := s.assertSingleSpaceMembership(ctx, userID, tenantID); err != nil {
+				return nil, err
+			}
+			return s.reactivateSuspendedLocked(ctx, userID, tenantID, role, invitedBy)
+		}
 		return nil, ErrMembershipAlreadyExists
+	}
+	// 同租户已有成员关系不触发跨空间拒绝（幂等/重复错误交给上面）；这里
+	// 只拦「已属于其他空间」。
+	if err := s.assertSingleSpaceMembership(ctx, userID, tenantID); err != nil {
+		return nil, err
 	}
 	member := &types.TenantMember{
 		UserID:    userID,
@@ -201,6 +253,59 @@ func (s *tenantMemberService) AddMember(
 		TargetUserID: userID,
 		Outcome:      types.AuditOutcomeSuccess,
 	})
+	s.adoptHomeTenantIfEmpty(ctx, userID, tenantID)
+	return member, nil
+}
+
+// suspendedMemberReactivator 是「挂起后重新加入」依赖的可选仓储能力。
+// 单独定义窄接口，让只实现 TenantMemberRepository 的既有测试替身继续可
+// 编译；真实仓储实现它，生产路径因此总能恢复挂起行。
+type suspendedMemberReactivator interface {
+	ReactivateSuspended(
+		ctx context.Context,
+		userID string,
+		tenantID uint64,
+		role types.TenantRole,
+		invitedBy *string,
+	) (*types.TenantMember, error)
+}
+
+// reactivateSuspendedLocked 恢复被挂起的旧成员行：status→active、role 取
+// 本次请求角色、joined_at 记为本次重新加入时间、invited_by 取本次值。
+// 收尾与新建一致（member_added 审计 + home 回填）。调用方必须已持有该
+// 用户的用户级锁。
+//
+// 并发请求已先把行恢复为 active 时按「已是成员」返回，由邀请侧幂等分支
+// 回读最新成员。
+func (s *tenantMemberService) reactivateSuspendedLocked(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	role types.TenantRole,
+	invitedBy *string,
+) (*types.TenantMember, error) {
+	reactivator, ok := s.repo.(suspendedMemberReactivator)
+	if !ok {
+		// 测试替身没有恢复能力：保持旧的「已是成员」语义。
+		return nil, ErrMembershipAlreadyExists
+	}
+	member, err := reactivator.ReactivateSuspended(ctx, userID, tenantID, role, invitedBy)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrMembershipAlreadyExists
+		}
+		return nil, err
+	}
+	s.emitAudit(ctx, &types.AuditLog{
+		TenantID:     tenantID,
+		ActorUserID:  auditActor(ctx),
+		ActorRole:    auditActorRole(ctx),
+		Action:       types.AuditActionMemberAdded,
+		TargetType:   "tenant_member",
+		TargetUserID: userID,
+		Outcome:      types.AuditOutcomeSuccess,
+	})
+	s.adoptHomeTenantIfEmpty(ctx, userID, tenantID)
 	return member, nil
 }
 
@@ -208,7 +313,25 @@ func (s *tenantMemberService) AddMember(
 // in the tenant it is returned unchanged; otherwise a new owner row is
 // created. Used by Register/OIDC paths so re-running Register on an
 // existing user (e.g. after a partial failure) does not double-insert.
+//
+// 一号一空间（T04）：整段逻辑在按用户锁内执行；ProvisionOwnerSpace 等
+// 已持锁路径改用 ensureOwnerLocked，避免重复加锁。
 func (s *tenantMemberService) EnsureOwner(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+) (*types.TenantMember, error) {
+	release, err := s.lockUser(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return s.ensureOwnerLocked(ctx, userID, tenantID)
+}
+
+// ensureOwnerLocked 是 EnsureOwner 的锁内实现。调用方必须已持有 userID
+// 的用户级锁。
+func (s *tenantMemberService) ensureOwnerLocked(
 	ctx context.Context,
 	userID string,
 	tenantID uint64,
@@ -218,7 +341,30 @@ func (s *tenantMemberService) EnsureOwner(
 		return nil, err
 	}
 	if existing != nil {
+		// 同租户已有成员关系原样返回；只有 active 才作为 home。
+		if existing.Status == types.TenantMemberStatusActive {
+			s.adoptHomeTenantIfEmpty(ctx, userID, tenantID)
+		}
 		return existing, nil
+	}
+	// 非超管已属于其他空间时拒绝，不能把 owner 身份发到第二个空间。
+	if err := s.assertSingleSpaceMembership(ctx, userID, tenantID); err != nil {
+		return nil, err
+	}
+	// 唯一 owner 模型：空间已有任意未删除 owner 行（不限 status）时不再
+	// 创建第二个 owner，直接返回已有 owner。suspended owner 仍占唯一索引
+	// 的位，不能被绕过；需要恢复/交接时走对应流程。
+	members, err := s.repo.ListByTenant(ctx, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range members {
+		if m.Role == types.TenantRoleOwner {
+			logger.Infof(ctx,
+				"EnsureOwner skipped: tenant=%d already has owner user=%s status=%s",
+				tenantID, m.UserID, m.Status)
+			return m, nil
+		}
 	}
 	member := &types.TenantMember{
 		UserID:   userID,
@@ -244,6 +390,7 @@ func (s *tenantMemberService) EnsureOwner(
 		}
 		return nil, err
 	}
+	s.adoptHomeTenantIfEmpty(ctx, userID, tenantID)
 	logger.Infof(ctx, "Bootstrapped owner membership for user=%s tenant=%d", userID, tenantID)
 	return member, nil
 }
@@ -331,6 +478,12 @@ func (s *tenantMemberService) HasAnyMembers(ctx context.Context, tenantID uint64
 	return s.repo.HasAnyMembers(ctx, tenantID)
 }
 
+// CountActiveOwners proxies to the repository。认证中间件的孤儿空间自愈
+// 按「active owner 数」判断，而不是「是否已有任意成员」。
+func (s *tenantMemberService) CountActiveOwners(ctx context.Context, tenantID uint64) (int64, error) {
+	return s.repo.CountActiveOwners(ctx, tenantID)
+}
+
 // HasRevokedAccess 判断用户是否被移出了所有曾加入的空间:
 // 活跃成员关系为 0,但存在至少一条软删成员关系。
 //
@@ -392,6 +545,9 @@ func (s *tenantMemberService) UpdateRole(
 	if current.Role == newRole {
 		return nil
 	}
+	if err := s.guardOwnerPromotionTarget(ctx, userID, tenantID, newRole); err != nil {
+		return err
+	}
 	oldRole := current.Role
 	// Owner demotion is the dangerous path: two concurrent demotions of
 	// two different Owners with the old "Get → Count → Update" sequence
@@ -416,6 +572,144 @@ func (s *tenantMemberService) UpdateRole(
 	s.emitRoleChangeAudit(ctx, tenantID, userID, oldRole, newRole)
 	return nil
 }
+
+// guardedRoleUpdater 是 UpdateRoleGuarded 依赖的可选仓储能力。单独定义
+// 窄接口，让只实现 TenantMemberRepository 的既有测试替身继续可编译。
+type guardedRoleUpdater interface {
+	UpdateRoleGuarded(
+		ctx context.Context,
+		userID string,
+		tenantID uint64,
+		expectedRole, newRole types.TenantRole,
+		allowOwnerDemotion bool,
+	) error
+}
+
+// UpdateRoleGuarded 在事务内按 expectedRole 做 CAS 角色变更（T32）。
+// 直接把 owner 降为非 owner 一律拒绝，除非 allowOwnerDemotion 为真，
+// 而该参数只允许 transfer-owner 交接流程设置。“最后一个 owner”约束在
+// 仓储事务内执行；expectedRole 过期时返回 ErrMembershipChanged。
+func (s *tenantMemberService) UpdateRoleGuarded(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	expectedRole, newRole types.TenantRole,
+	allowOwnerDemotion bool,
+) error {
+	if !newRole.IsValid() {
+		return ErrInvalidTenantRole
+	}
+	if err := rejectAPIKeyOwnerAssignment(ctx, newRole); err != nil {
+		return err
+	}
+	// T06 目标保护先于最后 owner 原子保护：普通管理员不能改 owner 或同级
+	// 管理员，拒绝返回 403 AppError（而不是 ErrLastOwner 的 409）。
+	current, err := s.repo.Get(ctx, userID, tenantID)
+	if err != nil {
+		return err
+	}
+	if current == nil {
+		return ErrMembershipNotFound
+	}
+	if err := memberTargetProtection(ctx, userID, current.Role, false); err != nil {
+		return err
+	}
+	if expectedRole == types.TenantRoleOwner && newRole != types.TenantRoleOwner && !allowOwnerDemotion {
+		return ErrOwnerDemotionRequiresTransfer
+	}
+	if newRole == types.TenantRoleOwner {
+		if err := s.guardOwnerPromotionTarget(ctx, userID, tenantID, newRole); err != nil {
+			return err
+		}
+	}
+
+	if updater, ok := s.repo.(guardedRoleUpdater); ok {
+		err := updater.UpdateRoleGuarded(ctx, userID, tenantID, expectedRole, newRole, allowOwnerDemotion)
+		switch {
+		case err == nil:
+			if expectedRole != newRole {
+				s.emitRoleChangeAudit(ctx, tenantID, userID, expectedRole, newRole)
+			}
+			return nil
+		case errors.Is(err, apprepo.ErrLastOwner):
+			return ErrLastOwner
+		case errors.Is(err, apprepo.ErrRoleChanged):
+			return ErrMembershipChanged
+		case errors.Is(err, apprepo.ErrOwnerDemotionRequiresTransfer):
+			return ErrOwnerDemotionRequiresTransfer
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			return ErrMembershipNotFound
+		default:
+			return err
+		}
+	}
+
+	// 仓储替身不支持 guarded 能力时的回退（仅测试路径）。
+	// 真实仓储始终走上面的分支；此处复用上面已读到的 current。
+	if current.Role != expectedRole {
+		return ErrMembershipChanged
+	}
+	return s.UpdateRole(ctx, userID, tenantID, newRole)
+}
+
+// ValidateRoleChangeTarget 校验改角色的目标保护（AC-5/AC-6）：非系统
+// 管理员不能修改系统管理员、跨空间超管、或在别处持有 owner 的账号。
+//
+// handler 在调用 UpdateRole 前通过 interfaces.RoleChangeTargetValidator
+// 窄接口调用；UpdateRole 在"提升为 owner"时也会复用同一套判定，覆盖
+// transfer-owner 内部的提升。查询失败一律失败关闭。
+func (s *tenantMemberService) ValidateRoleChangeTarget(
+	ctx context.Context,
+	tenantID uint64,
+	targetUserID string,
+) error {
+	if types.IsSystemAdminFromContext(ctx) {
+		return nil
+	}
+	if s.userRepo != nil {
+		target, err := s.userRepo.GetUserByID(ctx, targetUserID)
+		if err != nil {
+			if errors.Is(err, apprepo.ErrUserNotFound) {
+				return ErrMembershipNotFound
+			}
+			return err
+		}
+		if target == nil {
+			return ErrMembershipNotFound
+		}
+		if target.IsSystemAdmin || target.CanAccessAllTenants {
+			return ErrTargetPrivileged
+		}
+	}
+	members, err := s.repo.ListByUser(ctx, targetUserID)
+	if err != nil {
+		return err
+	}
+	for _, member := range members {
+		if member.Role == types.TenantRoleOwner &&
+			member.Status == types.TenantMemberStatusActive &&
+			member.TenantID != tenantID {
+			return ErrTargetOwnsWorkspace
+		}
+	}
+	return nil
+}
+
+// guardOwnerPromotionTarget 在提升为 owner 时应用同一套目标保护。
+func (s *tenantMemberService) guardOwnerPromotionTarget(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	newRole types.TenantRole,
+) error {
+	if newRole != types.TenantRoleOwner {
+		return nil
+	}
+	return s.ValidateRoleChangeTarget(ctx, tenantID, userID)
+}
+
+// compile-time 断言：真实服务实现 handler 依赖的可选窄接口。
+var _ interfaces.RoleChangeTargetValidator = (*tenantMemberService)(nil)
 
 // emitRoleChangeAudit packs the old/new role into Details so the
 // audit-log UI can render "promoted Alice from contributor to admin"
@@ -442,6 +736,18 @@ func (s *tenantMemberService) emitRoleChangeAudit(
 	})
 }
 
+// guardedMemberRemover 是按 expectedRole 做 CAS 软删的可选仓储能力。
+// 单独定义窄接口，让只实现 TenantMemberRepository 的既有测试替身继续可
+// 编译；真实仓储实现它，生产路径因此总走 CAS。
+type guardedMemberRemover interface {
+	SoftDeleteWithRole(
+		ctx context.Context,
+		userID string,
+		tenantID uint64,
+		expectedRole types.TenantRole,
+	) error
+}
+
 // RemoveMember enforces the "cannot remove the last Owner" invariant
 // before soft-deleting the membership. For Owner removals it routes
 // through the repo's transactional helper so the count + delete commit
@@ -452,6 +758,11 @@ func (s *tenantMemberService) emitRoleChangeAudit(
 // DELETE /tenants/:id/members/:user_id). Both go through this same
 // service method but the recorded action differs so an audit reader
 // can tell the two apart.
+//
+// Self-leave is idempotent: when the membership row is already gone
+// (concurrent removal) it succeeds instead of returning NotFound. The
+// role-CAS used by the admin DELETE path is retried against a fresh
+// row for self-leave, because leave has no target-protection need.
 //
 // After a successful soft-delete, best-effort cleanup clears any
 // dangling users.tenant_id / LastActiveTenantID that still points at
@@ -466,27 +777,80 @@ func (s *tenantMemberService) RemoveMember(ctx context.Context, userID string, t
 	if err != nil {
 		return err
 	}
+	actorID, _ := types.UserIDFromContext(ctx)
+	// 自助离开（POST /leave）等价于 caller == target。它没有目标保护需求，
+	// 而且必须幂等：成员行已被并发移除时视为「已经离开」，不返回 404/500。
+	selfLeave := actorID != "" && actorID == userID
 	if current == nil {
+		if selfLeave {
+			return nil
+		}
 		return ErrMembershipNotFound
 	}
-	if current.Role == types.TenantRoleOwner {
-		err := s.repo.RemoveOwnerAtomically(ctx, userID, tenantID)
-		switch {
-		case errors.Is(err, apprepo.ErrLastOwner):
-			return ErrLastOwner
-		case err != nil:
+	// T06 目标保护先于最后 owner 原子保护：普通管理员不能移除 owner
+	// 或同级管理员（403，而不是 ErrLastOwner 的 409）。自己移除自己
+	// 是 LEAVE 路径（POST /leave），保持既有行为，不套用调用者角色保护。
+	if !selfLeave {
+		if err := memberTargetProtection(ctx, userID, current.Role, false); err != nil {
 			return err
 		}
-		s.emitRemovalAudit(ctx, tenantID, userID)
-		s.cleanupRemovedMemberState(ctx, userID, tenantID)
-		return nil
 	}
-	if err := s.repo.SoftDelete(ctx, userID, tenantID); err != nil {
-		return err
+	for attempt := 1; ; attempt++ {
+		if current.Role == types.TenantRoleOwner {
+			err := s.repo.RemoveOwnerAtomically(ctx, userID, tenantID)
+			switch {
+			case errors.Is(err, apprepo.ErrLastOwner):
+				return ErrLastOwner
+			case errors.Is(err, gorm.ErrRecordNotFound) && selfLeave:
+				// 自助离开期间行被并发移除：幂等成功。
+				return nil
+			case err != nil:
+				return err
+			}
+			break
+		}
+		err := s.deleteMembershipRow(ctx, userID, tenantID, current.Role)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, apprepo.ErrRoleChanged) {
+			return err
+		}
+		// 管理用移除保留 CAS 语义：角色被并发变化时返回 409。
+		if !selfLeave || attempt >= selfLeaveRetryLimit {
+			return ErrMembershipChanged
+		}
+		// 自助离开没有目标保护需求：角色被并发调整后按最新行重试。
+		// 行已消失即幂等成功；被提升为 owner 则回到最后 owner 保护。
+		current, err = s.repo.Get(ctx, userID, tenantID)
+		if err != nil {
+			return err
+		}
+		if current == nil {
+			return nil
+		}
 	}
 	s.emitRemovalAudit(ctx, tenantID, userID)
 	s.cleanupRemovedMemberState(ctx, userID, tenantID)
 	return nil
+}
+
+// selfLeaveRetryLimit 限制自助离开在角色并发变化时的重试次数；正常情况
+// 一次即可成功，多次失败只可能是极端持续竞争，交给 409 让客户端重试。
+const selfLeaveRetryLimit = 3
+
+// deleteMembershipRow 走 CAS 软删（真实仓储），仓储替身不支持 CAS 时
+// 回退旧的删除路径（仅测试）。
+func (s *tenantMemberService) deleteMembershipRow(
+	ctx context.Context,
+	userID string,
+	tenantID uint64,
+	expectedRole types.TenantRole,
+) error {
+	if remover, ok := s.repo.(guardedMemberRemover); ok {
+		return remover.SoftDeleteWithRole(ctx, userID, tenantID, expectedRole)
+	}
+	return s.repo.SoftDelete(ctx, userID, tenantID)
 }
 
 // cleanupRemovedMemberState drops stale home/preference pointers that

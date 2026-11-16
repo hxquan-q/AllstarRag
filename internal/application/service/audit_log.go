@@ -148,6 +148,19 @@ func (s *auditLogService) List(
 	return s.repo.List(ctx, tenantID, q)
 }
 
+// LatestBanAuditForTarget 代理到仓储层的窄查询。仓储若不支持（测试替身），
+// 返回 (nil, nil)，调用方按"没有 ban 记录"失败关闭处理。
+func (s *auditLogService) LatestBanAuditForTarget(
+	ctx context.Context,
+	targetUserID string,
+) (*types.AuditLog, error) {
+	lookup, ok := s.repo.(interfaces.LatestBanAuditLookup)
+	if !ok {
+		return nil, nil
+	}
+	return lookup.LatestBanAuditForTarget(ctx, targetUserID)
+}
+
 // Purge deletes rows whose created_at is strictly older than
 // `retentionDays` ago. retentionDays <= 0 short-circuits — operators
 // who configured no retention pay zero database round-trips.

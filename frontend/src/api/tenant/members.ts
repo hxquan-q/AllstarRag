@@ -124,12 +124,12 @@ export async function addMember(
 
 /**
  * Create a brand-new account and add it to the tenant in one call.
- * Backend: POST /api/v1/tenants/:id/members/create (Admin+, 角色矩阵在
- * handler 内判定：Owner 可建 admin/contributor/viewer，Admin 只能建
- * viewer，不能建 owner)。
+ * Backend: POST /api/v1/tenants/:id/members/create (Admin+)。角色白名单
+ * IsAssignableMemberRole 只接受 admin/viewer；owner/contributor 请求会被
+ * 400/403 拒绝（owner 只能由开通/交接产生，contributor 停止分配）。
  *
- * 409 = 邮箱或用户名已注册；400 = 参数或密码不合规；403 = 角色越权。
- * 响应复用成员投影（不含密码）。
+ * 409 = 邮箱/用户名已注册，或目标账号已属于其他空间（一号一空间）；
+ * 400 = 参数或密码不合规；403 = 角色越权。响应复用成员投影（不含密码）。
  */
 export async function createMemberAccount(
   tenantId: number,

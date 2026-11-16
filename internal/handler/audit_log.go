@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/logger"
@@ -12,11 +13,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AuditLogHandler exposes the per-tenant audit-log feed (PR 6, #1303).
-// The route group lives under /tenants/:id/audit-log, gated by
-// PathTenantMatch (URL :id == active tenant) plus an Admin role
-// requirement — leaks of denied-action histories should not surface
-// to ordinary members.
+// AuditLogHandler 提供空间操作记录接口（上游 PR 6, #1303）。
+// 路由为 /tenants/:id/audit-log，守卫是 PathTenantMatch（URL 的 :id 必须等于
+// 当前激活空间）加 OwnerOrSystemAdmin（只放行本空间 owner 和系统管理员），
+// 避免被拒操作的历史暴露给 admin 及以下成员。
 type AuditLogHandler struct {
 	auditService interfaces.AuditLogService
 }
@@ -46,8 +46,10 @@ type auditLogListResponse struct {
 // @Param        action    query  string  false  "按 action 精确过滤（如 rbac.member_added / rbac.access_denied）"
 // @Param        outcome   query  string  false  "按 outcome 精确过滤（success / denied）"
 // @Param        actor     query  string  false  "按 actor_user_id 精确过滤"
+// @Param        q         query  string  false  "关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）"
 // @Success      200  {object}  auditLogListResponse
 // @Failure      400  {object}  errors.AppError
+// @Failure      403  {object}  errors.AppError  "本空间 owner/普通管理员或系统管理员以外，或路径空间与当前空间不一致"
 // @Security     Bearer
 // @Security     ApiKeyAuth
 // @Router       /tenants/{id}/audit-log [get]
@@ -83,6 +85,7 @@ func (h *AuditLogHandler) ListTenantAuditLog(c *gin.Context) {
 		Outcome:      types.AuditOutcome(c.Query("outcome")),
 		ActorUserID:  c.Query("actor"),
 		UnscopedOnly: true,
+		Search:       strings.TrimSpace(c.Query("q")),
 	}
 
 	entries, err := h.auditService.List(ctx, tenantID, q)

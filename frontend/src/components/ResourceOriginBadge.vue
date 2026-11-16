@@ -39,14 +39,16 @@ import { useAuthStore } from '@/stores/auth'
 const props = withDefaults(
   defineProps<{
     variant: 'mine' | 'tenant' | 'creator' | 'space' | 'shared'
-    /** Used in `space` variant — the organization (space) display name. */
+    /** `space` 变体使用：组织（空间）展示名。 */
     spaceName?: string
-    /** Optional creator display name, surfaces in tooltip for `tenant` variant. */
+    /** 可选创建者展示名，`tenant` 变体的 tooltip 会用到。 */
     creatorName?: string
-    /** Optional source tenant name, surfaces in tooltip for cross-tenant. */
+    /** 后端标记创建者账号已墓碑化时为 true。 */
+    creatorDeleted?: boolean
+    /** 可选来源空间名，跨空间 tooltip 会用到。 */
     sourceTenantName?: string
   }>(),
-  { spaceName: '', creatorName: '', sourceTenantName: '' }
+  { spaceName: '', creatorName: '', creatorDeleted: false, sourceTenantName: '' }
 )
 
 const { t } = useI18n()
@@ -81,9 +83,12 @@ const displayText = computed(() => {
       return authStore.currentTenantName || t('resourceOrigin.tenant')
     case 'creator':
       // Section header already provides the「本空间」context, so we just
-      // show who created it. Fall back to a generic label when the user
-      // can't be resolved (creator_name 缺失，例如已删除账号 / 老数据)。
-      return props.creatorName || t('resourceOrigin.tenant')
+      // show who created it. 只有后端明确标记 creator_deleted 时才显示
+      // 「已注销用户」；缺名字但未注销（老数据/抓取数据）回退「本空间」。
+      if (props.creatorName) return props.creatorName
+      return props.creatorDeleted
+        ? t('resourceOrigin.deletedUser')
+        : t('resourceOrigin.tenant')
     case 'space':
       return props.spaceName || t('resourceOrigin.space')
     case 'shared':
@@ -107,7 +112,9 @@ const tooltipText = computed(() => {
       if (props.creatorName) {
         return t('resourceOrigin.tenantTooltipWithCreator', { creator: props.creatorName })
       }
-      return t('resourceOrigin.tenantTooltip')
+      return props.creatorDeleted
+        ? t('resourceOrigin.deletedUserTooltip')
+        : t('resourceOrigin.tenantTooltip')
     case 'space':
       if (props.sourceTenantName) {
         return t('resourceOrigin.spaceTooltipWithTenant', {

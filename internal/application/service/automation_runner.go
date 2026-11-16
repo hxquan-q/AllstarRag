@@ -18,7 +18,6 @@ import (
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 // maxStoredAnswerRunes bounds the answer a run keeps for listings and for
@@ -366,8 +365,7 @@ func (s *AutomationService) runSession(
 			AgentID: types.BuiltinWeKnoraAssistantID, AgentEnabled: true, ModelID: a.ModelID,
 		},
 	}
-	if err := s.db.WithContext(ctx).Session(&gorm.Session{SkipHooks: true}).
-		Clauses(clause.OnConflict{DoNothing: true}).Create(session).Error; err != nil {
+	if _, err := s.sessionCreator.CreateIdempotent(ctx, session); err != nil {
 		return nil, err
 	}
 	if a.SessionMode == types.AutomationSessionPersistent {

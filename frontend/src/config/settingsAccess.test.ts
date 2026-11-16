@@ -9,7 +9,9 @@ import {
 
 test('management shortcuts are stricter than read-only settings pages', () => {
   assert.equal(SETTINGS_SECTION_MIN_ROLE.members, 'viewer')
-  assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.members, 'owner')
+  // T08（single-space-per-account）：普通管理员获得成员管理入口，
+  // 头像快捷入口从 owner 降到 admin（现状 owner，预期红）。
+  assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.members, 'admin')
   assert.equal(SETTINGS_SECTION_MIN_ROLE.models, 'viewer')
   assert.equal(SETTINGS_MANAGEMENT_SHORTCUT_MIN_ROLE.models, 'admin')
 })

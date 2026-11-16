@@ -22,6 +22,10 @@ const TENANT_MEMBER_AUDIT_ACTION_LABELS_EN: Record<string, string> = {
   'rbac.invitation_declined': 'Invitation declined',
   'rbac.invitation_revoked': 'Invitation revoked',
   'rbac.invitation_expired': 'Invitation expired',
+  'rbac.member_banned': 'Member banned',
+  'rbac.member_unbanned': 'Member unbanned',
+  'rbac.member_purged': 'Member permanently deleted',
+  'rbac.owner_transferred': 'Ownership transferred',
 }
 
 const SYSTEM_GLOBAL_AUDIT_ACTION_LABELS_EN: Record<string, string> = {
@@ -37,6 +41,9 @@ const SYSTEM_GLOBAL_AUDIT_ACTION_LABELS_EN: Record<string, string> = {
   'system.queue_task_run_now': 'Queue task run now',
   'system.queue_task_cancelled': 'Queue task cancelled',
   'system.queue_archived_purged': 'All failed tasks cleared',
+  'system.owner_provisioned': 'Provisioned workspace and set as owner',
+  'system.owner_invite_created': 'Owner invite created',
+  'system.membership_migrated': 'Membership migrated',
 }
 
 const KB_ACTIVITY_ACTION_LABELS_EN: Record<string, string> = {

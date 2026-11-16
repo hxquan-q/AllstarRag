@@ -54,10 +54,17 @@ func (s *acceptByTokenUserSvc) UpdateUser(_ context.Context, user *types.User) e
 
 type acceptByTokenTenantSvc struct {
 	interfaces.TenantService
+	status  string
+	updated *types.Tenant
 }
 
 func (s *acceptByTokenTenantSvc) GetTenantByID(_ context.Context, id uint64) (*types.Tenant, error) {
-	return &types.Tenant{ID: id, Name: "Invited Workspace"}, nil
+	return &types.Tenant{ID: id, Name: "Invited Workspace", Status: s.status}, nil
+}
+
+func (s *acceptByTokenTenantSvc) UpdateTenant(_ context.Context, tenant *types.Tenant) (*types.Tenant, error) {
+	s.updated = tenant
+	return tenant, nil
 }
 
 func newAcceptByTokenTestRouter(h *TenantInvitationHandler) *gin.Engine {
@@ -111,6 +118,31 @@ func TestAcceptMyInvitationByTokenSuccess(t *testing.T) {
 	}
 	if !resp.Success || resp.Data.Membership.TenantID != 42 || resp.Data.TenantName != "Invited Workspace" {
 		t.Fatalf("unexpected response: %+v", resp)
+	}
+}
+
+// T04-2：owner 邀请创建的 pending 空间在第一个成员接受邀请后激活。
+func TestAcceptMyInvitationByTokenActivatesPendingTenant(t *testing.T) {
+	users := &acceptByTokenUserSvc{homeTenant: 0}
+	tenants := &acceptByTokenTenantSvc{status: "pending"}
+	h := &TenantInvitationHandler{
+		invitationService: &acceptByTokenInvitationSvc{},
+		userService:       users,
+		tenantService:     tenants,
+	}
+	r := newAcceptByTokenTestRouter(h)
+
+	body := []byte(`{"token":"invite-token"}`)
+	req := httptest.NewRequest(http.MethodPost, "/me/invitations/accept-by-token", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if tenants.updated == nil || tenants.updated.Status != "active" {
+		t.Fatalf("pending tenant must be activated after accepting the invite, updated=%+v", tenants.updated)
 	}
 }
 
