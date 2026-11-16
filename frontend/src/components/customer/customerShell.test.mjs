@@ -168,8 +168,11 @@ test('customer shell swaps in CustomerTopBar on both new-chat and history chat p
   assert.match(chatView, /<div v-else-if="!embeddedMode" class="chat-topbar">\s*<ChatHeader :session="currentSession" \/>/)
   // 产品名改用字标图片，左侧小图标保留（用户反馈：不要去掉小图标）。
   assert.match(topBar, /customer-topbar__product-icon/)
-  assert.match(topBar, /brand\/xiaoi-wordmark\.png/)
-  assert.doesNotMatch(topBar, /brandConfig\.productName/)
+  // T02：字标地址与替代文本均来自运行时品牌配置（C5/AC-11），不再硬编码。
+  assert.match(topBar, /:src="brandConfig\.wordmarkUrl"/)
+  assert.match(topBar, /:alt="brandConfig\.productName"/)
+  assert.match(topBar, /:aria-label="brandConfig\.productName"/)
+  assert.doesNotMatch(topBar, /["']\/brand\/xiaoi-wordmark\.png["']/)
   for (const forbidden of ['WeKnora', 'weknora']) {
     assert.equal(topBar.includes(forbidden), false)
   }

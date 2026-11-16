@@ -38,6 +38,7 @@ const GOOD_RAW = {
   logoUrl: '/brand/test.png',
   logoWidth: 180,
   faviconUrl: '/test.ico',
+  wordmarkUrl: '/brand/test-wordmark.png',
   primaryColor: '#123456',
   actionColor: '#234567',
   loginSubtitle: '测试副标题',
@@ -76,7 +77,7 @@ test('missing fields fall back one by one and the warning names the field', () =
   assert.equal(config.productName, '只有名字')
   assert.equal(config.logoUrl, DEFAULT_BRAND.logoUrl)
   assert.equal(config.primaryColor, DEFAULT_BRAND.primaryColor)
-  for (const key of ['logoUrl', 'logoWidth', 'faviconUrl', 'primaryColor', 'loginSubtitle', 'chatDisclaimer']) {
+  for (const key of ['logoUrl', 'logoWidth', 'faviconUrl', 'wordmarkUrl', 'primaryColor', 'loginSubtitle', 'chatDisclaimer']) {
     assert.ok(
       capture.lines.some((line) => line.includes(`BRAND.${key}`)),
       `warning should mention BRAND.${key}`,
@@ -142,6 +143,43 @@ test('invalid logoWidth falls back and warns', () => {
   }
   assert.equal(config.logoWidth, DEFAULT_BRAND.logoWidth)
   assert.ok(capture.lines.some((line) => line.includes('BRAND.logoWidth')))
+})
+
+test('wordmarkUrl accepts a custom value and falls back when missing or invalid (C5 / AC-11)', () => {
+  // 合法值：去掉首尾空格后原样生效，运行时不重建即可换字标。
+  const custom = withoutWarnings(() =>
+    readBrandConfig({ ...GOOD_RAW, wordmarkUrl: ' /brand/custom.png ' }),
+  )
+  assert.equal(custom.wordmarkUrl, '/brand/custom.png')
+  // 默认值必须仍是现有占位图（AC-11 默认值等于占位图）。
+  assert.equal(DEFAULT_BRAND.wordmarkUrl, '/brand/xiaoi-wordmark.png')
+
+  // 缺失：回落到默认占位图，并给出可定位字段的告警。
+  const missingCapture = captureWarnings()
+  let missing
+  try {
+    missing = readBrandConfig({ ...GOOD_RAW, wordmarkUrl: undefined })
+  } finally {
+    missingCapture.restore()
+  }
+  assert.equal(missing.wordmarkUrl, DEFAULT_BRAND.wordmarkUrl)
+  assert.ok(missingCapture.lines.some((line) => line.includes('BRAND.wordmarkUrl')))
+
+  // 非法（非字符串 / 空白字符串）：同样回落并告警，绝不把坏值写进 DOM。
+  for (const invalid of [42, '', '   ', null]) {
+    const capture = captureWarnings()
+    let config
+    try {
+      config = readBrandConfig({ ...GOOD_RAW, wordmarkUrl: invalid })
+    } finally {
+      capture.restore()
+    }
+    assert.equal(config.wordmarkUrl, DEFAULT_BRAND.wordmarkUrl, `invalid wordmarkUrl ${JSON.stringify(invalid)} must fall back`)
+    assert.ok(
+      capture.lines.some((line) => line.includes('BRAND.wordmarkUrl')),
+      `warning should mention BRAND.wordmarkUrl for ${JSON.stringify(invalid)}`,
+    )
+  }
 })
 
 test('non-object brand input falls back to the default brand', () => {
