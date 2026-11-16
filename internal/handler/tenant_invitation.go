@@ -366,6 +366,38 @@ func (h *TenantInvitationHandler) CreateInvitation(c *gin.Context) {
 	})
 }
 
+// homeTenantAdopter 是邀请 auto-accept 回填 home 依赖的窄接口：只做
+// tenant_id 列的条件更新。真实 userService 实现它；测试替身拿不到时回退
+// 旧的整行更新，保持既有行为。
+type homeTenantAdopter interface {
+	SetHomeTenantIfEmpty(ctx context.Context, userID string, tenantID uint64) (bool, error)
+}
+
+// adoptInviteeHomeTenant 把无 home 空间的受邀人指向刚加入的空间（AC-19）。
+// F2 安全热修：只条件更新 tenant_id / updated_at 两列，不整行 Save——
+// 整行 Save 会把 handler 早先读出的用户快照（含 password_hash）写回，
+// 覆盖并发完成的密码重置（与 adoptHomeTenantIfEmpty / N23 同口径）。
+func (h *TenantInvitationHandler) adoptInviteeHomeTenant(
+	ctx context.Context,
+	user *types.User,
+	tenantID uint64,
+) error {
+	if adopter, ok := h.userService.(homeTenantAdopter); ok {
+		set, err := adopter.SetHomeTenantIfEmpty(ctx, user.ID, tenantID)
+		if err != nil {
+			return err
+		}
+		if set {
+			// 仅供响应投影使用，避免为拿 tenant_id 再查一次库。
+			user.TenantID = tenantID
+		}
+		return nil
+	}
+	// 测试替身回退：保持旧行为（整行更新）。
+	user.TenantID = tenantID
+	return h.userService.UpdateUser(ctx, user)
+}
+
 // autoAcceptInvitationAndRespond adds the invitee as an active member,
 // reconciles any stale pending invitation row, and adopts the invited
 // tenant as the invitee's home tenant when they are tenantless (same as
@@ -391,8 +423,7 @@ func (h *TenantInvitationHandler) autoAcceptInvitationAndRespond(
 		}
 	}
 	if user.TenantID == 0 {
-		user.TenantID = tenantID
-		if updateErr := h.userService.UpdateUser(ctx, user); updateErr != nil {
+		if updateErr := h.adoptInviteeHomeTenant(ctx, user, tenantID); updateErr != nil {
 			logger.Errorf(ctx,
 				"auto_accept: member added but default tenant update failed: user=%s tenant=%d err=%v",
 				user.ID, tenantID, updateErr)

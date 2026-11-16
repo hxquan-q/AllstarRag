@@ -481,6 +481,7 @@ func addMemberAndRespond(
 // @Description  工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；
 // @Description  不能重置与自己同级或更高级的成员，也不能重置本人。
 // @Description  目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。
+// @Description  只能重置本空间 active 成员：已挂起（suspended）或待接受（invited）的目标一律 403。
 // @Description  成功后旧密码立即失效，该用户所有已签发 token 被吊销。
 // @Tags         空间成员
 // @Accept       json
@@ -536,6 +537,20 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 		return
 	}
 
+	// F1 安全热修：只能重置本空间 active 成员的全局密码。用户迁移到新空间
+	// 后，本空间的关系变为 suspended——旧空间管理员的重置等于接管其全局
+	// 账号，必须拒绝；invited 尚未生效同理。事务内还有第二道 active 复核
+	// （AdminResetPassword → ResetPasswordTx），这里是在 HTTP 边界快速失败。
+	// 403 文案笼统，不泄漏对方在其他空间的状态细节。
+	if member.Status == types.TenantMemberStatusSuspended ||
+		member.Status == types.TenantMemberStatusInvited {
+		logger.Warnf(ctx,
+			"ResetMemberPassword denied: target not active member user=%s tenant=%d status=%s",
+			targetUserID, tenantID, member.Status)
+		_ = c.Error(apperrors.NewForbiddenError("target is not an active member of this workspace"))
+		return
+	}
+
 	// 系统管理员按 owner 处理（D4）；其余调用者取当前活动空间里的角色。
 	actorRole := types.CallerFromContext(ctx).Role
 	if types.IsSystemAdminFromContext(ctx) {
@@ -566,6 +581,15 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 				targetUserID, tenantID, actorRole)
 			_ = c.Error(apperrors.NewForbiddenError(
 				"this member owns another workspace; ask a system administrator to reset the password"))
+			return
+		}
+		if errors.Is(err, service.ErrCannotResetInactiveMember) {
+			// 事务内 active 复核命中（如 handler 读到 active 后目标被并发挂起）。
+			logger.Warnf(ctx,
+				"ResetMemberPassword denied: target not active member user=%s tenant=%d",
+				targetUserID, tenantID)
+			_ = c.Error(apperrors.NewForbiddenError(
+				"target is not an active member of this workspace"))
 			return
 		}
 		if service.IsPasswordPolicyError(err) {
