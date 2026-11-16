@@ -46,9 +46,9 @@ func t06NewMemberEnv(t *testing.T) (*omOwnerEnv, *t06ManagedService) {
 // t06UpdateRoleGuarded 通过窄接口调用 CAS 改角色。接口本身不包含该方法
 // （T32 用类型断言接入），测试同样按断言调用，避免扩大生产接口。
 func t06UpdateRoleGuarded(
+	ctx context.Context,
 	t *testing.T,
 	svc interfaces.TenantMemberService,
-	ctx context.Context,
 	userID string,
 	tenantID uint64,
 	expectedRole, newRole types.TenantRole,
@@ -107,7 +107,8 @@ func TestT06BanTargetProtectionMatrix(t *testing.T) {
 			umListSeedMember(t, env, "u-owner", "owner@example.com", "owner", umTenantA, types.TenantRoleOwner, true)
 			umListSeedMember(t, env, "u-admin", "admin@example.com", "admin", umTenantA, types.TenantRoleAdmin, true)
 			umListSeedMember(t, env, "u-admin2", "admin2@example.com", "admin2", umTenantA, types.TenantRoleAdmin, true)
-			umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer, true)
+			umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer,
+				true)
 			umSeedUser(t, env, "u-sysadmin", nil)
 
 			ctx := umCallerCtx(tc.actorID, umTenantA, tc.actorRole, tc.sysAdmin)
@@ -143,7 +144,8 @@ func TestT06UnbanTargetProtectionMatrix(t *testing.T) {
 			umListSeedMember(t, env, "u-owner", "owner@example.com", "owner", umTenantA, types.TenantRoleOwner, true)
 			umListSeedMember(t, env, "u-admin", "admin@example.com", "admin", umTenantA, types.TenantRoleAdmin, true)
 			umListSeedMember(t, env, "u-admin2", "admin2@example.com", "admin2", umTenantA, types.TenantRoleAdmin, true)
-			umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer, true)
+			umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer,
+				true)
 			umSeedUser(t, env, "u-sysadmin", nil)
 
 			// 先由超管在本空间封禁目标，制造「最近一次 ban 在本租户」的前置。
@@ -185,7 +187,8 @@ func TestT06PurgeTargetProtectionMatrix(t *testing.T) {
 			umListSeedMember(t, env, "u-owner", "owner@example.com", "owner", umTenantA, types.TenantRoleOwner, true)
 			umListSeedMember(t, env, "u-admin", "admin@example.com", "admin", umTenantA, types.TenantRoleAdmin, true)
 			umListSeedMember(t, env, "u-admin2", "admin2@example.com", "admin2", umTenantA, types.TenantRoleAdmin, true)
-			umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer, true)
+			umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer,
+				true)
 			umSeedUser(t, env, "u-sysadmin", nil)
 
 			ctx := umCallerCtx(tc.actorID, umTenantA, tc.actorRole, tc.sysAdmin)
@@ -253,20 +256,32 @@ func TestT06UpdateRoleTargetProtectionMatrix(t *testing.T) {
 		wantStatus int
 		anyError   bool
 	}{
-		{"admin_to_peer_admin", "u-admin", types.TenantRoleAdmin, "u-admin2",
-			types.TenantRoleAdmin, types.TenantRoleViewer, 403, false},
+		{
+			"admin_to_peer_admin", "u-admin", types.TenantRoleAdmin, "u-admin2",
+			types.TenantRoleAdmin, types.TenantRoleViewer, 403, false,
+		},
 		// owner 降级在服务层已有「必须先交接」保护（sentinel 错误），
 		// handler 统一映射 403；这里只要求被拒绝，不锁具体错误类型。
-		{"admin_to_owner", "u-admin", types.TenantRoleAdmin, "u-owner",
-			types.TenantRoleOwner, types.TenantRoleAdmin, 0, true},
-		{"admin_to_viewer", "u-admin", types.TenantRoleAdmin, "u-viewer",
-			types.TenantRoleViewer, types.TenantRoleAdmin, 200, false},
-		{"owner_to_admin", "u-owner", types.TenantRoleOwner, "u-admin",
-			types.TenantRoleAdmin, types.TenantRoleViewer, 200, false},
-		{"owner_to_viewer", "u-owner", types.TenantRoleOwner, "u-viewer",
-			types.TenantRoleViewer, types.TenantRoleAdmin, 200, false},
-		{"owner_self_demotion", "u-owner", types.TenantRoleOwner, "u-owner",
-			types.TenantRoleOwner, types.TenantRoleAdmin, 0, true},
+		{
+			"admin_to_owner", "u-admin", types.TenantRoleAdmin, "u-owner",
+			types.TenantRoleOwner, types.TenantRoleAdmin, 0, true,
+		},
+		{
+			"admin_to_viewer", "u-admin", types.TenantRoleAdmin, "u-viewer",
+			types.TenantRoleViewer, types.TenantRoleAdmin, 200, false,
+		},
+		{
+			"owner_to_admin", "u-owner", types.TenantRoleOwner, "u-admin",
+			types.TenantRoleAdmin, types.TenantRoleViewer, 200, false,
+		},
+		{
+			"owner_to_viewer", "u-owner", types.TenantRoleOwner, "u-viewer",
+			types.TenantRoleViewer, types.TenantRoleAdmin, 200, false,
+		},
+		{
+			"owner_self_demotion", "u-owner", types.TenantRoleOwner, "u-owner",
+			types.TenantRoleOwner, types.TenantRoleAdmin, 0, true,
+		},
 	}
 	for _, tc := range cases {
 		tc := tc
@@ -275,7 +290,7 @@ func TestT06UpdateRoleTargetProtectionMatrix(t *testing.T) {
 			t06SeedTargets(t, env, tenantID)
 			ctx := umCallerCtx(tc.actorID, tenantID, tc.actorRole, false)
 
-			err := t06UpdateRoleGuarded(t, svc.mem, ctx, tc.targetID, tenantID,
+			err := t06UpdateRoleGuarded(ctx, t, svc.mem, tc.targetID, tenantID,
 				tc.fromRole, tc.toRole, false)
 			if tc.wantStatus == 200 {
 				require.NoError(t, err, "actor %s must be allowed to change %s", tc.actorID, tc.targetID)
@@ -304,7 +319,7 @@ func TestT06AdminSuccessfulOperationsWriteAudit(t *testing.T) {
 	t06SeedTargets(t, env, tenantID)
 
 	adminCtx := umCallerCtx("u-admin", tenantID, types.TenantRoleAdmin, false)
-	require.NoError(t, t06UpdateRoleGuarded(t, svc.mem, adminCtx, "u-viewer", tenantID,
+	require.NoError(t, t06UpdateRoleGuarded(adminCtx, t, svc.mem, "u-viewer", tenantID,
 		types.TenantRoleViewer, types.TenantRoleAdmin, false))
 
 	rows := omOwnerAuditsByAction(t, env, types.AuditActionMemberRoleChanged)
@@ -326,7 +341,7 @@ func TestT06RejectedTargetProtectionWritesNoSuccessAudit(t *testing.T) {
 	t06SeedTargets(t, env, tenantID)
 
 	adminCtx := umCallerCtx("u-admin", tenantID, types.TenantRoleAdmin, false)
-	err := t06UpdateRoleGuarded(t, svc.mem, adminCtx, "u-admin2", tenantID,
+	err := t06UpdateRoleGuarded(adminCtx, t, svc.mem, "u-admin2", tenantID,
 		types.TenantRoleAdmin, types.TenantRoleViewer, false)
 	umRequireHTTPStatus(t, err, 403)
 
@@ -344,7 +359,8 @@ func TestT06TenantRoleCountsUseThreeBuckets(t *testing.T) {
 	umListSeedMember(t, env, "u-admin", "admin@example.com", "admin", umTenantA, types.TenantRoleAdmin, true)
 	umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer, true)
 	// 历史 contributor 行仍可能存在（枚举保留），但目录不得再有 contributor 桶。
-	umListSeedMember(t, env, "u-contrib", "contrib@example.com", "contrib", umTenantA, types.TenantRoleContributor, true)
+	umListSeedMember(t, env, "u-contrib", "contrib@example.com", "contrib", umTenantA, types.TenantRoleContributor,
+		true)
 
 	res, err := env.svc.ListUsers(
 		umCallerCtx("u-owner", umTenantA, types.TenantRoleOwner, false),

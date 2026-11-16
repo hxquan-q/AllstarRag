@@ -264,7 +264,7 @@ func (r *fakeTenantMemberRepo) RemoveOwnerAtomically(
 // from 为 active owner、to 为 active 成员后一次性交换角色，模拟真实
 // 仓储的单事务原子性（失败时不做任何改动）。
 func (r *fakeTenantMemberRepo) TransferOwnershipTx(
-	ctx context.Context, tenantID uint64, fromUserID, toUserID string,
+	_ context.Context, tenantID uint64, fromUserID, toUserID string,
 ) error {
 	var from, to *types.TenantMember
 	for _, e := range r.rows {

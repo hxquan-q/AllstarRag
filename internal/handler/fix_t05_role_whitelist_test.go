@@ -24,8 +24,8 @@ type t05UserSvc struct {
 
 func (s *t05UserSvc) GetUserByEmail(context.Context, string) (*types.User, error) {
 	return s.user, nil
-
 }
+
 func (s *t05UserSvc) GetUserByID(context.Context, string) (*types.User, error) {
 	return nil, nil
 }
@@ -127,7 +127,8 @@ func t05Router(inv *TenantInvitationHandler, mem *TenantMemberHandler) *gin.Engi
 func t05Require4xx(t *testing.T, w *httptest.ResponseRecorder, label string) {
 	t.Helper()
 	require.GreaterOrEqual(t, w.Code, http.StatusBadRequest, "%s must 4xx, body=%s", label, w.Body.String())
-	require.Less(t, w.Code, http.StatusInternalServerError, "%s must be a client error, body=%s", label, w.Body.String())
+	require.Less(t, w.Code, http.StatusInternalServerError,
+		"%s must be a client error, body=%s", label, w.Body.String())
 }
 
 func t05OwnerCtx() accountCtxOpts {

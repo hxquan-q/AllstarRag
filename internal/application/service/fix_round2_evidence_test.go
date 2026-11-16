@@ -112,11 +112,18 @@ func TestTransferOwnerRejectsBannedTarget(t *testing.T) {
 
 	svc := NewUserManagementService(env.userRepo, env.memberRepo, env.audit).(*userManagementService)
 	svc.SetOwnerManagementDeps(nil, &transferMemberStub{memberships: map[string]*types.TenantMember{
-		"actor":  {UserID: "actor", TenantID: umTenantA, Role: types.TenantRoleOwner, Status: types.TenantMemberStatusActive},
-		"banned": {UserID: "banned", TenantID: umTenantA, Role: types.TenantRoleViewer, Status: types.TenantMemberStatusActive},
+		"actor": {
+			UserID: "actor", TenantID: umTenantA, Role: types.TenantRoleOwner,
+			Status: types.TenantMemberStatusActive,
+		},
+		"banned": {
+			UserID: "banned", TenantID: umTenantA, Role: types.TenantRoleViewer,
+			Status: types.TenantMemberStatusActive,
+		},
 	}}, nil, nil)
 
-	err := svc.TransferOwner(umCallerCtx("actor", umTenantA, types.TenantRoleOwner, false), umTenantA, "actor", "banned")
+	err := svc.TransferOwner(umCallerCtx("actor", umTenantA, types.TenantRoleOwner, false), umTenantA, "actor",
+		"banned")
 	umRequireHTTPStatus(t, err, 400)
 }
 
@@ -125,7 +132,9 @@ type transferMemberStub struct {
 	memberships map[string]*types.TenantMember
 }
 
-func (s *transferMemberStub) GetMembership(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+func (s *transferMemberStub) GetMembership(_ context.Context, userID string, tenantID uint64) (*types.TenantMember,
+	error,
+) {
 	m := s.memberships[userID]
 	if m == nil || m.TenantID != tenantID {
 		return nil, nil

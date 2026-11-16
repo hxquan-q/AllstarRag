@@ -185,9 +185,22 @@ func TestT35PlatformHandlerPurgeMapsServiceErrors(t *testing.T) {
 		err  error
 		want int
 	}{
-		{name: "confirm_email_mismatch", err: apperrors.NewValidationError("confirm email does not match the target account"), want: http.StatusBadRequest},
-		{name: "owner_handover_required", err: apperrors.NewForbiddenError("hand over the workspace before purging an owner account"), want: http.StatusForbidden},
-		{name: "privileged_target", err: apperrors.NewForbiddenError("revoke system administrator privileges before purging this account"), want: http.StatusForbidden},
+		{
+			name: "confirm_email_mismatch",
+			err:  apperrors.NewValidationError("confirm email does not match the target account"),
+			want: http.StatusBadRequest,
+		},
+		{
+			name: "owner_handover_required",
+			err:  apperrors.NewForbiddenError("hand over the workspace before purging an owner account"),
+			want: http.StatusForbidden,
+		},
+		{
+			name: "privileged_target",
+			err: apperrors.NewForbiddenError(
+				"revoke system administrator privileges before purging this account"),
+			want: http.StatusForbidden,
+		},
 	}
 	for _, tc := range cases {
 		tc := tc

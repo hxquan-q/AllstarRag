@@ -243,13 +243,25 @@ func newT37Fixture(t *testing.T) *t37Fixture {
 	cfg := &config.Config{Tenant: &config.TenantConfig{EnableRBAC: &rbacOn}}
 
 	userRepo := &t37UserRepo{users: map[string]*types.User{
-		"u-sys":            {ID: "u-sys", Username: "sys", Email: "sys@example.com", TenantID: 1, IsActive: true, IsSystemAdmin: true},
-		"u-viewer":         {ID: "u-viewer", Username: "viewer", Email: "viewer@example.com", TenantID: 7, IsActive: true},
-		"u-owner":          {ID: "u-owner", Username: "owner", Email: "owner@example.com", TenantID: 7, IsActive: true},
-		"u-target":         {ID: "u-target", Username: "target", Email: "target@example.com", TenantID: 7, IsActive: true},
-		"u-target-admin":   {ID: "u-target-admin", Username: "target-admin", Email: "target-admin@example.com", TenantID: 7, IsActive: true, IsSystemAdmin: true},
-		"u-target-super":   {ID: "u-target-super", Username: "target-super", Email: "target-super@example.com", TenantID: 7, IsActive: true, CanAccessAllTenants: true},
-		"u-target-elseown": {ID: "u-target-elseown", Username: "target-elseown", Email: "target-elseown@example.com", TenantID: 7, IsActive: true},
+		"u-sys": {
+			ID: "u-sys", Username: "sys", Email: "sys@example.com", TenantID: 1, IsActive: true,
+			IsSystemAdmin: true,
+		},
+		"u-viewer": {ID: "u-viewer", Username: "viewer", Email: "viewer@example.com", TenantID: 7, IsActive: true},
+		"u-owner":  {ID: "u-owner", Username: "owner", Email: "owner@example.com", TenantID: 7, IsActive: true},
+		"u-target": {ID: "u-target", Username: "target", Email: "target@example.com", TenantID: 7, IsActive: true},
+		"u-target-admin": {
+			ID: "u-target-admin", Username: "target-admin", Email: "target-admin@example.com", TenantID: 7,
+			IsActive: true, IsSystemAdmin: true,
+		},
+		"u-target-super": {
+			ID: "u-target-super", Username: "target-super", Email: "target-super@example.com", TenantID: 7,
+			IsActive: true, CanAccessAllTenants: true,
+		},
+		"u-target-elseown": {
+			ID: "u-target-elseown", Username: "target-elseown", Email: "target-elseown@example.com",
+			TenantID: 7, IsActive: true,
+		},
 	}}
 	tokenRepo := &t37TokenRepo{tokens: map[string]*types.AuthToken{}}
 	memberRepo := &t37MemberRepo{members: map[string]*types.TenantMember{}}
@@ -384,7 +396,10 @@ func t37ManagementRequests() []t37Request {
 	return []t37Request{
 		{method: http.MethodPost, path: "/api/v1/system/admin/users/u-target/ban", body: `{}`},
 		{method: http.MethodPost, path: "/api/v1/system/admin/users/u-target/unban", body: `{}`},
-		{method: http.MethodPost, path: "/api/v1/system/admin/users/u-target/purge", body: `{"confirm_email":"target@example.com"}`},
+		{
+			method: http.MethodPost, path: "/api/v1/system/admin/users/u-target/purge",
+			body: `{"confirm_email":"target@example.com"}`,
+		},
 		{method: http.MethodPost, path: "/api/v1/tenants/7/transfer-owner", body: `{"to_user_id":"u-target"}`},
 		{method: http.MethodGet, path: "/api/v1/tenants/7/user-management"},
 	}

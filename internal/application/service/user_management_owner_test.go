@@ -92,7 +92,7 @@ func newOMOwnerEnv(t *testing.T) *omOwnerEnv {
 	svc := NewUserManagementService(userRepo, memberRepo, auditSvc)
 	setter, ok := svc.(omOwnerDepsSetter)
 	require.Truef(t, ok,
-		"UserManagementService must expose SetOwnerManagementDeps(tenantService, memberService, invitationService, userService); "+
+		"UserManagementService must expose SetOwnerManagementDeps; "+
 			"T04 depends on it while keeping the T02 three-arg constructor")
 	setter.SetOwnerManagementDeps(tenantSvc, memberSvc, inviteSvc, userSvc)
 

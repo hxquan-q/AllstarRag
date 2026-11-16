@@ -74,7 +74,8 @@ func cp3SeedTransferTenant(t *testing.T, db *gorm.DB, users map[string]types.Ten
 
 func cp3MemberRole(t *testing.T, repo interface {
 	Get(context.Context, string, uint64) (*types.TenantMember, error)
-}, userID string) types.TenantRole {
+}, userID string,
+) types.TenantRole {
 	t.Helper()
 	member, err := repo.Get(context.Background(), userID, cp3B1Tenant)
 	require.NoError(t, err)

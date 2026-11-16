@@ -103,7 +103,8 @@ func TestUserManagementListUsersRoleCountsIncludeBannedExcludeTombstones(t *test
 	env := newUMTestEnv(t)
 	umListSeedMember(t, env, "u-owner", "owner@example.com", "owner", umTenantA, types.TenantRoleOwner, true)
 	umListSeedMember(t, env, "u-admin", "admin@example.com", "admin", umTenantA, types.TenantRoleAdmin, true)
-	umListSeedMember(t, env, "u-contrib", "contrib@example.com", "contrib", umTenantA, types.TenantRoleContributor, true)
+	umListSeedMember(t, env, "u-contrib", "contrib@example.com", "contrib", umTenantA, types.TenantRoleContributor,
+		true)
 	umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer, true)
 	umListSeedMember(t, env, "u-banned", "banned@example.com", "banned", umTenantA, types.TenantRoleViewer, false)
 
@@ -157,7 +158,8 @@ func TestUserManagementListUsersFiltersByRole(t *testing.T) {
 	env := newUMTestEnv(t)
 	umListSeedMember(t, env, "u-owner", "owner@example.com", "owner", umTenantA, types.TenantRoleOwner, true)
 	umListSeedMember(t, env, "u-admin", "admin@example.com", "admin", umTenantA, types.TenantRoleAdmin, true)
-	umListSeedMember(t, env, "u-contrib", "contrib@example.com", "contrib", umTenantA, types.TenantRoleContributor, true)
+	umListSeedMember(t, env, "u-contrib", "contrib@example.com", "contrib", umTenantA, types.TenantRoleContributor,
+		true)
 	umListSeedMember(t, env, "u-viewer", "viewer@example.com", "viewer", umTenantA, types.TenantRoleViewer, true)
 
 	ctx := umCallerCtx("u-owner", umTenantA, types.TenantRoleOwner, false)
@@ -367,7 +369,8 @@ func TestUserManagementListUsersSystemAdminBypassesOwnerRequirement(t *testing.T
 func TestUserManagementListUsersItemStatusAndCreatedAt(t *testing.T) {
 	env := newUMTestEnv(t)
 	umListSeedMember(t, env, "u-owner", "owner@example.com", "owner", umTenantA, types.TenantRoleOwner, true)
-	umListSeedMember(t, env, "u-active", "active@example.com", "active-user", umTenantA, types.TenantRoleContributor, true)
+	umListSeedMember(t, env, "u-active", "active@example.com", "active-user", umTenantA,
+		types.TenantRoleContributor, true)
 	umListSeedMember(t, env, "u-banned", "banned@example.com", "banned-user", umTenantA, types.TenantRoleAdmin, false)
 
 	res, err := env.svc.ListUsers(

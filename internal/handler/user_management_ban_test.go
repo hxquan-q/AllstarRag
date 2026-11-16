@@ -180,7 +180,10 @@ func TestUserManagementBanMemberMapsServiceErrors(t *testing.T) {
 		err    error
 		status int
 	}{
-		{name: "protected_target", err: apperrors.NewForbiddenError("target is protected"), status: http.StatusForbidden},
+		{
+			name: "protected_target", err: apperrors.NewForbiddenError("target is protected"),
+			status: http.StatusForbidden,
+		},
 		{name: "not_a_member", err: apperrors.NewNotFoundError("membership not found"), status: http.StatusNotFound},
 	}
 	for _, tc := range cases {

@@ -380,8 +380,14 @@ func TestUserManagementListScopedNonSystemAdminForbidden(t *testing.T) {
 	}{
 		{"owner_other", umScopeOwnerCtx(umTenantA), interfaces.UserManagementScopeOther},
 		{"owner_all", umScopeOwnerCtx(umTenantA), interfaces.UserManagementScopeAll},
-		{"admin_other", umCallerCtx("u-admin-a", umTenantA, types.TenantRoleAdmin, false), interfaces.UserManagementScopeOther},
-		{"viewer_all", umCallerCtx("u-viewer-a", umTenantA, types.TenantRoleViewer, false), interfaces.UserManagementScopeAll},
+		{
+			"admin_other", umCallerCtx("u-admin-a", umTenantA, types.TenantRoleAdmin, false),
+			interfaces.UserManagementScopeOther,
+		},
+		{
+			"viewer_all", umCallerCtx("u-viewer-a", umTenantA, types.TenantRoleViewer, false),
+			interfaces.UserManagementScopeAll,
+		},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {

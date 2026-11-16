@@ -208,7 +208,7 @@ func TestT40TransferOwnerFailureDoesNotUndoAnotherTransfer(t *testing.T) {
 
 	// seam：A→B 进入事务时，并发交接已经改变了角色。
 	env.transferRepo.setHook(func(
-		ctx context.Context, tenantID uint64, fromUserID, toUserID string,
+		_ context.Context, tenantID uint64, fromUserID, toUserID string,
 	) error {
 		require.Equal(t, tenant.ID, tenantID)
 		require.Equal(t, "A", fromUserID)

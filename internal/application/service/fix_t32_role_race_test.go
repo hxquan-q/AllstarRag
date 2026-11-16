@@ -237,7 +237,8 @@ func TestT32NonOwnerRoleChangeStillAllowed(t *testing.T) {
 	const tenantID uint64 = 9
 
 	if _, err := svc.(interface {
-		AddMember(ctx context.Context, userID string, tenantID uint64, role types.TenantRole, invitedBy *string) (*types.TenantMember, error)
+		AddMember(ctx context.Context, userID string, tenantID uint64, role types.TenantRole,
+			invitedBy *string) (*types.TenantMember, error)
 	}).AddMember(ctx, "u-viewer", tenantID, types.TenantRoleViewer, nil); err != nil {
 		t.Fatalf("seed viewer: %v", err)
 	}

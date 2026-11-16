@@ -123,7 +123,9 @@ func TestUpdateMemberRole_SystemAdminManagesNonOwnerTargets(t *testing.T) {
 				var gotRole types.TenantRole
 				called := false
 				ms := &roleGuardMemberService{
-					getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+					getMembership: func(_ context.Context, userID string, tenantID uint64) (
+						*types.TenantMember, error,
+					) {
 						if userID != "u-target" || tenantID != 1 {
 							t.Fatalf("unexpected membership lookup: user=%s tenant=%d", userID, tenantID)
 						}

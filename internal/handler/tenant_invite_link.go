@@ -83,16 +83,16 @@ func (h *TenantInvitationHandler) CreateInviteLink(c *gin.Context) {
 	}
 	var req createInviteLinkRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewValidationError("invalid request body").WithDetails(err.Error()))
 		return
 	}
 	if !req.Role.IsValid() {
-		c.Error(apperrors.NewValidationError("invalid role"))
+		_ = c.Error(apperrors.NewValidationError("invalid role"))
 		return
 	}
 	// T05：分享链接只分配 admin / viewer。
 	if !service.IsAssignableMemberRole(req.Role) {
-		c.Error(apperrors.NewForbiddenError(
+		_ = c.Error(apperrors.NewForbiddenError(
 			"role must be admin or viewer; owner is assigned via provisioning or handover"))
 		return
 	}
@@ -110,15 +110,15 @@ func (h *TenantInvitationHandler) CreateInviteLink(c *gin.Context) {
 	inv, _, err := h.invitationService.CreateShareLink(ctx, tenantID, req.Role, invitedBy, req.Message)
 	if err != nil {
 		if errors.Is(err, service.ErrAPIKeyCannotAssignOwner) {
-			c.Error(apperrors.NewForbiddenError(err.Error()))
+			_ = c.Error(apperrors.NewForbiddenError(err.Error()))
 			return
 		}
 		if errors.Is(err, service.ErrInvitationRoleNotAssignable) {
-			c.Error(apperrors.NewValidationError(err.Error()))
+			_ = c.Error(apperrors.NewValidationError(err.Error()))
 			return
 		}
 		logger.Errorf(ctx, "CreateShareLink failed: tenant=%d err=%v", tenantID, err)
-		c.Error(apperrors.NewInternalServerError("failed to create share link").WithDetails(err.Error()))
+		_ = c.Error(apperrors.NewInternalServerError("failed to create share link").WithDetails(err.Error()))
 		return
 	}
 	// 创建成功后补写配额/有效期；任选项为空时不写库。
