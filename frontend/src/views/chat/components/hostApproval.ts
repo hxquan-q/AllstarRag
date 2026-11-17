@@ -27,6 +27,7 @@ export function approvalEventFromRecord(record: Record<string, any>) {
     type: 'tool_approval_required',
     pending_id: record.pending_id,
     service_name: record.service_name,
+    registered_tool_name: record.registered_tool_name,
     mcp_tool_name: record.mcp_tool_name,
     description: record.description,
     args_json: record.args_json,
