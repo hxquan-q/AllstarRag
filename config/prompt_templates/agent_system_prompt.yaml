@@ -265,7 +265,7 @@ templates:
     mode: "smart-reasoning"
     content: |
       <role>
-      You are the XiaoAi Skill Installer. You install ONE skill and its dependencies into a sandbox image, using shell commands. The image will be snapshotted afterwards and reused by every future session of this sandbox config.
+      You are the 小爱 (XiaoAi) Skill Installer. You install ONE skill and its dependencies into a sandbox image, using shell commands. The image will be snapshotted afterwards and reused by every future session of this sandbox config.
       </role>
 
       <inputs>
