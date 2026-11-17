@@ -48,6 +48,55 @@ function embedHtmlDevFallback(): Plugin {
     },
   }
 }
+/**
+ * demo 环境由 `vite preview` 提供，默认所有静态文件都带 `Cache-Control: no-cache`。
+ * 浏览器仍可能复用旧的 index.html（旧 dist 的 title 是 WeKnora），升级后标签页会先显示旧品牌。
+ * 这里只对 HTML / SPA fallback 强制 `no-store`；带 hash 的 /assets/* 保持原缓存策略。
+ */
+function noStoreHtmlPreview(): Plugin {
+  const skipPrefixes = ['/api', '/files', '/mcp']
+
+  return {
+    name: 'no-store-html-preview',
+    configurePreviewServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const rawUrl = req.url ?? '/'
+        const path = rawUrl.split('?')[0]
+        const isProxyPath = skipPrefixes.some(
+          (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+        )
+        const lastSegment = path.slice(path.lastIndexOf('/') + 1)
+        const isHtmlOrSpaFallback =
+          path.endsWith('/') || lastSegment.endsWith('.html') || !lastSegment.includes('.')
+        if (isProxyPath || !isHtmlOrSpaFallback) {
+          next()
+          return
+        }
+
+        // Vite 的静态中间件与 SPA fallback 都会在响应阶段重写 Cache-Control，
+        // 所以在写出响应头之前统一改回 no-store。
+        const originalWriteHead = res.writeHead.bind(res) as (...args: unknown[]) => unknown
+        res.writeHead = ((...args: unknown[]) => {
+          res.setHeader('Cache-Control', 'no-store')
+          const headersArg = args.find((arg) => arg !== null && typeof arg === 'object')
+          if (Array.isArray(headersArg)) {
+            const existing = headersArg.findIndex(
+              (entry) =>
+                Array.isArray(entry) && String(entry[0]).toLowerCase() === 'cache-control',
+            )
+            if (existing >= 0) headersArg[existing] = ['Cache-Control', 'no-store']
+            else headersArg.push(['Cache-Control', 'no-store'])
+          } else if (headersArg) {
+            (headersArg as Record<string, unknown>)['Cache-Control'] = 'no-store'
+          }
+          return originalWriteHead(...args)
+        }) as unknown as typeof res.writeHead
+        next()
+      })
+    },
+  }
+}
+
 const DEV_PROXY_TARGET =
   process.env.VITE_DEV_PROXY_TARGET ||
   process.env.FRONTEND_BACKEND_URL ||
@@ -141,6 +190,7 @@ export default defineConfig({
     vue(),
     vueJsx(),
     embedHtmlDevFallback(),
+    noStoreHtmlPreview(),
     pdfJsWasmAssets(),
   ],
   resolve: {
