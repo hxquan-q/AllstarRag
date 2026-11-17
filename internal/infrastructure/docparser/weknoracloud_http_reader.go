@@ -40,10 +40,10 @@ type WeKnoraCloudSignedDocumentReader struct {
 
 func NewWeKnoraCloudSignedDocumentReader(appID, apiKey string) (*WeKnoraCloudSignedDocumentReader, error) {
 	if appID == "" {
-		return nil, fmt.Errorf("WeKnoraCloud appID is required")
+		return nil, fmt.Errorf("XiaoAi Cloud appID is required")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("WeKnoraCloud apiKey is required")
+		return nil, fmt.Errorf("XiaoAi Cloud apiKey is required")
 	}
 	clientCfg := secutils.DefaultSSRFSafeHTTPClientConfig()
 	clientCfg.Timeout = 500 * time.Minute
@@ -66,7 +66,7 @@ func (p *WeKnoraCloudSignedDocumentReader) IsConnected() bool { return true }
 func (p *WeKnoraCloudSignedDocumentReader) ListEngines(ctx context.Context, overrides map[string]string) ([]types.ParserEngineInfo, error) {
 	return []types.ParserEngineInfo{{
 		Name:        WeKnoraCloudEngineName,
-		Description: "WeKnoraCloud signed docreader",
+		Description: "XiaoAi Cloud signed docreader",
 		FileTypes:   []string{"docx", "doc", "pdf", "md", "markdown", "xlsx", "xls", "pptx", "ppt"},
 		Available:   true,
 	}}, nil

@@ -39,11 +39,11 @@ const (
 		"It shares the workspace with your other tools: do not edit files it is writing. " +
 		"Cancel it once you no longer need it. " +
 		"Do not pipe the command through tail or head: the job log stays empty until that pipe closes."
-	shellJobNoteRunningLite = " It runs in the user's project directory and stops if WeKnora Lite is closed. " +
+	shellJobNoteRunningLite = " It runs in the user's project directory and stops if XiaoAi Lite is closed. " +
 		"Other chats on the same project can still write to this directory."
 	shellJobNoteLost = "The sandbox was replaced or the job's watcher died, so the result is unknown. " +
 		"Re-run it, or use shell_exec if it is short."
-	shellJobNoteLostLite = "WeKnora Lite was closed while it was running."
+	shellJobNoteLostLite = "XiaoAi Lite was closed while it was running."
 )
 
 // LocalShellJobs is the Lite host implementation contract. The remote service

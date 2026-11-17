@@ -38,10 +38,10 @@ type WeKnoraCloudVLM struct {
 // NewWeKnoraCloudVLM creates a WeKnoraCloud-backed VLM instance.
 func NewWeKnoraCloudVLM(config *Config) (*WeKnoraCloudVLM, error) {
 	if config.AppID == "" {
-		return nil, fmt.Errorf("WeKnoraCloud VLM: AppID is required")
+		return nil, fmt.Errorf("XiaoAi Cloud VLM: AppID is required")
 	}
 	if config.AppSecret == "" {
-		return nil, fmt.Errorf("WeKnoraCloud VLM: AppSecret is required")
+		return nil, fmt.Errorf("XiaoAi Cloud VLM: AppSecret is required")
 	}
 	baseURL := strings.TrimRight(config.BaseURL, "/")
 	if err := validateVLMBaseURL(baseURL); err != nil {

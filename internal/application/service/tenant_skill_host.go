@@ -320,7 +320,7 @@ func buildHostInstallPrompt(versionDir string, bundle *SkillBundle, tools map[st
 	if bundle != nil {
 		skillMD = string(bundle.Files["SKILL.md"])
 	}
-	return fmt.Sprintf(`Install this WeKnora skill on the user's computer.
+	return fmt.Sprintf(`Install this XiaoAi skill on the user's computer.
 
 Skill directory: %s
 %s
