@@ -78,15 +78,9 @@ function noStoreHtmlPreview(): Plugin {
         const originalWriteHead = res.writeHead.bind(res) as (...args: unknown[]) => unknown
         res.writeHead = ((...args: unknown[]) => {
           res.setHeader('Cache-Control', 'no-store')
+          // sirv 只传对象形式的 headers，改对象即可；res.setHeader 已兜底。
           const headersArg = args.find((arg) => arg !== null && typeof arg === 'object')
-          if (Array.isArray(headersArg)) {
-            const existing = headersArg.findIndex(
-              (entry) =>
-                Array.isArray(entry) && String(entry[0]).toLowerCase() === 'cache-control',
-            )
-            if (existing >= 0) headersArg[existing] = ['Cache-Control', 'no-store']
-            else headersArg.push(['Cache-Control', 'no-store'])
-          } else if (headersArg) {
+          if (headersArg && !Array.isArray(headersArg)) {
             (headersArg as Record<string, unknown>)['Cache-Control'] = 'no-store'
           }
           return originalWriteHead(...args)
