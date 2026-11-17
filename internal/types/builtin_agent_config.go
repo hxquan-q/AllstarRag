@@ -130,7 +130,7 @@ func GetBuiltinAgentWithContext(ctx context.Context, id string, tenantID uint64)
 // and avatar from builtin_agents.yaml onto a persisted built-in agent.
 // Other DB fields are left untouched; the persisted Config.SystemPrompt and
 // Config.ContextTemplate of built-in agents are brand-word scrubbed on the read
-// path (text only, never written back).
+// path. The editor may save the result back, so scrubbing must stay idempotent.
 //
 // Built-in agents are seeded into the database with the locale that was active
 // at first run. ListAgents / GetAgentByID used to return those stored strings
@@ -163,7 +163,12 @@ func ApplyBuiltinAgentLocalization(ctx context.Context, agent *CustomAgent) {
 	if agent.ID == BuiltinWeKnoraAssistantID {
 		rule = builtinAssistantIdentityRule
 	}
-	if p := agent.Config.SystemPrompt; p != "" && !strings.Contains(p, rule) {
+	// skill_installer 是内部安装流程提示,按 YAML 口径不补 persona 身份规则;
+	// 品牌词净化照常执行。
+	if agent.ID == BuiltinSkillInstallerID {
+		rule = ""
+	}
+	if p := agent.Config.SystemPrompt; rule != "" && p != "" && !strings.Contains(p, rule) {
 		agent.Config.SystemPrompt = p + "\n" + rule
 	}
 	agent.Config.ContextTemplate = scrubBuiltinAgentBrandWords(agent.Config.ContextTemplate)
@@ -182,7 +187,6 @@ const (
 var builtinAgentBrandReplacements = [][2]string{
 	{"developed by Tencent", "developed internally by Allstar"},
 	{"You are the XiaoAi Assistant", "You are 小爱助手 (XiaoAi Assistant)"},
-	{"You are XiaoAi Assistant", "You are 小爱助手 (XiaoAi Assistant)"},
 	{"You are XiaoAi", "You are 小爱 (XiaoAi)"},
 	{"You are the XiaoAi", "You are the 小爱 (XiaoAi)"},
 	{"XiaoAi Cloud", "小爱云"},
