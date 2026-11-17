@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -170,11 +171,42 @@ var builtinAgentBrandReplacements = [][2]string{
 }
 
 // scrubBuiltinAgentBrandWords 净化内置 agent 提示词中的品牌词;空串保持空串。
+// URL 与技术标识先换成占位符,品牌词替换完再原样还原——租户改过的提示词里
+// 链接、HTTP 头和云端/存储标识都不能因为品牌改名而被改写。
 func scrubBuiltinAgentBrandWords(s string) string {
-	for _, pair := range builtinAgentBrandReplacements {
-		s = strings.ReplaceAll(s, pair[0], pair[1])
+	if s == "" {
+		return s
 	}
-	return s
+	protected := make([]string, 0, 4)
+	masked := builtinAgentProtectedTokens.ReplaceAllStringFunc(s, func(token string) string {
+		protected = append(protected, token)
+		return builtinAgentTokenPlaceholder(len(protected) - 1)
+	})
+	for _, pair := range builtinAgentBrandReplacements {
+		masked = strings.ReplaceAll(masked, pair[0], pair[1])
+	}
+	for i, token := range protected {
+		masked = strings.ReplaceAll(masked, builtinAgentTokenPlaceholder(i), token)
+	}
+	return masked
+}
+
+// builtinAgentProtectedTokens matches the technical identifiers that must stay
+// byte-for-byte: URLs, X-WeKnora-* headers, WeKnoraCloud* API names,
+// WeKnora_theme / WeKnora_settings storage keys, the embed script name and the
+// lower-case audience parameter. Ordering matters only for the leftmost match.
+var builtinAgentProtectedTokens = regexp.MustCompile(
+	`https?://\S+` +
+		`|X-WeKnora-[A-Za-z0-9-]*` +
+		`|WeKnoraCloud[A-Za-z0-9_]*` +
+		`|WeKnora_[A-Za-z0-9_]+` +
+		`|weknora-widget\.js` +
+		`|aud=weknora`)
+
+// builtinAgentTokenPlaceholder builds a sentinel that prompt text cannot
+// contain; the index keeps repeated tokens apart.
+func builtinAgentTokenPlaceholder(index int) string {
+	return fmt.Sprintf("\x00builtin-brand-token-%d\x00", index)
 }
 
 var builtinAgentEntriesTestMu sync.Mutex

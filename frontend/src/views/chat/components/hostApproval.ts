@@ -23,11 +23,16 @@ export function showComposerApproval(event: Record<string, any>) {
 // A stored agent-step approval becomes the same timeline event the live
 // stream used, already resolved so it stays as a record.
 export function approvalEventFromRecord(record: Record<string, any>) {
+  // Records written before registered_tool_name existed only carry the display
+  // service name. Those stored while it was still 'WeKnora' were operation
+  // cards, so keep that history; any other service stays generic.
+  const legacyRegisteredToolName =
+    !record.registered_tool_name && record.service_name === 'WeKnora' ? 'run_operation' : undefined
   return {
     type: 'tool_approval_required',
     pending_id: record.pending_id,
     service_name: record.service_name,
-    registered_tool_name: record.registered_tool_name,
+    registered_tool_name: record.registered_tool_name || legacyRegisteredToolName,
     mcp_tool_name: record.mcp_tool_name,
     description: record.description,
     args_json: record.args_json,
