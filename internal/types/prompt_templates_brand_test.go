@@ -11,13 +11,17 @@ import (
 
 // T07 prompt fixture: the four shipped prompt YAML files must open every
 // persona prompt with the Chinese self-name (with the English name in
-// parentheses) and carry exactly one identity rule. This is a static guard on
-// the shipped configuration, not on runtime code.
+// parentheses) and carry exactly one matching identity rule. The assertions are
+// structural (per template), not count-based, so adding or removing a template
+// does not silently weaken the guard. This is a static guard on the shipped
+// configuration, not on runtime code.
+type t07Template struct {
+	ID      string `yaml:"id"`
+	Content string `yaml:"content"`
+}
+
 type t07PromptFile struct {
-	Templates []struct {
-		ID      string `yaml:"id"`
-		Content string `yaml:"content"`
-	} `yaml:"templates"`
+	Templates []t07Template `yaml:"templates"`
 }
 
 const (
@@ -47,72 +51,114 @@ func isT07BrandOpening(line string) bool {
 	return strings.Contains(trimmed, "小爱 (XiaoAi)") || strings.Contains(trimmed, "小爱助手 (XiaoAi Assistant)")
 }
 
-// Prompt YAML static guard (T07): 22 brand openings (21 personas + the
-// skill_installer shell prompt), 21 identity rules, no bare "You are XiaoAi"
-// and no "developed by Tencent".
+// Prompt YAML structural guard (T07): every persona template opens with the
+// 小爱 brand self-name and carries exactly one matching identity rule; the
+// skill_installer shell prompt is not a persona; fixed-response fallback
+// templates carry neither. YAML must still parse (readT07PromptFile fatals).
 func TestPromptTemplatesUseXiaoAiBrandSelfName(t *testing.T) {
-	files := []struct {
-		name           string
-		templates      int
-		brandOpenings  int
-		identityRules  int
-		assistantRules int
-	}{
-		{"system_prompt.yaml", 6, 6, 6, 0},
-		{"intent_prompts.yaml", 7, 7, 7, 0},
-		{"fallback.yaml", 5, 1, 1, 0},
-		{"agent_system_prompt.yaml", 8, 8, 6, 1},
-	}
-
-	totalOpenings := 0
-	totalRules := 0
-	for _, tc := range files {
-		file, raw := readT07PromptFile(t, tc.name)
-		if len(file.Templates) != tc.templates {
-			t.Errorf("%s: templates = %d, want %d", tc.name, len(file.Templates), tc.templates)
+	personaFiles := []string{"system_prompt.yaml", "intent_prompts.yaml"}
+	for _, name := range personaFiles {
+		file, raw := readT07PromptFile(t, name)
+		assertNoBarePromptBrand(t, name, raw)
+		if len(file.Templates) == 0 {
+			t.Fatalf("%s: parsed zero templates", name)
 		}
-		if strings.Contains(raw, "You are XiaoAi") {
-			t.Errorf("%s: still contains a bare \"You are XiaoAi\" opening", tc.name)
-		}
-		if strings.Contains(raw, "developed by Tencent") {
-			t.Errorf("%s: still contains \"developed by Tencent\"", tc.name)
-		}
-		if strings.Contains(raw, "小爱  (XiaoAi)") || strings.Contains(raw, "You are  小爱") {
-			t.Errorf("%s: brand replacement introduced a double space", tc.name)
-		}
-
-		openings, rules, assistantRules := 0, 0, 0
 		for _, template := range file.Templates {
-			for _, line := range strings.Split(template.Content, "\n") {
-				if isT07BrandOpening(line) {
-					openings++
-				}
-			}
-			if strings.Contains(template.Content, t07GenericRule) {
-				rules++
-			}
-			if strings.Contains(template.Content, t07AssistantRule) {
-				assistantRules++
-			}
+			assertPersonaPrompt(t, name, template)
 		}
-		if openings != tc.brandOpenings {
-			t.Errorf("%s: brand openings = %d, want %d", tc.name, openings, tc.brandOpenings)
-		}
-		if rules != tc.identityRules {
-			t.Errorf("%s: generic identity rules = %d, want %d", tc.name, rules, tc.identityRules)
-		}
-		if assistantRules != tc.assistantRules {
-			t.Errorf("%s: assistant identity rules = %d, want %d", tc.name, assistantRules, tc.assistantRules)
-		}
-		totalOpenings += openings
-		totalRules += rules + assistantRules
 	}
 
-	if totalOpenings != 22 {
-		t.Errorf("total brand openings = %d, want 22 (21 personas + skill_installer)", totalOpenings)
+	// agent_system_prompt.yaml: every template is a persona except skill_installer,
+	// which is an internal shell workflow prompt (brand opening, no identity rule).
+	agentFile, agentRaw := readT07PromptFile(t, "agent_system_prompt.yaml")
+	assertNoBarePromptBrand(t, "agent_system_prompt.yaml", agentRaw)
+	if len(agentFile.Templates) == 0 {
+		t.Fatal("agent_system_prompt.yaml: parsed zero templates")
 	}
-	if totalRules != 21 {
-		t.Errorf("total identity rules = %d, want 21", totalRules)
+	personas := 0
+	for _, template := range agentFile.Templates {
+		if template.ID == "skill_installer" {
+			if !t07HasBrandOpening(template.Content) {
+				t.Errorf("agent_system_prompt.yaml/skill_installer: brand opening missing")
+			}
+			if strings.Contains(template.Content, "When replying in Chinese, always call yourself") {
+				t.Errorf("agent_system_prompt.yaml/skill_installer: must not carry a persona identity rule")
+			}
+			continue
+		}
+		assertPersonaPrompt(t, "agent_system_prompt.yaml", template)
+		personas++
+	}
+	if personas == 0 {
+		t.Fatal("agent_system_prompt.yaml: no persona prompts found")
+	}
+
+	// fallback.yaml: only the model fallback prompt is a persona; fixed-response
+	// templates carry no brand opening and no identity rule.
+	fallbackFile, fallbackRaw := readT07PromptFile(t, "fallback.yaml")
+	assertNoBarePromptBrand(t, "fallback.yaml", fallbackRaw)
+	if len(fallbackFile.Templates) == 0 {
+		t.Fatal("fallback.yaml: parsed zero templates")
+	}
+	foundFallbackPersona := false
+	for _, template := range fallbackFile.Templates {
+		if template.ID == "default_fallback_prompt" {
+			assertPersonaPrompt(t, "fallback.yaml", template)
+			foundFallbackPersona = true
+			continue
+		}
+		if t07HasBrandOpening(template.Content) {
+			t.Errorf("fallback.yaml/%s: fixed-response template must not open as a persona", template.ID)
+		}
+		if strings.Contains(template.Content, "always call yourself") {
+			t.Errorf("fallback.yaml/%s: fixed-response template must not carry an identity rule", template.ID)
+		}
+	}
+	if !foundFallbackPersona {
+		t.Fatal("fallback.yaml: default_fallback_prompt not found")
+	}
+}
+
+func assertNoBarePromptBrand(t *testing.T, name, raw string) {
+	t.Helper()
+	if strings.Contains(raw, "You are XiaoAi") {
+		t.Errorf("%s: still contains a bare \"You are XiaoAi\" opening", name)
+	}
+	if strings.Contains(raw, "developed by Tencent") {
+		t.Errorf("%s: still contains \"developed by Tencent\"", name)
+	}
+	if strings.Contains(raw, "小爱  (XiaoAi)") || strings.Contains(raw, "You are  小爱") {
+		t.Errorf("%s: brand replacement introduced a double space", name)
+	}
+}
+
+func t07HasBrandOpening(content string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if isT07BrandOpening(line) {
+			return true
+		}
+	}
+	return false
+}
+
+func assertPersonaPrompt(t *testing.T, file string, template t07Template) {
+	t.Helper()
+	if !t07HasBrandOpening(template.Content) {
+		t.Errorf("%s/%s: persona prompt does not open with the 小爱 brand self-name", file, template.ID)
+	}
+	generic := strings.Count(template.Content, t07GenericRule)
+	assistant := strings.Count(template.Content, t07AssistantRule)
+	if template.ID == "weknora_assistant" {
+		if generic != 0 || assistant != 1 {
+			t.Errorf("%s/%s: assistant identity rule = %d, generic = %d; want assistant=1 generic=0",
+				file, template.ID, assistant, generic)
+		}
+	} else if generic != 1 || assistant != 0 {
+		t.Errorf("%s/%s: identity rule generic = %d, assistant = %d; want generic=1 assistant=0",
+			file, template.ID, generic, assistant)
+	}
+	if got := strings.Count(template.Content, "小艾"); got != 1 {
+		t.Errorf("%s/%s: 小艾 occurrences = %d, want 1 (inside the identity rule)", file, template.ID, got)
 	}
 }
 
@@ -138,21 +184,25 @@ func TestPromptTemplatesSkillInstallerHasNoIdentityRule(t *testing.T) {
 	}
 }
 
-// Every persona prompt (all brand openings except the installer) carries a
-// "never 小艾" rule, so 小艾 may only appear inside those 21 rules.
+// Every occurrence of 小艾 must sit inside a "never 小艾" rule. This is checked
+// per template instead of against a global total, so adding a template cannot
+// hide a free-standing 小艾 elsewhere.
 func TestPromptTemplatesNeverUseXiaoAiShortName(t *testing.T) {
-	total := 0
 	for _, name := range []string{
 		"system_prompt.yaml",
 		"intent_prompts.yaml",
 		"fallback.yaml",
 		"agent_system_prompt.yaml",
 	} {
-		_, raw := readT07PromptFile(t, name)
-		total += strings.Count(raw, "小艾")
-	}
-	if total != 21 {
-		t.Errorf("occurrences of 小艾 = %d, want 21 (only inside \"never 小艾\" rules)", total)
+		file, _ := readT07PromptFile(t, name)
+		for _, template := range file.Templates {
+			got := strings.Count(template.Content, "小艾")
+			inRules := strings.Count(template.Content, "never 小艾")
+			if got != inRules {
+				t.Errorf("%s/%s: 小艾 occurrences = %d, but only %d are inside a \"never 小艾\" rule",
+					name, template.ID, got, inRules)
+			}
+		}
 	}
 }
 
