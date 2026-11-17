@@ -62,12 +62,9 @@ const { isMobileLayout } = useResponsiveLayout()
 
 const titleText = computed(() => props.title.trim())
 
-// 字标加载失败时回落到内置默认图；只回落一次，避免坏图反复触发 error。
+// 字标加载失败时回落到内置默认图；设成同一个 src 时 Vue 不会重新加载，不会死循环。
 const wordmarkSrc = ref(brandConfig.wordmarkUrl)
-let wordmarkFallbackApplied = false
 function onWordmarkError() {
-    if (wordmarkFallbackApplied) return
-    wordmarkFallbackApplied = true
     wordmarkSrc.value = DEFAULT_BRAND.wordmarkUrl
 }
 

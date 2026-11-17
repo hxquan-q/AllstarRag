@@ -154,17 +154,17 @@ func ApplyBuiltinAgentLocalization(ctx context.Context, agent *CustomAgent) {
 	agent.Avatar = localized.Avatar
 
 	// 改名前置入数据库的内置 agent 提示词可能仍自称 WeKnora/XiaoAi。读路径
-	// 只做文本净化,不改数据库,也不碰租户自定义的其它 Config 字段。非内置
-	// agent 走不到这里(GetBuiltinAgentWithContext 对它们返回 nil)。
+	// 不写库;但编辑器保存会写回,所以每条替换必须幂等。非内置 agent 走不到
+	// 这里(GetBuiltinAgentWithContext 对它们返回 nil)。
 	agent.Config.SystemPrompt = scrubBuiltinAgentBrandWords(agent.Config.SystemPrompt)
-	// 旧提示词可能没有「禁止小艾」的约束,补一行身份规则;已含则跳过,保证
-	// 重复调用幂等。只补 SystemPrompt,ContextTemplate 保持不变。
-	if agent.Config.SystemPrompt != "" && !strings.Contains(agent.Config.SystemPrompt, "never 小艾") {
-		rule := builtinAgentIdentityRule
-		if agent.ID == BuiltinWeKnoraAssistantID {
-			rule = builtinAssistantIdentityRule
-		}
-		agent.Config.SystemPrompt += "\n" + rule
+	// 旧提示词可能没有对应身份规则,补一行;已含同一条 rule 则跳过,保证幂等。
+	// 只补 SystemPrompt,ContextTemplate 保持不变。
+	rule := builtinAgentIdentityRule
+	if agent.ID == BuiltinWeKnoraAssistantID {
+		rule = builtinAssistantIdentityRule
+	}
+	if p := agent.Config.SystemPrompt; p != "" && !strings.Contains(p, rule) {
+		agent.Config.SystemPrompt = p + "\n" + rule
 	}
 	agent.Config.ContextTemplate = scrubBuiltinAgentBrandWords(agent.Config.ContextTemplate)
 }
@@ -179,14 +179,13 @@ const (
 // builtinAgentBrandReplacements 按顺序执行:先替换较长的品牌短语,最后才换
 // 单独的 "WeKnora",避免 "WeKnora Cloud" 被替换成半截。只匹配品牌词精确
 // 大小写;小写 weknora 技术标识(aud=weknora、工具名、URL)和其它字符不动。
-// 已 XiaoAi 化的旧前缀也按「长词优先」映射,避免 You are XiaoAi Assistant
-// 先被短的 You are XiaoAi 规则截断。
 var builtinAgentBrandReplacements = [][2]string{
 	{"developed by Tencent", "developed internally by Allstar"},
+	{"You are the XiaoAi Assistant", "You are 小爱助手 (XiaoAi Assistant)"},
 	{"You are XiaoAi Assistant", "You are 小爱助手 (XiaoAi Assistant)"},
 	{"You are XiaoAi", "You are 小爱 (XiaoAi)"},
 	{"You are the XiaoAi", "You are the 小爱 (XiaoAi)"},
-	{"XiaoAi Cloud", "小爱云 (XiaoAi Cloud)"},
+	{"XiaoAi Cloud", "小爱云"},
 	{"WeKnora Cloud", "小爱云"},
 	{"WeKnora Assistant", "小爱助手"},
 	{"WeKnora 助手", "小爱助手"},

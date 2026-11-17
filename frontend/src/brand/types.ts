@@ -21,8 +21,7 @@ export interface BrandConfig {
   logoWidth: number
   faviconUrl: string
   /** 客户顶栏字标图片地址，默认 `/brand/xiaoi-wordmark.png`。
-   *  仅作用于客户版顶栏，不影响左上角 logo 与 favicon。
-   *  换图必须与默认图同尺寸、同构图（当前 2048×1152 白底）；CSS 按默认图裁切，换图需同规格。 */
+   *  仅作用于客户版顶栏，不影响左上角 logo 与 favicon；换图规格见 config.js。 */
   wordmarkUrl: string
   /** 主色，只接受 #RGB / #RRGGBB */
   primaryColor: string
