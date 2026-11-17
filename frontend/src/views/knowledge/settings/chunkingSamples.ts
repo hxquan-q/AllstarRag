@@ -1,5 +1,5 @@
-// Curated sample texts for the chunking debug drawer. Each preset is sized
-// to ≈2000–4000 characters and shaped to exercise a distinct tier of the
+// Curated sample texts for the chunking debug drawer. Each preset is roughly
+// 1,000–2,400 characters and shaped to exercise a distinct tier of the
 // chunker, so users can quickly see how their config behaves on realistic
 // content without preparing their own sample.
 
@@ -94,6 +94,7 @@ chunking:
 ## 性能与成本
 
 分块数量会直接影响索引规模与检索成本。块越小，分块数量越多，索引与向量存储占用越大；块越大，单个分块的计算量增加，但召回精度可能下降。上线前应结合文档量、查询频率与硬件资源做一次压力评估，并记录基线指标，便于后续比较。
+
 ## 质量评估
 
 评估分块效果时，可以准备一组覆盖事实查找、概念解释与跨段推理的问题，分别观察召回片段是否包含回答所需的完整信息。若答案经常被切断，优先增大重叠或换用按标题切分；若召回片段过长且主题混杂，则缩小块大小。
