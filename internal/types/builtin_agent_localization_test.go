@@ -120,8 +120,11 @@ func TestApplyBuiltinAgentLocalizationSanitizesPersistedBuiltinPrompt(t *testing
 
 	// T07：品牌目标改为小爱系（英文长短语也走小爱助手/小爱云），
 	// 单独 WeKnora 替换为「小爱 (XiaoAi)」；小写技术标识与 aud 原样保留。
+	// T07-fix2：读路径在净化后为未带身份规则的持久化提示词补一行，
+	// 避免模型中文回答继续自称「小艾」。该用例 ID 走通用（非助手）规则。
 	const wantPrompt = "You are the 小爱助手. Deploy on 小爱云. " +
-		"Keep lower: weknora. aud=weknora. End 小爱 (XiaoAi)."
+		"Keep lower: weknora. aud=weknora. End 小爱 (XiaoAi).\n" +
+		"When replying in Chinese, always call yourself 小爱; never 小艾. When replying in English, use XiaoAi."
 	if agent.Config.SystemPrompt != wantPrompt {
 		t.Errorf("SystemPrompt = %q, want %q", agent.Config.SystemPrompt, wantPrompt)
 	}
@@ -162,6 +165,122 @@ func TestApplyBuiltinAgentLocalizationKeepsEmptyPromptEmpty(t *testing.T) {
 	}
 }
 
+// T07-fix2：DB 里已被 T03 改成 XiaoAi 的持久化内置 agent 提示词，读路径必须
+// 映射回小爱并在末尾补身份规则，否则模型中文回答仍会自称「小艾」。
+func TestApplyBuiltinAgentLocalizationRewritesPersistedXiaoAiPrompt(t *testing.T) {
+	registerTestBuiltinBrandAgent(t)
+
+	agent := &CustomAgent{
+		ID:        testBuiltinBrandAgentID,
+		IsBuiltin: true,
+		TenantID:  1,
+		Config: CustomAgentConfig{
+			SystemPrompt: "You are XiaoAi, a knowledge-base question-answering assistant developed by Allstar. Help the user.",
+		},
+	}
+
+	ApplyBuiltinAgentLocalization(context.Background(), agent)
+
+	const wantPrompt = "You are 小爱 (XiaoAi), a knowledge-base question-answering assistant developed by Allstar. Help the user.\n" +
+		"When replying in Chinese, always call yourself 小爱; never 小艾. When replying in English, use XiaoAi."
+	if agent.Config.SystemPrompt != wantPrompt {
+		t.Fatalf("SystemPrompt = %q, want %q", agent.Config.SystemPrompt, wantPrompt)
+	}
+	if got := strings.Count(agent.Config.SystemPrompt, "never 小艾"); got != 1 {
+		t.Fatalf("identity rule count = %d, want 1", got)
+	}
+	if strings.Contains(agent.Config.SystemPrompt, "You are XiaoAi") {
+		t.Fatalf("persisted XiaoAi opening was not rewritten: %q", agent.Config.SystemPrompt)
+	}
+}
+
+// T07-fix2：列表/详情都会走读路径，反复调用必须幂等，不重复追加身份规则。
+func TestApplyBuiltinAgentLocalizationIdentityRuleIsIdempotent(t *testing.T) {
+	registerTestBuiltinBrandAgent(t)
+
+	agent := &CustomAgent{
+		ID:        testBuiltinBrandAgentID,
+		IsBuiltin: true,
+		TenantID:  1,
+		Config: CustomAgentConfig{
+			SystemPrompt: "You are XiaoAi, an assistant developed by Allstar.",
+		},
+	}
+
+	ApplyBuiltinAgentLocalization(context.Background(), agent)
+	first := agent.Config.SystemPrompt
+	ApplyBuiltinAgentLocalization(context.Background(), agent)
+
+	if agent.Config.SystemPrompt != first {
+		t.Fatalf("second pass changed prompt: first %q, second %q", first, agent.Config.SystemPrompt)
+	}
+	if got := strings.Count(agent.Config.SystemPrompt, "never 小艾"); got != 1 {
+		t.Fatalf("identity rule count after two passes = %d, want 1; prompt=%q", got, agent.Config.SystemPrompt)
+	}
+}
+
+// T07-fix2：内置助手（builtin-weknora-assistant）用「小爱助手」专用身份规则。
+func TestApplyBuiltinAgentLocalizationAssistantUsesAssistantRule(t *testing.T) {
+	restore := OverrideBuiltinAgentEntriesForTest(map[string]*BuiltinAgentEntry{
+		BuiltinWeKnoraAssistantID: {
+			ID:        BuiltinWeKnoraAssistantID,
+			Avatar:    "assistant.png",
+			IsBuiltin: true,
+			I18n: map[string]BuiltinAgentI18n{
+				"default": {Name: "XiaoAi Assistant", Description: "XiaoAi workspace assistant"},
+			},
+		},
+	})
+	t.Cleanup(restore)
+
+	agent := &CustomAgent{
+		ID:        BuiltinWeKnoraAssistantID,
+		IsBuiltin: true,
+		TenantID:  1,
+		Config: CustomAgentConfig{
+			SystemPrompt: "You are XiaoAi, the workspace assistant developed by Allstar. Help.",
+		},
+	}
+
+	ApplyBuiltinAgentLocalization(context.Background(), agent)
+
+	const wantPrompt = "You are 小爱 (XiaoAi), the workspace assistant developed by Allstar. Help.\n" +
+		"When replying in Chinese, always call yourself 小爱助手; never 小艾. When replying in English, use XiaoAi Assistant."
+	if agent.Config.SystemPrompt != wantPrompt {
+		t.Fatalf("SystemPrompt = %q, want %q", agent.Config.SystemPrompt, wantPrompt)
+	}
+	if strings.Contains(agent.Config.SystemPrompt, "always call yourself 小爱;") {
+		t.Fatalf("assistant agent received the generic identity rule: %q", agent.Config.SystemPrompt)
+	}
+}
+
+// T07-fix2：身份规则只补 SystemPrompt；空 SystemPrompt 保持空，ContextTemplate
+// 只做品牌净化、绝不追加规则。
+func TestApplyBuiltinAgentLocalizationRuleOnlyOnSystemPrompt(t *testing.T) {
+	registerTestBuiltinBrandAgent(t)
+
+	agent := &CustomAgent{
+		ID:        testBuiltinBrandAgentID,
+		IsBuiltin: true,
+		TenantID:  1,
+		Config: CustomAgentConfig{
+			ContextTemplate: "WeKnora context: {content}",
+		},
+	}
+
+	ApplyBuiltinAgentLocalization(context.Background(), agent)
+
+	if agent.Config.SystemPrompt != "" {
+		t.Fatalf("SystemPrompt = %q, want empty", agent.Config.SystemPrompt)
+	}
+	if agent.Config.ContextTemplate != "小爱 (XiaoAi) context: {content}" {
+		t.Fatalf("ContextTemplate = %q, want scrubbed template", agent.Config.ContextTemplate)
+	}
+	if strings.Contains(agent.Config.ContextTemplate, "never 小艾") {
+		t.Fatalf("identity rule leaked into ContextTemplate: %q", agent.Config.ContextTemplate)
+	}
+}
+
 // T03 票级复跑边界：红用例只覆盖英文品牌短语，这里锁中文短语、替换顺序、
 // 小写技术标识与空串。
 func TestScrubBuiltinAgentBrandWords(t *testing.T) {
@@ -183,6 +302,17 @@ func TestScrubBuiltinAgentBrandWords(t *testing.T) {
 		{"无双空格", "Hi WeKnora; 管理 WeKnora 知识库", "Hi 小爱 (XiaoAi); 管理 小爱知识库"},
 		// F4②（用户已接受）：WeKnoraCloud 作为普通文字时仍按技术标识保护。
 		{"WeKnoraCloud 普通文字保持保护", "WeKnoraCloud 凭证未配置", "WeKnoraCloud 凭证未配置"},
+		// T07-fix2：DB 里已被 T03 改成 XiaoAi 的持久化提示词前缀也要映射回小爱。
+		// 长词优先：Assistant/Cloud 形态先命中，不会留下半截 "XiaoAi"。
+		{"You are XiaoAi Assistant 映射", "You are XiaoAi Assistant. Help.", "You are 小爱助手 (XiaoAi Assistant). Help."},
+		{"You are the XiaoAi 映射", "You are the XiaoAi. Help.", "You are the 小爱 (XiaoAi). Help."},
+		{"XiaoAi Cloud 映射", "Deploy on XiaoAi Cloud.", "Deploy on 小爱云 (XiaoAi Cloud)."},
+		// 新增 XiaoAi 前缀替换不得触碰小写技术标识/HTTP 头/API 名/存储键。
+		{
+			"XiaoAi 前缀与技术标识共存",
+			"You are XiaoAi. aud=weknora, X-WeKnora-Signature, WeKnoraCloud.BaseURL, WeKnora_theme.",
+			"You are 小爱 (XiaoAi). aud=weknora, X-WeKnora-Signature, WeKnoraCloud.BaseURL, WeKnora_theme.",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
