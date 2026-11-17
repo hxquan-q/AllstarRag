@@ -168,14 +168,44 @@ test('customer shell swaps in CustomerTopBar on both new-chat and history chat p
   assert.match(chatView, /<div v-else-if="!embeddedMode" class="chat-topbar">\s*<ChatHeader :session="currentSession" \/>/)
   // 产品名改用字标图片，左侧小图标保留（用户反馈：不要去掉小图标）。
   assert.match(topBar, /customer-topbar__product-icon/)
-  // T02：字标地址与替代文本均来自运行时品牌配置（C5/AC-11），不再硬编码。
-  assert.match(topBar, /:src="brandConfig\.wordmarkUrl"/)
+  // T07/F2：字标经本地 ref 渲染并带加载失败回落；初始值来自运行时品牌配置（C5/AC-11）。
+  assert.match(topBar, /const wordmarkSrc = ref\(brandConfig\.wordmarkUrl\)/)
+  assert.match(topBar, /<img :src="wordmarkSrc" :alt="brandConfig\.productName" @error="onWordmarkError" \/>/)
+  assert.match(topBar, /wordmarkSrc\.value = DEFAULT_BRAND\.wordmarkUrl/)
+  assert.doesNotMatch(topBar, /:src="brandConfig\.wordmarkUrl"/)
   assert.match(topBar, /:alt="brandConfig\.productName"/)
   assert.match(topBar, /:aria-label="brandConfig\.productName"/)
   assert.doesNotMatch(topBar, /["']\/brand\/xiaoi-wordmark\.png["']/)
   for (const forbidden of ['WeKnora', 'weknora']) {
     assert.equal(topBar.includes(forbidden), false)
   }
+})
+
+test('wordmark error falls back to the default image exactly once (F2)', () => {
+  // 直接执行源码里的回落函数，断言行为而非只匹配字面量。
+  const start = topBar.indexOf('const wordmarkSrc = ref(')
+  const end = topBar.indexOf('// 客户版刷新后')
+  assert.ok(start >= 0 && end > start, 'wordmarkSrc / onWordmarkError block not found')
+  const block = topBar.slice(start, end)
+  const runtime = new Function(
+    'brandConfig',
+    'DEFAULT_BRAND',
+    'ref',
+    `${block}\nreturn { wordmarkSrc, onWordmarkError }`,
+  )(
+    { wordmarkUrl: '/brand/custom-wordmark.png' },
+    { wordmarkUrl: '/brand/xiaoi-wordmark.png' },
+    value => ({ value }),
+  )
+
+  assert.equal(runtime.wordmarkSrc.value, '/brand/custom-wordmark.png')
+  runtime.onWordmarkError()
+  assert.equal(runtime.wordmarkSrc.value, '/brand/xiaoi-wordmark.png')
+
+  // 第二次错误不再改写（避免坏图循环/覆盖用户配置），保持当前值。
+  runtime.wordmarkSrc.value = '/brand/next-attempt.png'
+  runtime.onWordmarkError()
+  assert.equal(runtime.wordmarkSrc.value, '/brand/next-attempt.png')
 })
 
 test('logo sizing: sidebar fixed 108px for both roles, login uses runtime logoWidth, no dark invert filter', () => {

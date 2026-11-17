@@ -118,12 +118,14 @@ func TestApplyBuiltinAgentLocalizationSanitizesPersistedBuiltinPrompt(t *testing
 
 	ApplyBuiltinAgentLocalization(context.Background(), agent)
 
-	const wantPrompt = "You are the XiaoAi Assistant. Deploy on XiaoAi Cloud. " +
-		"Keep lower: weknora. aud=weknora. End XiaoAi."
+	// T07：品牌目标改为小爱系（英文长短语也走小爱助手/小爱云），
+	// 单独 WeKnora 替换为「小爱 (XiaoAi)」；小写技术标识与 aud 原样保留。
+	const wantPrompt = "You are the 小爱助手. Deploy on 小爱云. " +
+		"Keep lower: weknora. aud=weknora. End 小爱 (XiaoAi)."
 	if agent.Config.SystemPrompt != wantPrompt {
 		t.Errorf("SystemPrompt = %q, want %q", agent.Config.SystemPrompt, wantPrompt)
 	}
-	const wantContext = "XiaoAi context: {content}"
+	const wantContext = "小爱 (XiaoAi) context: {content}"
 	if agent.Config.ContextTemplate != wantContext {
 		t.Errorf("ContextTemplate = %q, want %q", agent.Config.ContextTemplate, wantContext)
 	}
@@ -168,11 +170,19 @@ func TestScrubBuiltinAgentBrandWords(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"英文长短短语与单独品牌", "WeKnora Assistant on WeKnora Cloud, then WeKnora.", "XiaoAi Assistant on XiaoAi Cloud, then XiaoAi."},
+		{"英文长短短语与单独品牌", "WeKnora Assistant on WeKnora Cloud, then WeKnora.", "小爱助手 on 小爱云, then 小爱 (XiaoAi)."},
 		{"中文品牌短语", "WeKnora 助手管理 WeKnora 知识库，WeKnora 云服务同步。", "小爱助手管理 小爱知识库，小爱云同步。"},
 		{"小写技术标识不动", "aud=weknora search_weknora_docs .weknora/requirements.json", "aud=weknora search_weknora_docs .weknora/requirements.json"},
 		{"空串保持空", "", ""},
-		{"不重复替换", "WeKnora Cloud Assistant", "XiaoAi Cloud Assistant"},
+		{"不重复替换", "WeKnora Cloud Assistant", "小爱云 Assistant"},
+		// T07：厂商署名替换只作用于完整短语，单独出现的 Tencent 不在改写范围。
+		{"厂商署名", "developed by Tencent stays; developed by Tencent.", "developed internally by Allstar stays; developed internally by Allstar."},
+		// F4①：URL 保护只吃 ASCII 可见字符，中文逗号后的品牌词仍要替换。
+		{"URL 在中文逗号处停止", "详见 https://a.com/x，WeKnora 助手会处理", "详见 https://a.com/x，小爱助手会处理"},
+		// F4③：替换后不新增双空格。
+		{"无双空格", "Hi WeKnora; 管理 WeKnora 知识库", "Hi 小爱 (XiaoAi); 管理 小爱知识库"},
+		// F4②（用户已接受）：WeKnoraCloud 作为普通文字时仍按技术标识保护。
+		{"WeKnoraCloud 普通文字保持保护", "WeKnoraCloud 凭证未配置", "WeKnoraCloud 凭证未配置"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -195,37 +205,37 @@ func TestScrubBuiltinAgentBrandWordsProtectsTechnicalTokens(t *testing.T) {
 		{
 			name: "URL 原样保留，URL 外品牌词仍替换",
 			in:   "Read https://github.com/Tencent/WeKnora then ask WeKnora Assistant.",
-			want: "Read https://github.com/Tencent/WeKnora then ask XiaoAi Assistant.",
+			want: "Read https://github.com/Tencent/WeKnora then ask 小爱助手.",
 		},
 		{
 			name: "HTTP 头原样保留",
 			in:   "Sign with X-WeKnora-Signature and X-WeKnora-Desktop-Token. WeKnora verifies.",
-			want: "Sign with X-WeKnora-Signature and X-WeKnora-Desktop-Token. XiaoAi verifies.",
+			want: "Sign with X-WeKnora-Signature and X-WeKnora-Desktop-Token. 小爱 (XiaoAi) verifies.",
 		},
 		{
 			name: "WeKnoraCloud API 名原样保留",
 			in:   "Set WeKnoraCloud.BaseURL and WeKnoraCloudID, then describe WeKnora Cloud.",
-			want: "Set WeKnoraCloud.BaseURL and WeKnoraCloudID, then describe XiaoAi Cloud.",
+			want: "Set WeKnoraCloud.BaseURL and WeKnoraCloudID, then describe 小爱云.",
 		},
 		{
 			name: "localStorage 键原样保留",
 			in:   "Keep WeKnora_theme and WeKnora_settings keys. Welcome to WeKnora.",
-			want: "Keep WeKnora_theme and WeKnora_settings keys. Welcome to XiaoAi.",
+			want: "Keep WeKnora_theme and WeKnora_settings keys. Welcome to 小爱 (XiaoAi).",
 		},
 		{
 			name: "embed 脚本名与 audience 原样保留",
 			in:   "Load weknora-widget.js with aud=weknora. This is WeKnora.",
-			want: "Load weknora-widget.js with aud=weknora. This is XiaoAi.",
+			want: "Load weknora-widget.js with aud=weknora. This is 小爱 (XiaoAi).",
 		},
 		{
 			name: "重复技术标识逐个还原",
 			in:   "https://a/WeKnora https://a/WeKnora WeKnora",
-			want: "https://a/WeKnora https://a/WeKnora XiaoAi",
+			want: "https://a/WeKnora https://a/WeKnora 小爱 (XiaoAi)",
 		},
 		{
 			name: "普通品牌词仍替换",
 			in:   "WeKnora、WeKnora Assistant、WeKnora Cloud、WeKnora 知识库",
-			want: "XiaoAi、XiaoAi Assistant、XiaoAi Cloud、小爱知识库",
+			want: "小爱 (XiaoAi)、小爱助手、小爱云、小爱知识库",
 		},
 		{
 			name: "空串保持空",

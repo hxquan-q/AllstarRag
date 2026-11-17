@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
+import { isOperationApproval } from './toolApproval'
 
 const source = readFileSync(new URL('./ToolApprovalCard.vue', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('./agent-interaction-card.less', import.meta.url), 'utf8')
@@ -14,7 +15,8 @@ const evaluate = (description, registeredToolName = '', delegatedTask = '') => r
     props: { description, registeredToolName, delegatedTask },
     argsText: { value: '{"period":2,"limit":3}' },
     computed: fn => ({ value: fn() }),
-    isOperation: { value: registeredToolName === 'run_operation' },
+    // F8：用真实判别函数，不再复制 registeredToolName === 'run_operation' 的桩。
+    isOperation: { value: isOperationApproval(registeredToolName) },
     targetLabel: { value: 'docs-mcp › tool' },
     t: (key, params) => key.split('.').pop() + ' ' + JSON.stringify(params),
   },
