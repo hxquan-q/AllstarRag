@@ -183,6 +183,70 @@ func TestScrubBuiltinAgentBrandWords(t *testing.T) {
 	}
 }
 
+// CP3 L1: 读路径净化只换品牌词。租户改过的内置 agent 提示词里若有 URL、
+// HTTP 头、云端 API 名、localStorage 键等技术标识，必须原样保留；同一条
+// 文本里其它位置的真实品牌词仍然替换。
+func TestScrubBuiltinAgentBrandWordsProtectsTechnicalTokens(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "URL 原样保留，URL 外品牌词仍替换",
+			in:   "Read https://github.com/Tencent/WeKnora then ask WeKnora Assistant.",
+			want: "Read https://github.com/Tencent/WeKnora then ask XiaoAi Assistant.",
+		},
+		{
+			name: "HTTP 头原样保留",
+			in:   "Sign with X-WeKnora-Signature and X-WeKnora-Desktop-Token. WeKnora verifies.",
+			want: "Sign with X-WeKnora-Signature and X-WeKnora-Desktop-Token. XiaoAi verifies.",
+		},
+		{
+			name: "WeKnoraCloud API 名原样保留",
+			in:   "Set WeKnoraCloud.BaseURL and WeKnoraCloudID, then describe WeKnora Cloud.",
+			want: "Set WeKnoraCloud.BaseURL and WeKnoraCloudID, then describe XiaoAi Cloud.",
+		},
+		{
+			name: "localStorage 键原样保留",
+			in:   "Keep WeKnora_theme and WeKnora_settings keys. Welcome to WeKnora.",
+			want: "Keep WeKnora_theme and WeKnora_settings keys. Welcome to XiaoAi.",
+		},
+		{
+			name: "embed 脚本名与 audience 原样保留",
+			in:   "Load weknora-widget.js with aud=weknora. This is WeKnora.",
+			want: "Load weknora-widget.js with aud=weknora. This is XiaoAi.",
+		},
+		{
+			name: "重复技术标识逐个还原",
+			in:   "https://a/WeKnora https://a/WeKnora WeKnora",
+			want: "https://a/WeKnora https://a/WeKnora XiaoAi",
+		},
+		{
+			name: "普通品牌词仍替换",
+			in:   "WeKnora、WeKnora Assistant、WeKnora Cloud、WeKnora 知识库",
+			want: "XiaoAi、XiaoAi Assistant、XiaoAi Cloud、小爱知识库",
+		},
+		{
+			name: "空串保持空",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "小写技术标识不动",
+			in:   "aud=weknora search_weknora_docs .weknora/requirements.json",
+			want: "aud=weknora search_weknora_docs .weknora/requirements.json",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := scrubBuiltinAgentBrandWords(tc.in); got != tc.want {
+				t.Fatalf("scrubBuiltinAgentBrandWords(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 // T03 票级复跑：无 DB 记录的内置 agent 直接读 YAML。这里直接解析随仓库
 // 发布的配置，锁 5 个语言的名称/描述与保留的技术标识。
 func TestBuiltinAgentYAMLHasNoVisibleWeKnoraBrand(t *testing.T) {
