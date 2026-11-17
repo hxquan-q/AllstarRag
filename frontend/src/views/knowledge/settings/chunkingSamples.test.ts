@@ -12,7 +12,7 @@ import { CHUNKING_SAMPLES, DEFAULT_SAMPLE_ID } from './chunkingSamples'
 
 const source = readFileSync(new URL('./chunkingSamples.ts', import.meta.url), 'utf8')
 
-const sampleById = id => CHUNKING_SAMPLES.find(sample => sample.id === id)
+const sampleById = (id: string) => CHUNKING_SAMPLES.find(sample => sample.id === id)
 
 test('default chunking sample is a neutral document with no upstream brand or URL (F6)', () => {
   assert.equal(DEFAULT_SAMPLE_ID, 'markdown')
