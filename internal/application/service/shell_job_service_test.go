@@ -688,7 +688,7 @@ func TestShellJobResultNotes(t *testing.T) {
 	require.Contains(t, payload.Note, "Do not pipe the command through tail or head")
 	r = ShellJobResult(snap, true)
 	payload = r.Payload.(ShellJobPayload)
-	require.Contains(t, payload.Note, "WeKnora Lite is closed")
+	require.Contains(t, payload.Note, "XiaoAi Lite is closed")
 	snap.Status.State = interfaces.WorkStateLost
 	payload = ShellJobResult(snap, false).Payload.(ShellJobPayload)
 	require.Contains(t, payload.Note, "watcher died")
