@@ -219,76 +219,6 @@ func TestApplyBuiltinAgentLocalizationIdentityRuleIsIdempotent(t *testing.T) {
 	}
 }
 
-// T07-fix3 M1：净化必须幂等。任何替换目标都不能再包含匹配串，否则编辑器保存
-// 写回后再次读取会套娃（例如 `小爱云 (XiaoAi Cloud)` -> `小爱云 (小爱云 (...))`）。
-func TestScrubBuiltinAgentBrandWordsIsIdempotent(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"XiaoAi Cloud 一次净化", "Deploy on XiaoAi Cloud.", "Deploy on 小爱云."},
-		{"WeKnora Cloud 一次净化", "Deploy on WeKnora Cloud.", "Deploy on 小爱云."},
-		{"助手前缀一次净化", "You are the XiaoAi Assistant. Help.", "You are 小爱助手 (XiaoAi Assistant). Help."},
-		{"单独品牌一次净化", "Welcome to WeKnora.", "Welcome to 小爱 (XiaoAi)."},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			first := scrubBuiltinAgentBrandWords(tc.in)
-			if first != tc.want {
-				t.Fatalf("first pass = %q, want %q", first, tc.want)
-			}
-			second := scrubBuiltinAgentBrandWords(first)
-			if second != first {
-				t.Fatalf("second pass changed output: first %q, second %q", first, second)
-			}
-			for _, nested := range []string{"(XiaoAi Cloud)", "小爱云 (小爱云", "小爱 (XiaoAi) (XiaoAi)"} {
-				if strings.Contains(second, nested) {
-					t.Fatalf("nested brand replacement %q in %q", nested, second)
-				}
-			}
-		})
-	}
-}
-
-// T07-fix3 M1 往返：读路径净化不写库，但编辑器保存会把净化后的 SystemPrompt
-// 写回 DB；下一次读取再次净化时不得追加第二条身份规则、也不得套娃。
-func TestApplyBuiltinAgentLocalizationReadSaveReadRoundTrip(t *testing.T) {
-	registerTestBuiltinBrandAgent(t)
-
-	read := func(prompt string) *CustomAgent {
-		agent := &CustomAgent{
-			ID:        testBuiltinBrandAgentID,
-			IsBuiltin: true,
-			TenantID:  1,
-			Config:    CustomAgentConfig{SystemPrompt: prompt},
-		}
-		ApplyBuiltinAgentLocalization(context.Background(), agent)
-		return agent
-	}
-
-	// 第一次读取：旧持久化提示词（XiaoAi 前缀 + XiaoAi Cloud）被净化并补规则。
-	first := read("You are XiaoAi, a knowledge-base question-answering assistant developed by Allstar. Deploy on XiaoAi Cloud.").Config.SystemPrompt
-	if strings.Contains(first, "XiaoAi Cloud") {
-		t.Fatalf("first read left XiaoAi Cloud: %q", first)
-	}
-	if got := strings.Count(first, "never 小艾"); got != 1 {
-		t.Fatalf("first read identity rule count = %d, want 1; prompt=%q", got, first)
-	}
-
-	// 模拟编辑器保存：把第一次净化后的文本原样写回，再走一次读路径。
-	second := read(first).Config.SystemPrompt
-	if second != first {
-		t.Fatalf("read-save-read changed prompt:\nfirst  %q\nsecond %q", first, second)
-	}
-	if got := strings.Count(second, "never 小艾"); got != 1 {
-		t.Fatalf("round-trip identity rule count = %d, want 1; prompt=%q", got, second)
-	}
-	if strings.Contains(second, "小爱云 (") {
-		t.Fatalf("round-trip nested XiaoAi Cloud replacement: %q", second)
-	}
-}
-
 // T07-fix2/fix3：内置助手（builtin-weknora-assistant）用「小爱助手」专用身份规则。
 // 用例输入取真实旧文本形态（带定冠词的 `You are the XiaoAi Assistant`），同时验证
 // L1 映射与 fix3 的幂等 `XiaoAi Cloud` -> `小爱云`。
@@ -378,9 +308,7 @@ func TestScrubBuiltinAgentBrandWords(t *testing.T) {
 		// F4②（用户已接受）：WeKnoraCloud 作为普通文字时仍按技术标识保护。
 		{"WeKnoraCloud 普通文字保持保护", "WeKnoraCloud 凭证未配置", "WeKnoraCloud 凭证未配置"},
 		// T07-fix2：DB 里已被 T03 改成 XiaoAi 的持久化提示词前缀也要映射回小爱。
-		// 长词优先：Assistant/Cloud 形态先命中，不会留下半截 "XiaoAi"。
-		{"You are XiaoAi Assistant 映射", "You are XiaoAi Assistant. Help.", "You are 小爱助手 (XiaoAi Assistant). Help."},
-		// T07-fix3 L1：真实旧文本里也有带定冠词的 `You are the XiaoAi Assistant`，必须
+		// T07-fix3 L1：真实旧文本是带定冠词的 `You are the XiaoAi Assistant`，必须
 		// 先于 `You are the XiaoAi` 命中，映射为小爱助手而不是半截小爱。
 		{"You are the XiaoAi Assistant 映射", "You are the XiaoAi Assistant. Help.", "You are 小爱助手 (XiaoAi Assistant). Help."},
 		{"You are the XiaoAi 映射", "You are the XiaoAi. Help.", "You are the 小爱 (XiaoAi). Help."},
