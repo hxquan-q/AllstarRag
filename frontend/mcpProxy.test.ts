@@ -43,8 +43,12 @@ for (const mode of ['dev', 'preview'] as const) {
     let closeGateway: (() => Promise<void>) | undefined
     try {
       await mkdir(join(root, 'dist'))
+      await mkdir(join(root, 'dist', 'assets'))
       await writeFile(join(root, 'index.html'), 'main SPA')
       await writeFile(join(root, 'dist/index.html'), 'main SPA')
+      // 非 HTML 静态资源用于核验 preview 不会把 no-store 扩大到 assets/config.js。
+      await writeFile(join(root, 'dist', 'assets', 'cache-probe.js'), 'console.log("probe")')
+      await writeFile(join(root, 'dist', 'config.js'), 'window.__BRAND__ = {}')
       const config = {
         configFile: fileURLToPath(new URL('./vite.config.ts', import.meta.url)),
         root,
@@ -67,6 +71,20 @@ for (const mode of ['dev', 'preview'] as const) {
           gateway.httpServer.closeAllConnections()
         })
         port = (gateway.httpServer.address() as AddressInfo).port
+      }
+      if (mode === 'preview') {
+        const cacheControl = async (path: string): Promise<string> => {
+          const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+            signal: AbortSignal.timeout(5000),
+          })
+          assert.equal(response.status, 200, `${path} should be served by preview`)
+          return response.headers.get('cache-control') ?? ''
+        }
+        // 入口 HTML 必须 no-store，避免升级后浏览器复用旧 title/品牌。
+        assert.match(await cacheControl('/'), /no-store/)
+        // 带扩展名的静态资源不能被入口 HTML 的 no-store 规则扩大命中。
+        assert.doesNotMatch(await cacheControl('/assets/cache-probe.js'), /no-store/)
+        assert.doesNotMatch(await cacheControl('/config.js'), /no-store/)
       }
       const url = `http://127.0.0.1:${port}/mcp/test-endpoint?probe=1`
       const headers = {
