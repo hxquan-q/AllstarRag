@@ -9203,6 +9203,8 @@ definitions:
         type: string
       reason:
         type: string
+      registered_tool_name:
+        type: string
       requested_at:
         type: integer
       resolved:
@@ -29838,6 +29840,7 @@ paths:
         工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；
         不能重置与自己同级或更高级的成员，也不能重置本人。
         目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。
+        只能重置本空间 active 成员：已挂起（suspended）或待接受（invited）的目标一律 403。
         成功后旧密码立即失效，该用户所有已签发 token 被吊销。
       parameters:
       - description: 空间 ID
