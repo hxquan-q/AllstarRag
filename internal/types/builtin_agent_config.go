@@ -128,7 +128,9 @@ func GetBuiltinAgentWithContext(ctx context.Context, id string, tenantID uint64)
 
 // ApplyBuiltinAgentLocalization overlays the locale-specific name, description,
 // and avatar from builtin_agents.yaml onto a persisted built-in agent.
-// Tenant-specific Config and other DB fields are left untouched.
+// Other DB fields are left untouched; the persisted Config.SystemPrompt and
+// Config.ContextTemplate of built-in agents are brand-word scrubbed on the read
+// path (text only, never written back).
 //
 // Built-in agents are seeded into the database with the locale that was active
 // at first run. ListAgents / GetAgentByID used to return those stored strings
@@ -162,12 +164,13 @@ func ApplyBuiltinAgentLocalization(ctx context.Context, agent *CustomAgent) {
 // 单独的 "WeKnora",避免 "WeKnora Cloud" 被替换成半截。只匹配品牌词精确
 // 大小写;小写 weknora 技术标识(aud=weknora、工具名、URL)和其它字符不动。
 var builtinAgentBrandReplacements = [][2]string{
-	{"WeKnora Cloud", "XiaoAi Cloud"},
-	{"WeKnora Assistant", "XiaoAi Assistant"},
+	{"developed by Tencent", "developed internally by Allstar"},
+	{"WeKnora Cloud", "小爱云"},
+	{"WeKnora Assistant", "小爱助手"},
 	{"WeKnora 助手", "小爱助手"},
 	{"WeKnora 云服务", "小爱云"},
 	{"WeKnora 知识库", "小爱知识库"},
-	{"WeKnora", "XiaoAi"},
+	{"WeKnora", "小爱 (XiaoAi)"},
 }
 
 // scrubBuiltinAgentBrandWords 净化内置 agent 提示词中的品牌词;空串保持空串。
@@ -196,7 +199,7 @@ func scrubBuiltinAgentBrandWords(s string) string {
 // WeKnora_theme / WeKnora_settings storage keys, the embed script name and the
 // lower-case audience parameter. Ordering matters only for the leftmost match.
 var builtinAgentProtectedTokens = regexp.MustCompile(
-	`https?://\S+` +
+	`https?://[\x21-\x7E]+` +
 		`|X-WeKnora-[A-Za-z0-9-]*` +
 		`|WeKnoraCloud[A-Za-z0-9_]*` +
 		`|WeKnora_[A-Za-z0-9_]+` +

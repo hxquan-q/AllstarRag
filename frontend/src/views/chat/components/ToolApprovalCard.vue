@@ -218,7 +218,7 @@ const descriptionParts = computed(() => {
       ? { label: counted[1], value: match[2], count: counted[2] }
       : { label: match[1], value: match[2] })
   }
-  // A WeKnora operation's description opens with its summary, then the label
+  // An operation's description opens with its summary, then the label
   // of what it acts on; they make the question instead of the raw operation id.
   let action = ''
   let target = ''
