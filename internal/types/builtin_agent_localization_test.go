@@ -323,8 +323,14 @@ func TestScrubBuiltinAgentBrandWords(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := scrubBuiltinAgentBrandWords(tc.in); got != tc.want {
+			got := scrubBuiltinAgentBrandWords(tc.in)
+			if got != tc.want {
 				t.Fatalf("scrubBuiltinAgentBrandWords(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+			// T07-fix4 M-1：主表每条输入都跑两遍，锁住净化幂等；任何替换目标
+			// 若再次包含匹配串，编辑器保存写回后会套娃，这里会直接变红。
+			if again := scrubBuiltinAgentBrandWords(got); again != got {
+				t.Fatalf("not idempotent: %q -> %q", got, again)
 			}
 		})
 	}

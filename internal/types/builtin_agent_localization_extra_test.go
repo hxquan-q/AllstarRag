@@ -6,38 +6,6 @@ import (
 	"testing"
 )
 
-// T07-fix3 M1：净化必须幂等。任何替换目标都不能再包含匹配串，否则编辑器保存
-// 写回后再次读取会套娃（例如 `小爱云 (XiaoAi Cloud)` -> `小爱云 (小爱云 (...))`）。
-func TestScrubBuiltinAgentBrandWordsIsIdempotent(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{"XiaoAi Cloud 一次净化", "Deploy on XiaoAi Cloud.", "Deploy on 小爱云."},
-		{"WeKnora Cloud 一次净化", "Deploy on WeKnora Cloud.", "Deploy on 小爱云."},
-		{"助手前缀一次净化", "You are the XiaoAi Assistant. Help.", "You are 小爱助手 (XiaoAi Assistant). Help."},
-		{"单独品牌一次净化", "Welcome to WeKnora.", "Welcome to 小爱 (XiaoAi)."},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			first := scrubBuiltinAgentBrandWords(tc.in)
-			if first != tc.want {
-				t.Fatalf("first pass = %q, want %q", first, tc.want)
-			}
-			second := scrubBuiltinAgentBrandWords(first)
-			if second != first {
-				t.Fatalf("second pass changed output: first %q, second %q", first, second)
-			}
-			for _, nested := range []string{"(XiaoAi Cloud)", "小爱云 (小爱云", "小爱 (XiaoAi) (XiaoAi)"} {
-				if strings.Contains(second, nested) {
-					t.Fatalf("nested brand replacement %q in %q", nested, second)
-				}
-			}
-		})
-	}
-}
-
 // T07-fix3 M1 往返：读路径净化不写库，但编辑器保存会把净化后的 SystemPrompt
 // 写回 DB；下一次读取再次净化时不得追加第二条身份规则、也不得套娃。
 func TestApplyBuiltinAgentLocalizationReadSaveReadRoundTrip(t *testing.T) {
