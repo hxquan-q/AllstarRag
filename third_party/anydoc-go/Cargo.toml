@@ -33,9 +33,8 @@ anydoc = { path = "patched-anydoc" }
 
 [workspace]
 
-# Mirrors the anydoc workspace's release profile. Go cgo's external linker
-# rejects the LLVM metadata sections (.llvmbc/.llvmcmd) that thin LTO leaves in
-# the archive; scripts/build-anydoc-lib.sh strips those sections after the build.
+# Mirrors the anydoc workspace's release profile: without it the archive keeps
+# every debug symbol and roughly doubles in size.
 [profile.release]
 lto = "thin"
 strip = "symbols"

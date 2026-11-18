@@ -132,11 +132,8 @@ Keep this list current: it is the diff a future upgrade has to re-apply. Items
 
 1. `Cargo.toml` — depends on the published `anydoc = "=0.2.4"` crate instead of
    the workspace path dependency, declares its own empty `[workspace]`, and
-   repeats the upstream release profile (`lto = "thin"`, `strip`). Go cgo's
-   external linker rejects the LLVM metadata sections (`.llvmbc`, `.llvmcmd`)
-   that thin LTO leaves in the archive, so `scripts/build-anydoc-lib.sh` strips
-   every `.llvm*` section from each archive member after the build. LTO is kept
-   because Rust's precompiled std internalizes symbols that only LTO resolves.
+   repeats the upstream release profile (`lto`, `strip`), which it would
+   otherwise inherit from the anydoc workspace.
 2. `anydoc.go` — every ABI call runs inside `call()`, which pins the goroutine
    with `runtime.LockOSThread` for the duration. The ABI reports the error
    message through a thread-local slot that a *second* call

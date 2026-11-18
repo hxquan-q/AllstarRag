@@ -125,47 +125,6 @@ if [ "$go_version" != "$anydoc_version" ]; then
   exit 1
 fi
 
-# Go's external linker rejects LLVM metadata sections (.llvmbc/.llvmcmd) in
-# the cgo static archive. Thin LTO leaves them in the objects, so strip every
-# .llvm* section from each archive member after the build. The machine code
-# stays; only the LLVM metadata is removed. LTO itself is kept: Rust's
-# precompiled std internalizes symbols that only LTO resolves.
-strip_lto_sections() {
-  local archive="$1"
-  local tool
-  if command -v llvm-objcopy >/dev/null 2>&1; then
-    tool=llvm-objcopy
-  elif command -v objcopy >/dev/null 2>&1; then
-    tool=objcopy
-  else
-    echo "error: objcopy/llvm-objcopy not found; cannot remove .llvmbc from $archive" >&2
-    exit 1
-  fi
-  local work
-  work=$(mktemp -d)
-  (
-    cd "$work"
-    ar x "$archive"
-    for obj in *; do
-      [ -f "$obj" ] || continue
-      # Remove every LLVM metadata section, not only .llvmbc: rustc also
-      # emits .llvmcmd (and sometimes .llvm_addrsig), all rejected by Go's
-      # external linker.
-      if command -v objdump >/dev/null 2>&1; then
-        for section in $(objdump -h "$obj" 2>/dev/null | awk '/[.]llvm/ {print $2}'); do
-          "$tool" --remove-section="$section" "$obj" 2>/dev/null || true
-        done
-      else
-        "$tool" --remove-section=.llvmbc --remove-section=.llvmcmd \
-          --remove-section=.llvm_addrsig "$obj" 2>/dev/null || true
-      fi
-    done
-    rm -f "$archive"
-    ar rcs "$archive" *
-  )
-  rm -rf "$work"
-}
-
 echo "Building anydoc $anydoc_version archive for $target"
 prepare_patched_anydoc
 
@@ -177,7 +136,6 @@ cargo build --release --locked --manifest-path "$crate_dir/Cargo.toml" --target 
 dest="$crate_dir/lib/$lib_dir"
 mkdir -p "$dest"
 cp "$crate_dir/target/$target/release/$lib_name" "$dest/$lib_name"
-strip_lto_sections "$dest/$lib_name"
 
 echo "Wrote $dest/$lib_name"
 echo "Build WeKnora with the archive: go build -tags anydoc ./cmd/server"
