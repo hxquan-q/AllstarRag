@@ -683,6 +683,6 @@ onMounted(load)
 .storage-backend-drawer--tos .setting-drawer__header-icon { background: rgba(0, 137, 255, 0.12); color: #0089FF; }
 .storage-backend-drawer--s3 .setting-drawer__header-icon { background: rgba(255, 153, 0, 0.12); color: #D97706; }
 .storage-backend-drawer--oss .setting-drawer__header-icon { background: rgba(255, 90, 0, 0.12); color: #E55A00; }
-.storage-backend-drawer--ks3 .setting-drawer__header-icon { background: color-mix(in srgb, var(--td-brand-color) 12%, transparent); color: #07A050; }
+.storage-backend-drawer--ks3 .setting-drawer__header-icon { background: rgba(7, 160, 80, 0.12); color: #07A050; }
 .storage-backend-drawer--obs .setting-drawer__header-icon { background: rgba(206, 17, 38, 0.1); color: #CE1126; }
 </style>

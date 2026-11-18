@@ -171,25 +171,24 @@ export function applyCustomerTheme(enabled: boolean): void {
 let themeObserverInstalled = false
 
 /**
- * 启动时调用一次：监听 theme-mode 与 data-customer 变化，按当前模式重写品牌变量。
+ * 启动时调用一次：先按当前模式写入品牌变量，再监听 theme-mode 变化重写。
+ * 启动即写，不依赖角色是否已判定（onboarding 等页面硬刷新后也能跟随 config.js）；
+ * 受守卫页面在 mount 前 await router.isReady()，启动写入不会造成首帧闪色。
  * 这里只跟随 useTheme / 调用方已经维护的属性，不另建主题系统。
  */
 export function initCustomerBrandTheme(): void {
   if (typeof document === 'undefined' || themeObserverInstalled) return
   themeObserverInstalled = true
 
-  // 页面在 main.ts 执行前就带上 data-customer 时（例如服务端注入），先补一次。
-  if (document.documentElement.dataset.customer === 'true') {
-    writeBrandCssVars(effectiveThemeMode())
-  }
+  // 启动即写：不论是否已挂 data-customer、角色是否已判，都先套用当前深浅模式。
+  writeBrandCssVars(effectiveThemeMode())
 
   new MutationObserver(() => {
-    // theme-mode 切换时跟随重写；data-customer 被外部移除只影响客户版专属视觉，
-    // 品牌色变量对任何角色都在场，不再随之清空。
+    // theme-mode 切换时跟随重写；品牌色变量对任何角色都在场，与 data-customer 无关。
     writeBrandCssVars(effectiveThemeMode())
   }).observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ['theme-mode', 'data-customer'],
+    attributeFilter: ['theme-mode'],
   })
 }
 
