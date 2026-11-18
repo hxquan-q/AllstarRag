@@ -43,8 +43,12 @@ NOTE that you should not use this tool if there is only one trivial task to do. 
 
 <example>
 User: Compare XiaoAi with other RAG frameworks like LangChain and LlamaIndex.
-Assistant: I'll help you compare XiaoAi with other RAG frameworks. Let me create a retrieval plan to gather information about each framework.
-*Creates a todo list with retrieval tasks: 1) Search knowledge base for XiaoAi features and architecture, 2) Use web_search to find LangChain documentation and features, 3) Use web_search to find LlamaIndex documentation and features, 4) Retrieve detailed comparison points for each framework*
+Assistant: I'll help you compare XiaoAi with other RAG frameworks.
+Let me create a retrieval plan to gather information about each framework.
+*Creates a todo list with retrieval tasks: 1) Search knowledge base for XiaoAi features and architecture,
+2) Use web_search to find LangChain documentation and features,
+3) Use web_search to find LlamaIndex documentation and features,
+4) Retrieve detailed comparison points for each framework*
 *Note: Summary and synthesis will be handled by thinking tool after all retrieval tasks are completed*
 Assistant: Let me start by searching the knowledge base for detailed XiaoAi information.
 

@@ -33,8 +33,10 @@ anydoc = { path = "patched-anydoc" }
 
 [workspace]
 
-# Mirrors the anydoc workspace's release profile: without it the archive keeps
+# Keeps the release profile's symbol stripping: without it the archive keeps
 # every debug symbol and roughly doubles in size.
 [profile.release]
-lto = "thin"
+# Go cgo's external linker rejects the LTO bitcode section (.llvmbc); keep LTO
+# off so the Go link step succeeds.
+lto = false
 strip = "symbols"

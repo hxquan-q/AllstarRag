@@ -177,8 +177,10 @@ func ApplyBuiltinAgentLocalization(ctx context.Context, agent *CustomAgent) {
 // 读路径补写的身份规则。旧提示词里没有「禁止小艾」约束时追加,避免模型
 // 中文回答自称小艾。内置助手(小爱助手)用专用版本。
 const (
-	builtinAgentIdentityRule     = "When replying in Chinese, always call yourself 小爱; never 小艾. When replying in English, use XiaoAi."
-	builtinAssistantIdentityRule = "When replying in Chinese, always call yourself 小爱助手; never 小艾. When replying in English, use XiaoAi Assistant."
+	builtinAgentIdentityRule = "When replying in Chinese, always call yourself 小爱; never 小艾. " +
+		"When replying in English, use XiaoAi."
+	builtinAssistantIdentityRule = "When replying in Chinese, always call yourself 小爱助手; never 小艾. " +
+		"When replying in English, use XiaoAi Assistant."
 )
 
 // builtinAgentBrandReplacements 按顺序执行:先替换较长的品牌短语,最后才换
