@@ -1,11 +1,12 @@
 /* 客户版主题。
  *
  * 所有规则都挂在 html[data-customer="true"] 下：
- * 管理员端不设置该属性，因此这里的任何一条都不会命中，继续使用 theme.css 的绿色。
+ * 管理员端不设置该属性，因此这里的任何一条都不会命中；管理员端主色同为品牌天蓝
+ * （theme.css 的天蓝静态兜底 + 运行时写入的内联品牌变量，绿色已退役）。
  *
  * 颜色值由 src/brand/colors.ts 在运行时按 public/config.js 的配置重算，
  * 并写到 document.documentElement 的内联样式上（优先级最高）。
- * 这里保留一份默认配置的静态值，保证 T03 挂上标记到 JS 写入之间不会闪回绿色。
+ * 这里保留一份默认配置的静态值，保证挂上标记到 JS 写入之间不闪色。
  */
 
 :root:root[data-customer="true"] {
