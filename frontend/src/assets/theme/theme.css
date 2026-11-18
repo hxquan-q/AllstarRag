@@ -117,7 +117,7 @@
     opacity: 0.9;
 }
 
-/* 全局 t-radio-button outline 选中态：填充品牌色（绿底白字） */
+/* 全局 t-radio-button outline 选中态：填充品牌色（蓝底白字） */
 .t-radio-group .t-radio-button {
     border-color: var(--td-component-stroke);
     transition: all 0.2s ease;
@@ -192,7 +192,7 @@ select:-webkit-autofill {
     transition: background-color 5000s ease-in-out 0s;
 }
 
-/* 全局：输入聚焦保留细绿描边（同 hover），去掉粗外发光环 */
+/* 全局：输入聚焦保留细蓝描边（同 hover），去掉粗外发光环 */
 .t-input:focus:not(.t-is-disabled):not(.t-is-error):not(.t-is-warning):not(.t-is-success),
 .t-input--focused:not(.t-is-error):not(.t-is-warning):not(.t-is-success),
 .t-textarea__inner:focus:not(.t-is-disabled):not(.t-is-error):not(.t-is-warning):not(.t-is-success),
