@@ -131,6 +131,11 @@ prepare_patched_anydoc
 # --locked: build exactly the dependency versions in the committed Cargo.lock.
 # That lockfile is what pins the patched pdf-inspector/lopdf, so a silent
 # resolver drift must fail the build rather than ship an unaudited tree.
+#
+# Go's external linker rejects LLVM bitcode sections (.llvmbc) in the cgo
+# static archive. Cargo's lto=false alone is not enough: rustc still embeds
+# bitcode for a staticlib unless embed-bitcode is disabled explicitly.
+export RUSTFLAGS="${RUSTFLAGS:-} -C embed-bitcode=no"
 cargo build --release --locked --manifest-path "$crate_dir/Cargo.toml" --target "$target"
 
 dest="$crate_dir/lib/$lib_dir"
