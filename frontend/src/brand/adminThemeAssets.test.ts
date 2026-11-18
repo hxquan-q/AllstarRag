@@ -125,10 +125,21 @@ test('SpaceAvatar primary green gradient slot is replaced by sky-blue', () => {
 })
 
 // 锚定：OQ-3 裁决只换「主绿」档，其余多彩档一律不动；档位数也不许少（防②顺手删档）。
+// CP3-R2 N3：主色档改为 var(--td-brand-color-4)/var(--td-brand-color)，档位计数
+// 须同时认 hex 与 var 两种写法，不能因 var 化把 12 档数成 11。
 test('SpaceAvatar keeps 12 gradient slots and the other colorful slots unchanged', () => {
   const block = gradientsBlock(avatarVue)
-  const slots = block.match(/\{ from: '#[0-9a-f]{6}', to: '#[0-9a-f]{6}' \}/g) ?? []
+  const slots =
+    block.match(
+      /\{ from: '(?:#[0-9a-f]{6}|var\(--td-brand-color-4\))', to: '(?:#[0-9a-f]{6}|var\(--td-brand-color\))' \}/g
+    ) ?? []
   assert.equal(slots.length, 12, '渐变板应保持 12 档（只换主绿档，不删档）')
+  // 主色档语义：跟随运行时品牌令牌，与 theme.css/brand.css 的 -4 / 交互色一一对应。
+  assert.equal(
+    block.includes("{ from: 'var(--td-brand-color-4)', to: 'var(--td-brand-color)' }"),
+    true,
+    '主色档应为 var(--td-brand-color-4)/var(--td-brand-color)（CP3-R2 N3）'
+  )
   const keptSlots: Array<[string, string]> = [
     ['#11998e', '#38ef7d'],
     ['#43e97b', '#38f9d7'],
@@ -195,4 +206,65 @@ test('ParserEngineSettings builtin engine colors follow brand var instead of leg
     false,
     'ParserEngineSettings.vue 不应再含 #07c05f 字面量（:826 与 :1151 两处）'
   )
+})
+
+// CP3-R2 N3：主色档改 var() 后，textShadow 不能再用 `${g.to}80` 这类 hex+alpha 拼接，
+// 已改为 color-mix 半透明等价写法。
+test('SpaceAvatar letter textShadow uses color-mix instead of hex alpha concatenation', () => {
+  const start = avatarVue.indexOf('const letterStyle')
+  assert.notEqual(start, -1, 'SpaceAvatar 应有 letterStyle')
+  const block = avatarVue.slice(start, avatarVue.indexOf('</script>', start))
+  assert.equal(block.includes('${g.to}80'), false, '不应保留 ${g.to}80 的非法 alpha 拼接')
+  assert.equal(block.includes('${g.from}30'), false, '不应保留 ${g.from}30 的非法 alpha 拼接')
+  assert.equal(
+    block.includes('color-mix(in srgb, ${g.to} 50%, transparent)'),
+    true,
+    'to 侧应用 color-mix(in srgb, ${g.to} 50%, transparent)'
+  )
+  assert.equal(
+    block.includes('color-mix(in srgb, ${g.from} 19%, transparent)'),
+    true,
+    'from 侧应用 color-mix(in srgb, ${g.from} 19%, transparent)'
+  )
+})
+
+// CP3-R2 N2：ks3 / weaviate 图标属厂商品牌色，背景不得再引用品牌令牌
+// （令牌换蓝后会成蓝底绿标），应与同文件其余后端一致的厂商色 rgba 背景。
+const storageBackendVue = readFileSync(
+  new URL('../views/settings/StorageBackendSettings.vue', import.meta.url),
+  'utf8'
+)
+const vectorStoreVue = readFileSync(new URL('../views/settings/VectorStoreSettings.vue', import.meta.url), 'utf8')
+
+function ruleBlock(source: string, selector: string): string {
+  const start = source.indexOf(selector)
+  assert.notEqual(start, -1, `${selector} 规则应存在`)
+  const open = source.indexOf('{', start)
+  const close = source.indexOf('}', open)
+  return source.slice(open + 1, close)
+}
+
+test('ks3 and weaviate drawer header backgrounds use vendor green instead of brand var', () => {
+  const cases: Array<[string, string, string]> = [
+    [
+      'StorageBackendSettings.vue',
+      storageBackendVue,
+      '.storage-backend-drawer--ks3 .setting-drawer__header-icon {',
+    ],
+    [
+      'VectorStoreSettings.vue',
+      vectorStoreVue,
+      '.vectorstore-drawer--weaviate .setting-drawer__header-icon {',
+    ],
+  ]
+  for (const [name, source, selector] of cases) {
+    const block = ruleBlock(source, selector)
+    assert.equal(
+      block.includes('background: rgba(7, 160, 80, 0.12)'),
+      true,
+      `${name} 背景应为厂商绿 rgba(7, 160, 80, 0.12)`
+    )
+    assert.equal(block.includes('color: #07A050'), true, `${name} 图标色 #07A050 应保留不动`)
+    assert.equal(block.includes('var(--td-brand-color'), false, `${name} 背景不应再引用品牌令牌`)
+  }
 })

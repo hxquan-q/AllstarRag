@@ -62,15 +62,23 @@ function installDomStub() {
     createElement: () => ({ rel: '', href: '' }),
   } as unknown as Document
 
-  // MutationObserver 桩：记录回调，由测试手动通知（等价浏览器的属性变化回调）。
-  const observers: Array<{ callback: () => void; observing: boolean }> = []
+  // MutationObserver 桩：记录回调与 observe 选项，由测试手动按属性名通知
+  // （等价浏览器只把 attributeFilter 命中的属性变化回调给 observer）。
+  type ObserverRecord = {
+    callback: () => void
+    observing: boolean
+    attributeFilter?: string[]
+  }
+  const observers: ObserverRecord[] = []
   const fakeObserverClass = class {
     observing = false
+    attributeFilter?: string[]
     constructor(public callback: () => void) {
       observers.push(this)
     }
-    observe() {
+    observe(_target: unknown, options?: { attributeFilter?: string[] }) {
       this.observing = true
+      this.attributeFilter = options?.attributeFilter
     }
     disconnect() {
       this.observing = false
@@ -85,9 +93,17 @@ function installDomStub() {
     cssVar: (name: string) => styleProps.get(name) ?? '',
     // 当前桩里处于 observe 状态的 observer 数量：用于断言 init 真的安装了监听。
     observerCount: () => observers.filter((observer) => observer.observing).length,
-    notifyObservers: () => {
+    // 当前生效的 attributeFilter 列表：用于断言 observer 只监听 theme-mode（CP3-R2 L）。
+    observedFilters: () => observers.filter((observer) => observer.observing).map((observer) => observer.attributeFilter),
+    // 传 changedAttribute 时按 attributeFilter 过滤（模拟真实 MutationObserver）；
+    // 不传则通知全部，供只关心「有通知」的既有用例沿用。
+    notifyObservers: (changedAttribute?: string) => {
       for (const observer of observers) {
-        if (observer.observing) observer.callback()
+        if (!observer.observing) continue
+        if (changedAttribute && observer.attributeFilter && !observer.attributeFilter.includes(changedAttribute)) {
+          continue
+        }
+        observer.callback()
       }
     },
     restore: () => {
@@ -123,7 +139,7 @@ test('brand vars follow the dark set after theme-mode switches to dark', () => {
     // 切换前是亮色集：主档就是配置的主色。
     assert.equal(dom.cssVar('--td-brand-color-4'), DEFAULT_BRAND.primaryColor)
     dom.documentElement.setAttribute('theme-mode', 'dark')
-    dom.notifyObservers() // 模拟浏览器把 theme-mode 属性变化通知 observer
+    dom.notifyObservers('theme-mode') // 模拟浏览器把 theme-mode 属性变化通知 observer
     // 红点：暗色集要重写入（现状 observer 对非客户走清空分支）。
     // 用 -1/-4 两档区分亮暗：亮 #e8f3f8/#0EA5E9，暗 #0EA5E920/#0b86be。
     const darkVars = brandCssVars(DEFAULT_BRAND, 'dark')
@@ -155,6 +171,8 @@ test('removing the customer flag keeps brand vars on the document', () => {
  * 票级复跑新增（队长 OQ-② 裁定）：外部脚本直接 removeAttribute('data-customer')
  * 时，observer 只按当前模式重写变量、不清空——旧实现有一个「外部摘标记就清空
  * 内联变量」的分支，T01 验收条件 2 要求移除该清理行为。
+ * CP3-R2 L 变更：桩已按 attributeFilter 过滤，摘 data-customer 不再触发回调；
+ * 变量仍在是因为没有任何清空路径（而非回调改写了值）。
  */
 test('externally removing data-customer keeps brand vars on the document', () => {
   const dom = installDomStub()
@@ -166,13 +184,64 @@ test('externally removing data-customer keeps brand vars on the document', () =>
     applyDocumentBrand({ customer: true }) // 先以客户身份写入天蓝
     assert.equal(dom.cssVar('--brand-main'), DEFAULT_BRAND.primaryColor)
     assert.equal(dom.documentElement.getAttribute('data-customer'), 'true')
-    // 外部（非 runtime.ts 调用方）直接摘掉客户标记，observer 收到属性变化通知。
+    // 外部（非 runtime.ts 调用方）直接摘掉客户标记；L 修复后 data-customer 不在
+    // attributeFilter 内，桩按真实语义不回调 observer。
     dom.documentElement.removeAttribute('data-customer')
-    dom.notifyObservers()
+    dom.notifyObservers('data-customer')
     assert.notEqual(dom.documentElement.getAttribute('data-customer'), 'true')
     // 口径：变量不被清空，且仍按当前（亮色）模式保持天蓝集。
     assert.equal(dom.cssVar('--brand-main'), DEFAULT_BRAND.primaryColor)
     assert.equal(dom.cssVar('--td-brand-color-4'), DEFAULT_BRAND.primaryColor)
+    assert.equal(dom.cssVar('--td-brand-color'), DEFAULT_BRAND.actionColor)
+  } finally {
+    dom.restore()
+  }
+})
+
+/**
+ * CP3-R2 N1 补证：initCustomerBrandTheme 启动即写品牌变量，不依赖已挂
+ * data-customer、也不依赖调用方先执行 applyDocumentBrand
+ * （onboarding 等角色未判页面硬刷新后也能跟随 config.js，AC-2 缺口）。
+ */
+test('initCustomerBrandTheme writes brand vars at startup without a customer flag', () => {
+  const dom = installDomStub()
+  try {
+    resetCustomerBrandThemeForTests()
+    // 锚定前置：启动前既无客户标记，也没有任何调用方写入过变量。
+    assert.notEqual(dom.documentElement.getAttribute('data-customer'), 'true')
+    assert.equal(dom.cssVar('--brand-main'), '')
+    initCustomerBrandTheme()
+    // 锚定：仍然不挂 data-customer（客户版视觉不得外溢，AC-3）。
+    assert.notEqual(dom.documentElement.getAttribute('data-customer'), 'true')
+    // 红点（修复前）：只有已挂 data-customer 才写，这里变量应为空。
+    assert.equal(dom.cssVar('--brand-main'), DEFAULT_BRAND.primaryColor)
+    assert.equal(dom.cssVar('--td-brand-color-4'), DEFAULT_BRAND.primaryColor)
+    assert.equal(dom.cssVar('--td-brand-color'), DEFAULT_BRAND.actionColor)
+  } finally {
+    dom.restore()
+  }
+})
+
+/**
+ * CP3-R2 L 补证：observer 只监听 theme-mode，data-customer 变化不触发重写；
+ * theme-mode 变化仍真实触发重写（证明 filter 不是「永远不触发」的空转）。
+ */
+test('brand observer listens only to theme-mode and still rewrites on theme-mode', () => {
+  const dom = installDomStub()
+  try {
+    resetCustomerBrandThemeForTests()
+    initCustomerBrandTheme()
+    assert.ok(dom.observerCount() > 0, 'observer 必须真正安装')
+    assert.deepEqual(dom.observedFilters(), [['theme-mode']], 'observer 应只监听 theme-mode（L 修复口径）')
+    // 哨兵值：若 data-customer 变化误触发回调，会被 writeBrandCssVars 覆盖。
+    dom.documentElement.style.setProperty('--td-brand-color', '#deadbe')
+    dom.notifyObservers('data-customer')
+    assert.equal(dom.cssVar('--td-brand-color'), '#deadbe', 'data-customer 变化不应触发变量重写')
+    // theme-mode 变化仍应触发重写：切暗色后 -1 档落暗色集。
+    dom.documentElement.setAttribute('theme-mode', 'dark')
+    dom.notifyObservers('theme-mode')
+    const darkVars = brandCssVars(DEFAULT_BRAND, 'dark')
+    assert.equal(dom.cssVar('--td-brand-color-1'), darkVars['--td-brand-color-1'] ?? '')
     assert.equal(dom.cssVar('--td-brand-color'), DEFAULT_BRAND.actionColor)
   } finally {
     dom.restore()
