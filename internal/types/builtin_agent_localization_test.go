@@ -175,13 +175,15 @@ func TestApplyBuiltinAgentLocalizationRewritesPersistedXiaoAiPrompt(t *testing.T
 		IsBuiltin: true,
 		TenantID:  1,
 		Config: CustomAgentConfig{
-			SystemPrompt: "You are XiaoAi, a knowledge-base question-answering assistant developed by Allstar. Help the user.",
+			SystemPrompt: "You are XiaoAi, a knowledge-base question-answering assistant developed by Allstar. " +
+				"Help the user.",
 		},
 	}
 
 	ApplyBuiltinAgentLocalization(context.Background(), agent)
 
-	const wantPrompt = "You are 小爱 (XiaoAi), a knowledge-base question-answering assistant developed by Allstar. Help the user.\n" +
+	const wantPrompt = "You are 小爱 (XiaoAi), a knowledge-base question-answering assistant developed by Allstar. " +
+		"Help the user.\n" +
 		"When replying in Chinese, always call yourself 小爱; never 小艾. When replying in English, use XiaoAi."
 	if agent.Config.SystemPrompt != wantPrompt {
 		t.Fatalf("SystemPrompt = %q, want %q", agent.Config.SystemPrompt, wantPrompt)
@@ -296,11 +298,19 @@ func TestScrubBuiltinAgentBrandWords(t *testing.T) {
 	}{
 		{"英文长短短语与单独品牌", "WeKnora Assistant on WeKnora Cloud, then WeKnora.", "小爱助手 on 小爱云, then 小爱 (XiaoAi)."},
 		{"中文品牌短语", "WeKnora 助手管理 WeKnora 知识库，WeKnora 云服务同步。", "小爱助手管理 小爱知识库，小爱云同步。"},
-		{"小写技术标识不动", "aud=weknora search_weknora_docs .weknora/requirements.json", "aud=weknora search_weknora_docs .weknora/requirements.json"},
+		{
+			"小写技术标识不动",
+			"aud=weknora search_weknora_docs .weknora/requirements.json",
+			"aud=weknora search_weknora_docs .weknora/requirements.json",
+		},
 		{"空串保持空", "", ""},
 		{"不重复替换", "WeKnora Cloud Assistant", "小爱云 Assistant"},
 		// T07：厂商署名替换只作用于完整短语，单独出现的 Tencent 不在改写范围。
-		{"厂商署名", "developed by Tencent stays; developed by Tencent.", "developed internally by Allstar stays; developed internally by Allstar."},
+		{
+			"厂商署名",
+			"developed by Tencent stays; developed by Tencent.",
+			"developed internally by Allstar stays; developed internally by Allstar.",
+		},
 		// F4①：URL 保护只吃 ASCII 可见字符，中文逗号后的品牌词仍要替换。
 		{"URL 在中文逗号处停止", "详见 https://a.com/x，WeKnora 助手会处理", "详见 https://a.com/x，小爱助手会处理"},
 		// F4③：替换后不新增双空格。
@@ -310,7 +320,11 @@ func TestScrubBuiltinAgentBrandWords(t *testing.T) {
 		// T07-fix2：DB 里已被 T03 改成 XiaoAi 的持久化提示词前缀也要映射回小爱。
 		// T07-fix3 L1：真实旧文本是带定冠词的 `You are the XiaoAi Assistant`，必须
 		// 先于 `You are the XiaoAi` 命中，映射为小爱助手而不是半截小爱。
-		{"You are the XiaoAi Assistant 映射", "You are the XiaoAi Assistant. Help.", "You are 小爱助手 (XiaoAi Assistant). Help."},
+		{
+			"You are the XiaoAi Assistant 映射",
+			"You are the XiaoAi Assistant. Help.",
+			"You are 小爱助手 (XiaoAi Assistant). Help.",
+		},
 		{"You are the XiaoAi 映射", "You are the XiaoAi. Help.", "You are the 小爱 (XiaoAi). Help."},
 		// T07-fix3 M1：映射目标不再自带匹配串，二次净化不会套娃。
 		{"XiaoAi Cloud 映射", "Deploy on XiaoAi Cloud.", "Deploy on 小爱云."},

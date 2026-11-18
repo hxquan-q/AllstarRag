@@ -25,8 +25,10 @@ type t07PromptFile struct {
 }
 
 const (
-	t07GenericRule   = "When replying in Chinese, always call yourself 小爱; never 小艾. When replying in English, use XiaoAi."
-	t07AssistantRule = "When replying in Chinese, always call yourself 小爱助手; never 小艾. When replying in English, use XiaoAi Assistant."
+	t07GenericRule = "When replying in Chinese, always call yourself 小爱; never 小艾. " +
+		"When replying in English, use XiaoAi."
+	t07AssistantRule = "When replying in Chinese, always call yourself 小爱助手; never 小艾. " +
+		"When replying in English, use XiaoAi Assistant."
 )
 
 func readT07PromptFile(t *testing.T, name string) (t07PromptFile, string) {

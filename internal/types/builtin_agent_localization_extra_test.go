@@ -23,7 +23,8 @@ func TestApplyBuiltinAgentLocalizationReadSaveReadRoundTrip(t *testing.T) {
 	}
 
 	// 第一次读取：旧持久化提示词（XiaoAi 前缀 + XiaoAi Cloud）被净化并补规则。
-	first := read("You are XiaoAi, a knowledge-base question-answering assistant developed by Allstar. Deploy on XiaoAi Cloud.").Config.SystemPrompt
+	first := read("You are XiaoAi, a knowledge-base question-answering assistant developed by Allstar. " +
+		"Deploy on XiaoAi Cloud.").Config.SystemPrompt
 	if strings.Contains(first, "XiaoAi Cloud") {
 		t.Fatalf("first read left XiaoAi Cloud: %q", first)
 	}

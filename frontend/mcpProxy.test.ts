@@ -82,6 +82,8 @@ for (const mode of ['dev', 'preview'] as const) {
         }
         // 入口 HTML 必须 no-store，避免升级后浏览器复用旧 title/品牌。
         assert.match(await cacheControl('/'), /no-store/)
+        assert.match(await cacheControl('/index.html'), /no-store/)
+        assert.match(await cacheControl('/chat/abc'), /no-store/)
         // 带扩展名的静态资源不能被入口 HTML 的 no-store 规则扩大命中。
         assert.doesNotMatch(await cacheControl('/assets/cache-probe.js'), /no-store/)
         assert.doesNotMatch(await cacheControl('/config.js'), /no-store/)
@@ -97,6 +99,9 @@ for (const mode of ['dev', 'preview'] as const) {
         const body = method === 'POST' ? '{"jsonrpc":"2.0","id":1,"method":"initialize"}' : undefined
         const response = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(5000) })
         assert.equal(response.status, 200)
+        if (method === 'POST') {
+          assert.doesNotMatch(response.headers.get('cache-control') ?? '', /no-store/)
+        }
         assert.equal(response.headers.get('Mcp-Session-Id'), 'test-session')
         assert.deepEqual(await response.json(), {
           method, path: '/mcp/test-endpoint?probe=1', body: body ?? '',
