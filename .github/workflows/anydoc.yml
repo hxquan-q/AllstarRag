@@ -28,7 +28,9 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.26"
+  # The vendored archive's documented baseline is Go 1.26.3 + Rust 1.97.1.
+  # Pinning the patch matters: `1.26` resolves to the latest 1.26.x linker.
+  GO_VERSION: "1.26.3"
   GOPROXY: https://proxy.golang.org,direct
 
 jobs:

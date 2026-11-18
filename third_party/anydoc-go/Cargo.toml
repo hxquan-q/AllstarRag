@@ -33,10 +33,8 @@ anydoc = { path = "patched-anydoc" }
 
 [workspace]
 
-# Fat LTO makes rustc consume the precompiled std bitcode and emit a
-# self-contained staticlib. Thin LTO leaves .llvmbc in the archive, which Go's
-# cgo external linker rejects on Linux; fat LTO is the supported way to get a
-# machine-code-only archive for cgo.
+# Mirrors the anydoc workspace's release profile: without it the archive keeps
+# every debug symbol and roughly doubles in size.
 [profile.release]
-lto = "fat"
+lto = "thin"
 strip = "symbols"
