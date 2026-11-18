@@ -35,8 +35,8 @@ installTDesignIconOfflineGuard();
 
 initTheme();
 initFont();
-// 只登记主题监听并补写已有客户版变量；这里不设置 data-customer，
-// 登录页与登录后的角色判定分别由 T03 / T04 决定。
+// 启动即写入品牌变量（所有角色），保障首帧与角色未判页面（如 onboarding）也跟随品牌色；
+// 这里不设置 data-customer，登录页与登录后的角色判定分别由 T03 / T04 决定。
 initCustomerBrandTheme();
 
 async function bootstrap() {
