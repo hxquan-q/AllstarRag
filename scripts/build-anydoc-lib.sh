@@ -147,7 +147,17 @@ strip_lto_sections() {
     ar x "$archive"
     for obj in *; do
       [ -f "$obj" ] || continue
-      "$tool" --remove-section=.llvmbc "$obj" 2>/dev/null || true
+      # Remove every LLVM metadata section, not only .llvmbc: rustc also
+      # emits .llvmcmd (and sometimes .llvm_addrsig), all rejected by Go's
+      # external linker.
+      if command -v objdump >/dev/null 2>&1; then
+        for section in $(objdump -h "$obj" 2>/dev/null | awk '/[.]llvm/ {print $2}'); do
+          "$tool" --remove-section="$section" "$obj" 2>/dev/null || true
+        done
+      else
+        "$tool" --remove-section=.llvmbc --remove-section=.llvmcmd \
+          --remove-section=.llvm_addrsig "$obj" 2>/dev/null || true
+      fi
     done
     rm -f "$archive"
     ar rcs "$archive" *
