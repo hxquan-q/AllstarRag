@@ -147,6 +147,31 @@ test('removing the customer flag keeps brand vars on the document', () => {
 })
 
 /**
+ * 票级复跑新增（队长 OQ-② 裁定）：外部脚本直接 removeAttribute('data-customer')
+ * 时，observer 只按当前模式重写变量、不清空——旧实现有一个「外部摘标记就清空
+ * 内联变量」的分支，T01 验收条件 2 要求移除该清理行为。
+ */
+test('externally removing data-customer keeps brand vars on the document', () => {
+  const dom = installDomStub()
+  try {
+    initCustomerBrandTheme() // main.ts 同款装载路径（安装属性监听）
+    applyDocumentBrand({ customer: true }) // 先以客户身份写入天蓝
+    assert.equal(dom.cssVar('--brand-main'), DEFAULT_BRAND.primaryColor)
+    assert.equal(dom.documentElement.getAttribute('data-customer'), 'true')
+    // 外部（非 runtime.ts 调用方）直接摘掉客户标记，observer 收到属性变化通知。
+    dom.documentElement.removeAttribute('data-customer')
+    dom.notifyObservers()
+    assert.notEqual(dom.documentElement.getAttribute('data-customer'), 'true')
+    // 口径：变量不被清空，且仍按当前（亮色）模式保持天蓝集。
+    assert.equal(dom.cssVar('--brand-main'), DEFAULT_BRAND.primaryColor)
+    assert.equal(dom.cssVar('--td-brand-color-4'), DEFAULT_BRAND.primaryColor)
+    assert.equal(dom.cssVar('--td-brand-color'), DEFAULT_BRAND.actionColor)
+  } finally {
+    dom.restore()
+  }
+})
+
+/**
  * theme.css 守卫：解析方式照 colors.test.ts 对 brand.css 的既有口径。
  * 期望值用 deriveBrandScale 输出；colors.test.ts 已锁死 brand.css 静态值
  * 与该输出一致，所以这里的 deepEqual 等价于「值与 brand.css 一致」（T01 验收条件 1）。
