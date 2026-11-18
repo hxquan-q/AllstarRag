@@ -17,7 +17,7 @@ import test from 'node:test'
  * 均不相同，且下面用 token 精确比对（非子串），扫描全部 svg 不会误伤。
  */
 
-/** 品牌绿值集合（统一 6 位小写；三位写法 #183 由归一化展开为 #118833 再比对）。 */
+/** 品牌绿值集合（统一 6 位小写；三位写法由归一化展开为 6 位再比对；`&#183;` 实体不再参与）。 */
 const BRAND_GREENS: string[] = [
   // 主题旧绿阶主档：亮 #07c05f（svg 内多为大写 #07C05F）、暗 #06b04d（当前未出现在
   // 任何 svg，防御性收进集合，防②映射时误引入；带 alpha 的 #06b04d20 由去 alpha 归一覆盖）
@@ -25,7 +25,7 @@ const BRAND_GREENS: string[] = [
   '#06b04d',
   // SpaceAvatar 主绿档 to 值，也是 screenshot 系列的标题主色
   '#059669',
-  // screenshot-1..4 的 emerald 色板（深→浅；-2 独有 #064e3b，-1/-4 独有三位写法 #183）
+  // screenshot-1..4 的 emerald 色板（深→浅；-2 独有 #064e3b）
   '#10b981',
   '#34d399',
   '#6ee7b7',
@@ -35,7 +35,6 @@ const BRAND_GREENS: string[] = [
   '#f0fdf4',
   '#065f46',
   '#064e3b',
-  '#118833',
   // upload.svg / upload-mask.svg 插画里的绿系
   '#39cd80',
   '#2cd87e',
@@ -52,11 +51,12 @@ const BRAND_GREENS: string[] = [
 /**
  * 提取文本里的全部 hex 色 token，归一为 6 位小写：
  * 三位写法展开（#183 → #118833）；8 位带 alpha 取前 6 位（#06b04d20 → #06b04d）。
+ * 前面紧跟 `&` 的不算颜色 token（`&#183;` 是 XML 数字字符引用，不是色值）。
  * 用 token 精确比对而非子串 includes，避免 #183 之类的短值误命中 #183abc。
  */
 function hexColorTokens(text: string): Set<string> {
   const tokens = new Set<string>()
-  for (const raw of text.match(/#[0-9a-fA-F]{3,8}\b/g) ?? []) {
+  for (const raw of text.match(/(?<!&)#[0-9a-fA-F]{3,8}\b/g) ?? []) {
     const lower = raw.toLowerCase()
     let base: string
     if (lower.length === 4) {

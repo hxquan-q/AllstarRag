@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { brandCssVars, deriveBrandScale } from './colors.ts'
 import { DEFAULT_BRAND } from './defaults.ts'
-import { applyDocumentBrand, initCustomerBrandTheme } from './runtime.ts'
+import { applyDocumentBrand, initCustomerBrandTheme, resetCustomerBrandThemeForTests } from './runtime.ts'
 
 /**
  * admin-theme-blue T01 的 TDD 红阶段用例：管理端（非 data-customer）主色切品牌天蓝。
@@ -83,6 +83,8 @@ function installDomStub() {
   return {
     documentElement,
     cssVar: (name: string) => styleProps.get(name) ?? '',
+    // 当前桩里处于 observe 状态的 observer 数量：用于断言 init 真的安装了监听。
+    observerCount: () => observers.filter((observer) => observer.observing).length,
     notifyObservers: () => {
       for (const observer of observers) {
         if (observer.observing) observer.callback()
@@ -113,7 +115,10 @@ test('applyDocumentBrand({customer:false}) still writes brand vars for admin rol
 test('brand vars follow the dark set after theme-mode switches to dark', () => {
   const dom = installDomStub()
   try {
+    // 先复位安装标记，保证本用例的 init 一定真正安装 observer（不依赖用例顺序）。
+    resetCustomerBrandThemeForTests()
     initCustomerBrandTheme() // main.ts 同款装载路径（安装属性监听）
+    assert.ok(dom.observerCount() > 0, 'observer 必须真正安装，否则下面的手动通知不构成有效验证')
     applyDocumentBrand({ customer: false })
     // 切换前是亮色集：主档就是配置的主色。
     assert.equal(dom.cssVar('--td-brand-color-4'), DEFAULT_BRAND.primaryColor)
@@ -154,7 +159,10 @@ test('removing the customer flag keeps brand vars on the document', () => {
 test('externally removing data-customer keeps brand vars on the document', () => {
   const dom = installDomStub()
   try {
+    // 复位后安装，确保 observer 真的参与本用例（否则断言恒真、验收条件 2 证据链不成立）。
+    resetCustomerBrandThemeForTests()
     initCustomerBrandTheme() // main.ts 同款装载路径（安装属性监听）
+    assert.ok(dom.observerCount() > 0, 'observer 必须真正安装，否则外部摘标记分支未被验证')
     applyDocumentBrand({ customer: true }) // 先以客户身份写入天蓝
     assert.equal(dom.cssVar('--brand-main'), DEFAULT_BRAND.primaryColor)
     assert.equal(dom.documentElement.getAttribute('data-customer'), 'true')
@@ -215,12 +223,15 @@ test('theme.css light brand scale equals the sky-blue static fallback', () => {
     '--td-brand-color',
     '--td-brand-color-hover',
     '--td-brand-color-active',
+    '--td-brand-color-focus',
   ])
-  // 锚定：派生引用结构保持现状（hover=-3、active=-5、主档 -4），②只许换值不许改结构。
+  // 锚定：--brand-main 仍指向主档 -4（只换值不改结构）；交互色改为与
+  // brand.css / 运行时 brandCssVars 同口径的具体值（AC-1 交互承载 #0284C7）。
   assert.equal(light['--brand-main'], 'var(--td-brand-color-4)')
-  assert.equal(light['--td-brand-color'], 'var(--td-brand-color-4)')
-  assert.equal(light['--td-brand-color-hover'], 'var(--td-brand-color-3)')
-  assert.equal(light['--td-brand-color-active'], 'var(--td-brand-color-5)')
+  assert.equal(light['--td-brand-color'], '#0284C7')
+  assert.equal(light['--td-brand-color-hover'], '#2093ce')
+  assert.equal(light['--td-brand-color-active'], '#0274af')
+  assert.equal(light['--td-brand-color-focus'], 'color-mix(in srgb, #0284C7 20%, transparent)')
   // 红点：色阶与 disabled 全部换为天蓝静态兜底（现状是绿色阶）。
   const expected = deriveBrandScale(DEFAULT_BRAND.primaryColor, 'light')
   for (const name of scaleNames) {
@@ -237,12 +248,14 @@ test('theme.css dark brand scale equals the sky-blue static fallback', () => {
     '--td-brand-color',
     '--td-brand-color-hover',
     '--td-brand-color-active',
+    '--td-brand-color-focus',
   ])
-  // 锚定：暗块派生结构同样不动（主档 -6、hover=-5、active=-7）。
+  // 锚定：暗块 --brand-main 仍指向 -6；交互色同样改为具体值（暗色方向与 brand.css 一致）。
   assert.equal(dark['--brand-main'], 'var(--td-brand-color-6)')
-  assert.equal(dark['--td-brand-color'], 'var(--td-brand-color-6)')
-  assert.equal(dark['--td-brand-color-hover'], 'var(--td-brand-color-5)')
-  assert.equal(dark['--td-brand-color-active'], 'var(--td-brand-color-7)')
+  assert.equal(dark['--td-brand-color'], '#0284C7')
+  assert.equal(dark['--td-brand-color-hover'], '#0277b3')
+  assert.equal(dark['--td-brand-color-active'], '#2093ce')
+  assert.equal(dark['--td-brand-color-focus'], 'color-mix(in srgb, #0284C7 28%, transparent)')
   // 红点：暗色阶与 disabled 换天蓝（现状是绿色阶，-1 档是 #06b04d20 带 alpha）。
   const expected = deriveBrandScale(DEFAULT_BRAND.primaryColor, 'dark')
   for (const name of scaleNames) {

@@ -193,6 +193,15 @@ export function initCustomerBrandTheme(): void {
   })
 }
 
+/**
+ * 仅供单元测试使用：复位 observer 安装标记，让每个用例都能从"未安装"状态开始，
+ * 不依赖用例执行顺序（同一模块实例跨用例只安装一次会让后置用例空转）。
+ * 只复位标记，不断开已安装的 observer；生产代码不要调用。
+ */
+export function resetCustomerBrandThemeForTests(): void {
+  themeObserverInstalled = false
+}
+
 export interface ApplyDocumentBrandOptions {
   /** 是否应用客户版主题：客户版传 true，非客户传 false（缺省按 false 处理） */
   customer?: boolean
