@@ -125,10 +125,11 @@ if [ "$go_version" != "$anydoc_version" ]; then
   exit 1
 fi
 
-# Go's external linker rejects LLVM bitcode sections (.llvmbc) in the cgo
-# static archive. Rust's precompiled std objects carry that section even with
-# lto=false and -C embed-bitcode=no, so strip it from every archive member
-# after the build. The machine code stays; only the LTO bitcode is removed.
+# Go's external linker rejects LLVM metadata sections (.llvmbc/.llvmcmd) in
+# the cgo static archive. Thin LTO leaves them in the objects, so strip every
+# .llvm* section from each archive member after the build. The machine code
+# stays; only the LLVM metadata is removed. LTO itself is kept: Rust's
+# precompiled std internalizes symbols that only LTO resolves.
 strip_lto_sections() {
   local archive="$1"
   local tool
@@ -171,11 +172,6 @@ prepare_patched_anydoc
 # --locked: build exactly the dependency versions in the committed Cargo.lock.
 # That lockfile is what pins the patched pdf-inspector/lopdf, so a silent
 # resolver drift must fail the build rather than ship an unaudited tree.
-#
-# Go's external linker rejects LLVM bitcode sections (.llvmbc) in the cgo
-# static archive. Cargo's lto=false alone is not enough: rustc still embeds
-# bitcode for a staticlib unless embed-bitcode is disabled explicitly.
-export RUSTFLAGS="${RUSTFLAGS:-} -C embed-bitcode=no"
 cargo build --release --locked --manifest-path "$crate_dir/Cargo.toml" --target "$target"
 
 dest="$crate_dir/lib/$lib_dir"
