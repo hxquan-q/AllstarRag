@@ -136,7 +136,10 @@ Keep this list current: it is the diff a future upgrade has to re-apply. Items
    external linker rejects the LTO bitcode section (`.llvmbc`), so the release
    profile must not emit it. `strip = "symbols"` is kept.
    `scripts/build-anydoc-lib.sh` also passes `-C embed-bitcode=no`, because
-   rustc still embeds bitcode for a staticlib even with `lto = false`.
+   rustc still embeds bitcode for a staticlib even with `lto = false`. Rust's
+   precompiled std objects still carry `.llvmbc`, so the script strips that
+   section from every archive member after the build (Go's external linker
+   rejects it).
 2. `anydoc.go` — every ABI call runs inside `call()`, which pins the goroutine
    with `runtime.LockOSThread` for the duration. The ABI reports the error
    message through a thread-local slot that a *second* call

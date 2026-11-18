@@ -125,6 +125,36 @@ if [ "$go_version" != "$anydoc_version" ]; then
   exit 1
 fi
 
+# Go's external linker rejects LLVM bitcode sections (.llvmbc) in the cgo
+# static archive. Rust's precompiled std objects carry that section even with
+# lto=false and -C embed-bitcode=no, so strip it from every archive member
+# after the build. The machine code stays; only the LTO bitcode is removed.
+strip_lto_sections() {
+  local archive="$1"
+  local tool
+  if command -v llvm-objcopy >/dev/null 2>&1; then
+    tool=llvm-objcopy
+  elif command -v objcopy >/dev/null 2>&1; then
+    tool=objcopy
+  else
+    echo "error: objcopy/llvm-objcopy not found; cannot remove .llvmbc from $archive" >&2
+    exit 1
+  fi
+  local work
+  work=$(mktemp -d)
+  (
+    cd "$work"
+    ar x "$archive"
+    for obj in *; do
+      [ -f "$obj" ] || continue
+      "$tool" --remove-section=.llvmbc "$obj" 2>/dev/null || true
+    done
+    rm -f "$archive"
+    ar rcs "$archive" *
+  )
+  rm -rf "$work"
+}
+
 echo "Building anydoc $anydoc_version archive for $target"
 prepare_patched_anydoc
 
@@ -141,6 +171,7 @@ cargo build --release --locked --manifest-path "$crate_dir/Cargo.toml" --target 
 dest="$crate_dir/lib/$lib_dir"
 mkdir -p "$dest"
 cp "$crate_dir/target/$target/release/$lib_name" "$dest/$lib_name"
+strip_lto_sections "$dest/$lib_name"
 
 echo "Wrote $dest/$lib_name"
 echo "Build WeKnora with the archive: go build -tags anydoc ./cmd/server"
