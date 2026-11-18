@@ -535,23 +535,27 @@ type HostApprovalSnapshot struct {
 }
 
 // ToolApprovalRecord is one human approval attached to an agent step.
+// RegisteredToolName is the stable registry name of the tool (for example
+// "run_operation"). Replay keys the card off it, not the display name, because
+// the display name follows the brand configuration.
 type ToolApprovalRecord struct {
-	PendingID      string                `json:"pending_id"`
-	ToolCallID     string                `json:"tool_call_id,omitempty"`
-	Kind           string                `json:"kind,omitempty"`
-	ServiceName    string                `json:"service_name,omitempty"`
-	MCPToolName    string                `json:"mcp_tool_name,omitempty"`
-	Description    string                `json:"description,omitempty"`
-	ArgsJSON       string                `json:"args_json,omitempty"`
-	TimeoutSeconds int                   `json:"timeout_seconds,omitempty"`
-	RequestedAt    int64                 `json:"requested_at,omitempty"`
-	Host           *HostApprovalSnapshot `json:"host,omitempty"`
-	Resolved       bool                  `json:"resolved,omitempty"`
-	Approved       bool                  `json:"approved,omitempty"`
-	Reason         string                `json:"reason,omitempty"`
-	TimedOut       bool                  `json:"timed_out,omitempty"`
-	Canceled       bool                  `json:"canceled,omitempty"`
-	Scope          string                `json:"scope,omitempty"`
+	PendingID          string                `json:"pending_id"`
+	ToolCallID         string                `json:"tool_call_id,omitempty"`
+	Kind               string                `json:"kind,omitempty"`
+	ServiceName        string                `json:"service_name,omitempty"`
+	RegisteredToolName string                `json:"registered_tool_name,omitempty"`
+	MCPToolName        string                `json:"mcp_tool_name,omitempty"`
+	Description        string                `json:"description,omitempty"`
+	ArgsJSON           string                `json:"args_json,omitempty"`
+	TimeoutSeconds     int                   `json:"timeout_seconds,omitempty"`
+	RequestedAt        int64                 `json:"requested_at,omitempty"`
+	Host               *HostApprovalSnapshot `json:"host,omitempty"`
+	Resolved           bool                  `json:"resolved,omitempty"`
+	Approved           bool                  `json:"approved,omitempty"`
+	Reason             string                `json:"reason,omitempty"`
+	TimedOut           bool                  `json:"timed_out,omitempty"`
+	Canceled           bool                  `json:"canceled,omitempty"`
+	Scope              string                `json:"scope,omitempty"`
 }
 
 // GetObservations returns observations from all tool calls in this step

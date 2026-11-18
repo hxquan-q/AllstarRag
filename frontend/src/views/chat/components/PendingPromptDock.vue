@@ -31,6 +31,7 @@
         <div v-for="prompt in prompts" v-show="prompt.pending_id === activeId" :key="prompt.pending_id">
           <ToolApprovalCard v-if="prompt.type === 'tool_approval_required'" :ref="(el) => setCard(prompt, el)"
             variant="dock" v-bind="{ ...timing(prompt), ...authProps }" :service-name="prompt.service_name || ''"
+            :registered-tool-name="prompt.registered_tool_name || ''"
             :mcp-tool-name="prompt.mcp_tool_name || ''" :description="prompt.description"
             :delegated-task="prompt.delegated_task" :args-json="prompt.args_json" :grant-scope="prompt.grant_scope"
             :grant-lapsed="prompt.grant_lapsed" />

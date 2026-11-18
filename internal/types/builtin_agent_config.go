@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 
@@ -127,7 +128,9 @@ func GetBuiltinAgentWithContext(ctx context.Context, id string, tenantID uint64)
 
 // ApplyBuiltinAgentLocalization overlays the locale-specific name, description,
 // and avatar from builtin_agents.yaml onto a persisted built-in agent.
-// Tenant-specific Config and other DB fields are left untouched.
+// Other DB fields are left untouched; the persisted Config.SystemPrompt and
+// Config.ContextTemplate of built-in agents are brand-word scrubbed on the read
+// path. The editor may save the result back, so scrubbing must stay idempotent.
 //
 // Built-in agents are seeded into the database with the locale that was active
 // at first run. ListAgents / GetAgentByID used to return those stored strings
@@ -149,6 +152,91 @@ func ApplyBuiltinAgentLocalization(ctx context.Context, agent *CustomAgent) {
 		agent.Description = localized.Description
 	}
 	agent.Avatar = localized.Avatar
+
+	// 改名前置入数据库的内置 agent 提示词可能仍自称 WeKnora/XiaoAi。读路径
+	// 不写库;但编辑器保存会写回,所以每条替换必须幂等。非内置 agent 走不到
+	// 这里(GetBuiltinAgentWithContext 对它们返回 nil)。
+	agent.Config.SystemPrompt = scrubBuiltinAgentBrandWords(agent.Config.SystemPrompt)
+	// 旧提示词可能没有对应身份规则,补一行;已含同一条 rule 则跳过,保证幂等。
+	// 只补 SystemPrompt,ContextTemplate 保持不变。
+	rule := builtinAgentIdentityRule
+	if agent.ID == BuiltinWeKnoraAssistantID {
+		rule = builtinAssistantIdentityRule
+	}
+	// skill_installer 是内部安装流程提示,按 YAML 口径不补 persona 身份规则;
+	// 品牌词净化照常执行。
+	if agent.ID == BuiltinSkillInstallerID {
+		rule = ""
+	}
+	if p := agent.Config.SystemPrompt; rule != "" && p != "" && !strings.Contains(p, rule) {
+		agent.Config.SystemPrompt = p + "\n" + rule
+	}
+	agent.Config.ContextTemplate = scrubBuiltinAgentBrandWords(agent.Config.ContextTemplate)
+}
+
+// 读路径补写的身份规则。旧提示词里没有「禁止小艾」约束时追加,避免模型
+// 中文回答自称小艾。内置助手(小爱助手)用专用版本。
+const (
+	builtinAgentIdentityRule = "When replying in Chinese, always call yourself 小爱; never 小艾. " +
+		"When replying in English, use XiaoAi."
+	builtinAssistantIdentityRule = "When replying in Chinese, always call yourself 小爱助手; never 小艾. " +
+		"When replying in English, use XiaoAi Assistant."
+)
+
+// builtinAgentBrandReplacements 按顺序执行:先替换较长的品牌短语,最后才换
+// 单独的 "WeKnora",避免 "WeKnora Cloud" 被替换成半截。只匹配品牌词精确
+// 大小写;小写 weknora 技术标识(aud=weknora、工具名、URL)和其它字符不动。
+var builtinAgentBrandReplacements = [][2]string{
+	{"developed by Tencent", "developed internally by Allstar"},
+	{"You are the XiaoAi Assistant", "You are 小爱助手 (XiaoAi Assistant)"},
+	{"You are XiaoAi", "You are 小爱 (XiaoAi)"},
+	{"You are the XiaoAi", "You are the 小爱 (XiaoAi)"},
+	{"XiaoAi Cloud", "小爱云"},
+	{"WeKnora Cloud", "小爱云"},
+	{"WeKnora Assistant", "小爱助手"},
+	{"WeKnora 助手", "小爱助手"},
+	{"WeKnora 云服务", "小爱云"},
+	{"WeKnora 知识库", "小爱知识库"},
+	{"WeKnora", "小爱 (XiaoAi)"},
+}
+
+// scrubBuiltinAgentBrandWords 净化内置 agent 提示词中的品牌词;空串保持空串。
+// URL 与技术标识先换成占位符,品牌词替换完再原样还原——租户改过的提示词里
+// 链接、HTTP 头和云端/存储标识都不能因为品牌改名而被改写。
+func scrubBuiltinAgentBrandWords(s string) string {
+	if s == "" {
+		return s
+	}
+	protected := make([]string, 0, 4)
+	masked := builtinAgentProtectedTokens.ReplaceAllStringFunc(s, func(token string) string {
+		protected = append(protected, token)
+		return builtinAgentTokenPlaceholder(len(protected) - 1)
+	})
+	for _, pair := range builtinAgentBrandReplacements {
+		masked = strings.ReplaceAll(masked, pair[0], pair[1])
+	}
+	for i, token := range protected {
+		masked = strings.ReplaceAll(masked, builtinAgentTokenPlaceholder(i), token)
+	}
+	return masked
+}
+
+// builtinAgentProtectedTokens matches the technical identifiers that must stay
+// byte-for-byte: URLs, X-WeKnora-* headers, WeKnoraCloud* API names,
+// WeKnora_theme / WeKnora_settings storage keys, the embed script name and the
+// lower-case audience parameter. Ordering matters only for the leftmost match.
+var builtinAgentProtectedTokens = regexp.MustCompile(
+	`https?://[\x21-\x7E]+` +
+		`|X-WeKnora-[A-Za-z0-9-]*` +
+		`|WeKnoraCloud[A-Za-z0-9_]*` +
+		`|WeKnora_[A-Za-z0-9_]+` +
+		`|weknora-widget\.js` +
+		`|aud=weknora`)
+
+// builtinAgentTokenPlaceholder builds a sentinel that prompt text cannot
+// contain; the index keeps repeated tokens apart.
+func builtinAgentTokenPlaceholder(index int) string {
+	return fmt.Sprintf("\x00builtin-brand-token-%d\x00", index)
 }
 
 var builtinAgentEntriesTestMu sync.Mutex

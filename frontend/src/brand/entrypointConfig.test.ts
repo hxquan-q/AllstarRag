@@ -43,12 +43,16 @@ test('entrypoint default brand matches the frontend defaults and leaves actionCo
   const parsed = JSON.parse(match![1]!) as Record<string, unknown>
   assert.equal(parsed.productName, DEFAULT_BRAND.productName)
   assert.equal(parsed.primaryColor, DEFAULT_BRAND.primaryColor)
+  // T02：客户顶栏字标默认值必须与前端 defaults 一致（C5/AC-11）。
+  assert.equal(parsed.wordmarkUrl, DEFAULT_BRAND.wordmarkUrl)
   assert.equal(parsed.actionColor, undefined, 'actionColor must stay derived from primaryColor (H3)')
   assert.equal('productLines' in parsed, false, 'entrypoint default brand must not define product lines (C5)')
 })
 
 test('public/config.js keeps the same default brand shape (no hardcoded actionColor)', () => {
   assert.match(publicConfig, /primaryColor: '#0EA5E9'/)
+  // T02：config.js 的 wordmarkUrl 与 defaults/entrypoint 保持同一默认占位图。
+  assert.match(publicConfig, new RegExp(`wordmarkUrl: '${DEFAULT_BRAND.wordmarkUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'`))
   assert.doesNotMatch(publicConfig, /actionColor:/)
   // 产线不再由品牌配置提供（C5），config.js 里不应再有历史产线段。
   assert.doesNotMatch(publicConfig, /productLines/)

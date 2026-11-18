@@ -82,7 +82,7 @@ func (t *ConfirmedTool) Execute(ctx context.Context, args json.RawMessage) (*typ
 	if t.gate == nil || meta == nil || meta.EventBus == nil || (!meta.CanAsk() && !resumed) {
 		return operationFailure(fmt.Sprintf(
 			"%s changes data and needs the user's confirmation, which cannot be shown here. "+
-				"Tell the user what you would do and let them do it in WeKnora.", t.Name())), nil
+				"Tell the user what you would do and let them do it in XiaoAi.", t.Name())), nil
 	}
 
 	waitCtx := ctx

@@ -383,20 +383,25 @@ func toolApprovalDataToMap(v interface{}) map[string]interface{} {
 	return m
 }
 
+// rememberToolApproval keeps the prompt as a JSON record on the step, so a
+// replayed transcript can rebuild the same card. RegisteredToolName must ride
+// along: the display service name follows the brand configuration, so replay
+// keys operation cards off the stable registry name instead.
 func (h *AgentStreamHandler) rememberToolApproval(data event.ToolApprovalRequiredData) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.toolApprovals = append(h.toolApprovals, types.ToolApprovalRecord{
-		PendingID:      data.PendingID,
-		ToolCallID:     data.ToolCallID,
-		Kind:           data.Kind,
-		ServiceName:    data.ServiceName,
-		MCPToolName:    data.MCPToolName,
-		Description:    data.Description,
-		ArgsJSON:       data.ArgsJSON,
-		TimeoutSeconds: data.TimeoutSeconds,
-		RequestedAt:    data.RequestedAtUnix,
-		Host:           hostApprovalSnapshot(data.Host),
+		PendingID:          data.PendingID,
+		ToolCallID:         data.ToolCallID,
+		Kind:               data.Kind,
+		ServiceName:        data.ServiceName,
+		RegisteredToolName: data.RegisteredToolName,
+		MCPToolName:        data.MCPToolName,
+		Description:        data.Description,
+		ArgsJSON:           data.ArgsJSON,
+		TimeoutSeconds:     data.TimeoutSeconds,
+		RequestedAt:        data.RequestedAtUnix,
+		Host:               hostApprovalSnapshot(data.Host),
 	})
 }
 

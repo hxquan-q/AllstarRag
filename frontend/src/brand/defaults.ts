@@ -11,6 +11,7 @@ export const DEFAULT_BRAND: BrandConfig = {
   logoUrl: '/brand/allstar-logo.png',
   logoWidth: 150,
   faviconUrl: '/favicon.ico',
+  wordmarkUrl: '/brand/xiaoi-wordmark.png',
   primaryColor: '#0EA5E9',
   // 运行时通常不配置 actionColor，由 primaryColor 派生；这个值就是默认主色的派生结果。
   // 配置里显式写了 actionColor 才覆盖（H3）。

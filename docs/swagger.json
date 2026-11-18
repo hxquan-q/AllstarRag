@@ -23682,7 +23682,7 @@
                         "Bearer": []
                     }
                 ],
-                "description": "工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；\n不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
+                "description": "工作区 Owner 可重置 admin/viewer 的密码，普通管理员只能重置 viewer 的密码；\n不能重置与自己同级或更高级的成员，也不能重置本人。\n目标若持有全局特权（系统管理员/跨空间访问），空间级接口一律拒绝。\n只能重置本空间 active 成员：已挂起（suspended）或待接受（invited）的目标一律 403。\n成功后旧密码立即失效，该用户所有已签发 token 被吊销。",
                 "consumes": [
                     "application/json"
                 ],
@@ -36878,6 +36878,9 @@
                     "type": "string"
                 },
                 "reason": {
+                    "type": "string"
+                },
+                "registered_tool_name": {
                     "type": "string"
                 },
                 "requested_at": {

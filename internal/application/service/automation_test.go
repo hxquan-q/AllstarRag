@@ -341,7 +341,7 @@ func TestAutomationPausesWhenAssistantUnavailable(t *testing.T) {
 	require.NoError(t, err)
 	run := f.settleRun(t, queued.ID)
 	require.Equal(t, types.AutomationRunFailed, run.Status)
-	require.Contains(t, run.Error, "WeKnora assistant is unavailable")
+	require.Contains(t, run.Error, "XiaoAi assistant is unavailable")
 	require.False(t, f.reload(t, a.ID).Enabled)
 	require.Empty(t, f.sessions.calls)
 }

@@ -122,6 +122,7 @@
               <!-- MCP tool human approval (issue #1173) -->
               <div v-else-if="event.type === 'tool_approval_required' && showInlineToolApproval(event)" class="tool-event">
                 <ToolApprovalCard :pending-id="event.pending_id" :delegated-task="event.delegated_task" :service-name="event.service_name || ''"
+                  :registered-tool-name="event.registered_tool_name || ''"
                   :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description"
                   :args-json="event.args_json" :grant-scope="event.grant_scope" :grant-lapsed="event.grant_lapsed" :timeout-seconds="event.timeout_seconds"
                   :requested-at="event.requested_at" :resolved="event.resolved" :approved="event.approved" :canceled="event.canceled"
@@ -160,6 +161,7 @@
 
               <div v-else-if="showInlineToolApproval(event)" class="tool-event">
                 <ToolApprovalCard :pending-id="event.pending_id" :service-name="event.service_name || ''"
+                  :registered-tool-name="event.registered_tool_name || ''"
                   :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description"
                   :args-json="event.args_json" :timeout-seconds="event.timeout_seconds"
                   :requested-at="event.requested_at" :resolved="event.resolved" :approved="event.approved"
@@ -417,6 +419,7 @@
             <!-- MCP tool human approval -->
             <div v-else-if="event.type === 'tool_approval_required' && showInlineToolApproval(event)" class="tool-event">
               <ToolApprovalCard :pending-id="event.pending_id" :delegated-task="event.delegated_task" :service-name="event.service_name || ''"
+                :registered-tool-name="event.registered_tool_name || ''"
                 :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description" :args-json="event.args_json"
                 :grant-scope="event.grant_scope" :grant-lapsed="event.grant_lapsed" :timeout-seconds="event.timeout_seconds" :requested-at="event.requested_at" :resolved="event.resolved"
                 :approved="event.approved" :canceled="event.canceled" :resolve-reason="event.resolve_reason" :suspendable="event.suspendable"
@@ -453,6 +456,7 @@
 
             <div v-else-if="showInlineToolApproval(event)" class="tool-event">
               <ToolApprovalCard :pending-id="event.pending_id" :service-name="event.service_name || ''"
+                :registered-tool-name="event.registered_tool_name || ''"
                 :mcp-tool-name="event.mcp_tool_name || ''" :description="event.description"
                 :args-json="event.args_json" :timeout-seconds="event.timeout_seconds"
                 :requested-at="event.requested_at" :resolved="event.resolved" :approved="event.approved"

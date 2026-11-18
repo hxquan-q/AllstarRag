@@ -2,25 +2,27 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import test from 'node:test'
+import { isOperationApproval } from './toolApproval'
 
 const source = readFileSync(new URL('./ToolApprovalCard.vue', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('./agent-interaction-card.less', import.meta.url), 'utf8')
 const descriptionCode = source.slice(
   source.indexOf('const descriptionParts ='), source.indexOf('const isJsonValid ='),
 ).replace(/^interface .*$/m, '').replace(/ as \w+\[\]/g, '')
-const evaluate = (description, serviceName = 'docs-mcp', delegatedTask = '') => runInNewContext(
+const evaluate = (description, registeredToolName = '', delegatedTask = '') => runInNewContext(
   descriptionCode + '\n;({ descriptionParts, question, compactDescription, hasLongDescription, argumentSummary })',
   {
-    props: { description, serviceName, delegatedTask },
+    props: { description, registeredToolName, delegatedTask },
     argsText: { value: '{"period":2,"limit":3}' },
     computed: fn => ({ value: fn() }),
-    isOperation: { value: serviceName === 'WeKnora' },
-    targetLabel: { value: serviceName + ' › tool' },
+    // F8：用真实判别函数，不再复制 registeredToolName === 'run_operation' 的桩。
+    isOperation: { value: isOperationApproval(registeredToolName) },
+    targetLabel: { value: 'docs-mcp › tool' },
     t: (key, params) => key.split('.').pop() + ' ' + JSON.stringify(params),
   },
 )
-const parse = (description, serviceName) =>
-  JSON.parse(JSON.stringify(evaluate(description, serviceName).descriptionParts.value))
+const parse = (description, registeredToolName) =>
+  JSON.parse(JSON.stringify(evaluate(description, registeredToolName).descriptionParts.value))
 
 test('batch approval retains every title in the separate item list', () => {
   const titles = Array.from({ length: 20 }, (_, i) => `Document ${i + 1}`)
@@ -64,7 +66,7 @@ test('setting lines render as labeled fields and the title stays the headline', 
   assert.match(styles, /\.prompt-fields \{/)
 })
 
-test('a WeKnora operation asks with its summary and target, and counts move out of labels', () => {
+test('a run_operation approval asks with its summary and target, and counts move out of labels', () => {
   const description = [
     '创建MCP服务',
     '汇率查询 MCP',
@@ -72,7 +74,7 @@ test('a WeKnora operation asks with its summary and target, and counts move out 
     'URL: https://example.com/mcp',
     'Usage instructions (92 characters): 查询汇率',
   ].join('\n')
-  const { descriptionParts, question } = evaluate(description, 'WeKnora')
+  const { descriptionParts, question } = evaluate(description, 'run_operation')
   assert.deepEqual(JSON.parse(JSON.stringify(descriptionParts.value)), {
     head: 'This replaces the stored credentials.',
     fields: [
@@ -88,7 +90,7 @@ test('a WeKnora operation asks with its summary and target, and counts move out 
 })
 
 test('a warning right after the summary is not mistaken for the target', () => {
-  const { descriptionParts, question } = evaluate('Update MCP service\nThis drops existing tools.', 'WeKnora')
+  const { descriptionParts, question } = evaluate('Update MCP service\nThis drops existing tools.', 'run_operation')
   assert.equal(descriptionParts.value.target, '')
   assert.equal(descriptionParts.value.head, 'This drops existing tools.')
   assert.equal(question.value, 'operationQuestionNoTarget {"action":"Update MCP service"}')

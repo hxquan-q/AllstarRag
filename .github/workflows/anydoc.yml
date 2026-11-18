@@ -28,7 +28,9 @@ permissions:
   contents: read
 
 env:
-  GO_VERSION: "1.26"
+  # The vendored archive's documented baseline is Go 1.26.3 + Rust 1.97.1.
+  # Pinning the patch matters: `1.26` resolves to the latest 1.26.x linker.
+  GO_VERSION: "1.26.3"
   GOPROXY: https://proxy.golang.org,direct
 
 jobs:
@@ -44,7 +46,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
 
-      - uses: dtolnay/rust-toolchain@stable
+      # Pin the toolchain the vendored archive was tested with. Stable drift
+      # produces a thin-LTO staticlib whose .llvm* sections and internalized
+      # symbols Go's cgo external linker cannot consume.
+      - uses: dtolnay/rust-toolchain@1.97.1
 
       - name: Cache cargo-audit
         id: cargo-audit-cache

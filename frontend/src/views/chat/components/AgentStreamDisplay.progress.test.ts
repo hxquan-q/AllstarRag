@@ -19,7 +19,7 @@ test('delegated work keeps progress and approvals in one chronological stream an
   const stream = ref<any[]>([
     { type: 'thinking', event_id: 'r1', content: 'Check agents' },
     { type: 'progress', event_id: 'p1', content: '两个智能体已经并行开工了。' },
-    { type: 'tool_approval_required', pending_id: 'approval', resolved: false },
+    { type: 'tool_approval_required', pending_id: 'approval', registered_tool_name: 'run_operation', resolved: false },
   ])
   const code = ts.transpileModule(`${collapse}\n${display}\n({ shouldShowCollapsedSteps, displayEvents })`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },

@@ -56,7 +56,7 @@ const awaitingRow = () => ({
   pending_prompt: {
     id: 'p1', kind: 'tool_approval', tool_call_id: 'call-1', created_at: '2026-10-13T08:00:00Z',
     expires_at: '2026-10-20T08:00:00Z',
-    request: { service_name: 'svc', mcp_tool_name: 'delete', args: { id: 7 } },
+    request: { service_name: 'svc', mcp_tool_name: 'delete', registered_tool_name: 'run_operation', args: { id: 7 } },
   },
 })
 
@@ -83,7 +83,7 @@ test('a live run that suspends parks its card and ends without completion', () =
   handler.processStreamChunk({ response_type: 'agent_query', id: 'r1', assistant_message_id: 'a1' })
   handler.processStreamChunk({
     response_type: 'tool_approval_required', id: 'r1',
-    data: { pending_id: 'p1', tool_call_id: 'call-1', suspendable: true, hot_wait_seconds: 120 },
+    data: { pending_id: 'p1', tool_call_id: 'call-1', registered_tool_name: 'run_operation', suspendable: true, hot_wait_seconds: 120 },
   })
   handler.processStreamChunk({
     response_type: 'run_suspended', id: 'r1', data: { pending_id: 'p1', expires_at: '2026-10-20T08:00:00Z' },

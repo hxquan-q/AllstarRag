@@ -103,6 +103,7 @@ import { resumeSuspendedRunKey } from '@/utils/suspendedRun'
 import { usePromptCountdown } from '@/composables/usePromptCountdown'
 import { markPromptSubmitted, promptSubmission, usePromptDock } from '@/composables/usePromptDock'
 import { isSubmitKey } from '@/utils/promptKeys'
+import { isOperationApproval } from './toolApproval'
 
 const props = defineProps<{
   pendingId: string
@@ -110,6 +111,8 @@ const props = defineProps<{
   // dock: the approval form, shown above the composer. inline: the timeline row.
   variant?: 'dock' | 'inline'
   serviceName: string
+  // 后端注册工具名，用于稳定判别是否为内置操作（run_operation）。
+  registeredToolName?: string
   mcpToolName: string
   description?: string
   argsJson?: string
@@ -182,8 +185,8 @@ const awaitingInDock = computed(() => open.value && props.variant !== 'dock' && 
 
 const hasArgs = computed(() => argsText.value.trim().length > 0)
 
-// The service name the backend gives its own operations (run_operation).
-const isOperation = computed(() => props.serviceName === 'WeKnora')
+// 后端内置操作（run_operation）用注册工具名判别，显示名改名不影响行为。
+const isOperation = computed(() => isOperationApproval(props.registeredToolName))
 
 // A batch operation ends its description with one "- " line per item it acts
 // on; those render as a list so every item stays visible. "Label: value"
@@ -215,7 +218,7 @@ const descriptionParts = computed(() => {
       ? { label: counted[1], value: match[2], count: counted[2] }
       : { label: match[1], value: match[2] })
   }
-  // A WeKnora operation's description opens with its summary, then the label
+  // An operation's description opens with its summary, then the label
   // of what it acts on; they make the question instead of the raw operation id.
   let action = ''
   let target = ''

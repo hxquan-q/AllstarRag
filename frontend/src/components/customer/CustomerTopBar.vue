@@ -27,8 +27,8 @@
                     fill="currentColor" stroke="currentColor" stroke-width="0.3" />
             </svg>
             <!-- 产品名改用字标图片（保留左侧小图标，白底用 multiply 融入白色顶栏） -->
-            <span class="customer-topbar__wordmark" role="img" aria-label="小爱知识库">
-                <img src="/brand/xiaoi-wordmark.png" alt="小爱知识库" />
+            <span class="customer-topbar__wordmark" role="img" :aria-label="brandConfig.productName">
+                <img :src="wordmarkSrc" :alt="brandConfig.productName" @error="onWordmarkError" />
             </span>
         </span>
 
@@ -42,8 +42,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { brandConfig, DEFAULT_BRAND } from '@/brand'
 import { useUIStore } from '@/stores/ui'
 import { useResponsiveLayout } from '@/composables/useResponsiveLayout'
 
@@ -60,6 +61,12 @@ const uiStore = useUIStore()
 const { isMobileLayout } = useResponsiveLayout()
 
 const titleText = computed(() => props.title.trim())
+
+// 字标加载失败时回落到内置默认图；设成同一个 src 时 Vue 不会重新加载，不会死循环。
+const wordmarkSrc = ref(brandConfig.wordmarkUrl)
+function onWordmarkError() {
+    wordmarkSrc.value = DEFAULT_BRAND.wordmarkUrl
+}
 
 // 客户版刷新后默认展开会话列表（AC-29）。
 // persist:false 只改内存态，不写共享的 sidebar_collapsed，管理员偏好保持不变（C6 / M4）。

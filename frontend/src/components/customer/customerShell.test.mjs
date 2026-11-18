@@ -168,11 +168,43 @@ test('customer shell swaps in CustomerTopBar on both new-chat and history chat p
   assert.match(chatView, /<div v-else-if="!embeddedMode" class="chat-topbar">\s*<ChatHeader :session="currentSession" \/>/)
   // 产品名改用字标图片，左侧小图标保留（用户反馈：不要去掉小图标）。
   assert.match(topBar, /customer-topbar__product-icon/)
-  assert.match(topBar, /brand\/xiaoi-wordmark\.png/)
-  assert.doesNotMatch(topBar, /brandConfig\.productName/)
+  // T07/F2：字标经本地 ref 渲染并带加载失败回落；初始值来自运行时品牌配置（C5/AC-11）。
+  // 初始值与回落行为由下方执行型用例覆盖，这里只钉模板接线。
+  assert.match(topBar, /<img :src="wordmarkSrc" :alt="brandConfig\.productName" @error="onWordmarkError" \/>/)
+  assert.doesNotMatch(topBar, /:src="brandConfig\.wordmarkUrl"/)
+  assert.match(topBar, /:alt="brandConfig\.productName"/)
+  assert.match(topBar, /:aria-label="brandConfig\.productName"/)
+  assert.doesNotMatch(topBar, /["']\/brand\/xiaoi-wordmark\.png["']/)
   for (const forbidden of ['WeKnora', 'weknora']) {
     assert.equal(topBar.includes(forbidden), false)
   }
+})
+
+test('wordmark error always falls back to the default image (F2 / L6)', () => {
+  // 从源码结构里取出 ref 与回落函数（不按注释文字切片），断言真实行为。
+  // L6：onWordmarkError 总是把 wordmarkSrc 回落 DEFAULT_BRAND.wordmarkUrl；
+  // 同 src 时 Vue 不会重新加载，因此不需要「一次性」标志位。
+  const block = /const wordmarkSrc = ref\(brandConfig\.wordmarkUrl\)\s*\nfunction onWordmarkError\(\) \{[\s\S]*?\n\}/.exec(topBar)
+  assert.ok(block, 'wordmarkSrc / onWordmarkError block not found')
+  const runtime = new Function(
+    'brandConfig',
+    'DEFAULT_BRAND',
+    'ref',
+    `${block[0]}\nreturn { wordmarkSrc, onWordmarkError }`,
+  )(
+    { wordmarkUrl: '/brand/custom-wordmark.png' },
+    { wordmarkUrl: '/brand/xiaoi-wordmark.png' },
+    value => ({ value }),
+  )
+
+  assert.equal(runtime.wordmarkSrc.value, '/brand/custom-wordmark.png')
+  runtime.onWordmarkError()
+  assert.equal(runtime.wordmarkSrc.value, '/brand/xiaoi-wordmark.png')
+
+  // 若某次尝试又换到坏图，再次 error 仍回落默认图（不再有一次性判断）。
+  runtime.wordmarkSrc.value = '/brand/next-attempt.png'
+  runtime.onWordmarkError()
+  assert.equal(runtime.wordmarkSrc.value, '/brand/xiaoi-wordmark.png')
 })
 
 test('logo sizing: sidebar fixed 108px for both roles, login uses runtime logoWidth, no dark invert filter', () => {
