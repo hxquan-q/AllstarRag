@@ -734,7 +734,26 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	must(container.Provide(handler.NewKnowledgeBaseHandler))
 	must(container.Provide(handler.NewGraphSearchHandler))
-	must(container.Provide(handler.NewKnowledgeHandler))
+	// T04 生产装配：重试限次闸经 wrapper 注入（UI/测试接线见 wireReparseQuotaGate）。
+	must(container.Provide(func(
+		cfg *config.Config,
+		kgService interfaces.KnowledgeService,
+		kbService interfaces.KnowledgeBaseService,
+		kbShareService interfaces.KBShareService,
+		agentShareService interfaces.AgentShareService,
+		chunkService interfaces.ChunkService,
+		systemSettingSvc interfaces.SystemSettingService,
+		userSvc interfaces.UserService,
+		asynqClient interfaces.TaskEnqueuer,
+		spanRepo repository.KnowledgeSpanRepository,
+		housekeeping *service.HousekeepingService,
+		db *gorm.DB,
+	) *handler.KnowledgeHandler {
+		return handler.NewKnowledgeHandler(
+			cfg, kgService, kbService, kbShareService, agentShareService,
+			chunkService, systemSettingSvc, userSvc, asynqClient, spanRepo, housekeeping,
+		).WithReparseQuota(service.NewReparseQuotaGate(db))
+	}))
 	must(container.Provide(handler.NewChunkHandler))
 	must(container.Provide(handler.NewFAQHandler))
 	must(container.Provide(handler.NewTagHandler))

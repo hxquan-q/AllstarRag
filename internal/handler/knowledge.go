@@ -120,6 +120,12 @@ func NewKnowledgeHandler(
 	}
 }
 
+// WithReparseQuota 注入 T04 重试限次闸（生产装配见 container.go wrapper；测试接线见 wireReparseQuotaGate）。
+func (h *KnowledgeHandler) WithReparseQuota(gate *service.ReparseQuotaGate) *KnowledgeHandler {
+	h.reparseQuota = gate
+	return h
+}
+
 // requireKBOwnershipOrAdmin enforces the same "KB creator OR Admin+" matrix
 // used by OwnedKBOrAdmin for routes whose KB id comes from the request body.
 func (h *KnowledgeHandler) requireKBOwnershipOrAdmin(c *gin.Context, kbID string) error {
