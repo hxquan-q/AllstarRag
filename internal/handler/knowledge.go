@@ -41,6 +41,9 @@ type KnowledgeHandler struct {
 	asynqClient       interfaces.TaskEnqueuer
 	spanRepo          repository.KnowledgeSpanRepository
 	backlog           backlogProbe
+	// reparseQuota 是 T04 失败文档重试限次闸；nil 表示未接线（既有单测
+	// 直构 handler 的用例），此时两入口不限次，行为与 T04 之前一致。
+	reparseQuota *service.ReparseQuotaGate
 }
 
 // backlogProbe tells a backlogged document (work still queued) from a stuck
@@ -2536,15 +2539,19 @@ type ReparseKnowledgeRequest struct {
 // ReparseKnowledge godoc
 // @Summary      重新解析知识
 // @Description  删除知识中现有的文档内容并重新解析，使用异步任务方式处理
+// @Description  24h 内每文档重试 ≤3 次（系统管理员豁免），超限返回 429：
+// @Description  error.code=1006，details.error_code=RETRY_LIMIT_EXHAUSTED，
+// @Description  details.recover_at 为额度恢复时间（RFC3339）。
 // @Tags         知识管理
 // @Accept       json
 // @Produce      json
 // @Param        id    path  string                   true   "知识ID"  extensions(x-agent=knowledge_id)
 // @Param        body  body  ReparseKnowledgeRequest  false  "可选；不传则沿用上传时的处理配置"
-// @Success      200  {object}  handler.DataMessageResponse{data=types.Knowledge}  "重新解析任务已提交"
-// @Failure      400  {object}  errors.AppError  "请求参数错误"
-// @Failure      403  {object}  errors.AppError  "权限不足"
-// @Failure      404  {object}  errors.AppError  "知识不存在"
+// @Success      200   {object}  handler.DataMessageResponse{data=types.Knowledge}  "重新解析任务已提交"
+// @Failure      400   {object}  errors.AppError  "请求参数错误"
+// @Failure      403   {object}  errors.AppError  "权限不足"
+// @Failure      404   {object}  errors.AppError  "知识不存在"
+// @Failure      429   {object}  errors.AppError  "重试限次耗尽（24h≤3次，系统管理员豁免）"
 // @Security     Bearer
 // @Security     ApiKeyAuth
 // @x-agent      {"id":"knowledge.reparse","risk":"write","target":"knowledge.get","label":"title"}
@@ -2566,6 +2573,19 @@ func (h *KnowledgeHandler) ReparseKnowledge(c *gin.Context) {
 	if err != nil {
 		c.Error(err)
 		return
+	}
+
+	// T04 每文档 24h ≤3 次重试限次（系统管理员豁免）。拒绝发生在服务调用
+	// 之前：不产生任务、不写 reparse_started 审计行，计数不被拒绝污染；
+	// 放行时锁覆盖到服务提交（审计行写入）完成后才释放。
+	if h.reparseQuota != nil {
+		tenantID, _ := types.TenantIDFromContext(effCtx)
+		release, quotaErr := h.reparseQuota.Acquire(effCtx, tenantID, id)
+		if quotaErr != nil {
+			c.Error(quotaErr)
+			return
+		}
+		defer release()
 	}
 
 	// Optional per-reparse parse config override. Empty body keeps the
@@ -3330,11 +3350,14 @@ type batchReparseKnowledgeRequest struct {
 // BatchReparseKnowledge godoc
 // @Summary      批量重新解析知识
 // @Description  按 ID 列表批量重新解析单个知识库下的多个知识条目
+// @Description  enqueue 前逐文档预检 24h 重试额度（≤3 次，系统管理员豁免）：
+// @Description  超限文档不入队，data.skipped 逐条点名（knowledge_id/reason/
+// @Description  recover_at）；全超限时 reparse_count=0、不产生任务。
 // @Tags         知识管理
 // @Accept       json
 // @Produce      json
 // @Param        request  body      batchReparseKnowledgeRequest  true  "批量重解析请求"
-// @Success      200      {object}  handler.SubmittedTaskResponse  "任务已提交"
+// @Success      200      {object}  handler.BatchReparseSubmittedResponse  "任务已提交；被限次剔除的文档在 data.skipped 点名"
 // @Failure      400      {object}  errors.AppError               "请求参数错误"
 // @Failure      403      {object}  errors.AppError               "权限不足"
 // @Security     Bearer
@@ -3414,23 +3437,49 @@ func (h *KnowledgeHandler) BatchReparseKnowledge(c *gin.Context) {
 		}
 	}
 
-	taskID, err := h.enqueueKnowledgeListReparse(ctx, effectiveTenantID, kbID, ids, req.ProcessConfig)
+	// T04: enqueue 前逐文档预检 24h 重试额度（系统管理员豁免），超限文档从
+	// 任务列表剔除并在响应 skipped 里点名；全超限=空列表，回报明确信息而
+	// 非 500，且不产生任何任务。
+	allowedIDs, skipped := ids, []service.ReparseQuotaSkip(nil)
+	if h.reparseQuota != nil {
+		allowedIDs, skipped, err = h.reparseQuota.FilterBatch(ctx, effectiveTenantID, ids)
+		if err != nil {
+			logger.Errorf(ctx, "reparse quota precheck failed, kb_id: %s, err: %v",
+				secutils.SanitizeForLog(kbID), err)
+			c.Error(errors.NewInternalServerError("failed to check reparse retry quota"))
+			return
+		}
+	}
+	if len(allowedIDs) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"success": true,
+			"message": "Batch reparse skipped: all documents exceeded the retry limit",
+			"data":    gin.H{"reparse_count": 0, "skipped": skipped},
+		})
+		return
+	}
+
+	taskID, err := h.enqueueKnowledgeListReparse(ctx, effectiveTenantID, kbID, allowedIDs, req.ProcessConfig)
 	if err != nil {
 		logger.Errorf(ctx, "Failed to enqueue batch knowledge reparse task: %v", err)
 		c.Error(errors.NewInternalServerError("Failed to enqueue batch reparse task"))
 		return
 	}
 
-	logger.Infof(ctx, "Batch knowledge reparse task enqueued: %s, kb_id: %s, count: %d",
-		taskID, secutils.SanitizeForLog(kbID), len(ids))
+	logger.Infof(ctx, "Batch knowledge reparse task enqueued: %s, kb_id: %s, count: %d, quota skipped: %d",
+		taskID, secutils.SanitizeForLog(kbID), len(allowedIDs), len(skipped))
 
+	data := gin.H{
+		"task_id":       taskID,
+		"reparse_count": len(allowedIDs),
+	}
+	if len(skipped) > 0 {
+		data["skipped"] = skipped
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "Batch reparse task submitted",
-		"data": gin.H{
-			"task_id":       taskID,
-			"reparse_count": len(ids),
-		},
+		"data":    data,
 	})
 }
 

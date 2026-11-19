@@ -45,6 +45,19 @@ type AuditLogRepository interface {
 		requestPath string,
 		since time.Time,
 	) (int64, error)
+	// CountRecentByAction counts rows for one document-scoped action in the
+	// trailing window and returns the earliest matching created_at (zero when
+	// none). It is the reparse retry-quota primitive (T04): filter is
+	// (tenant_id, action, target_type, target_id, created_at > since) — the
+	// document ID lives in target_id, scope_id holds the knowledge base ID.
+	CountRecentByAction(
+		ctx context.Context,
+		tenantID uint64,
+		action types.AuditAction,
+		targetType string,
+		targetID string,
+		since time.Time,
+	) (int64, time.Time, error)
 	// DeleteOlderThan removes audit rows whose created_at is strictly
 	// before cutoff and returns the affected row count. It is the
 	// retention primitive driven by the daily background sweep.

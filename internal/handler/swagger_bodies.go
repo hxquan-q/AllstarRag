@@ -273,6 +273,33 @@ type SubmittedTaskResponse struct {
 	Data    SubmittedTaskData `json:"data"`
 }
 
+// BatchReparseSkipped is one document a batch reparse dropped at enqueue-time
+// precheck because its 24h retry budget was exhausted (T04). Reason is the
+// machine-readable code RETRY_LIMIT_EXHAUSTED; RecoverAt is RFC3339 — the
+// earliest counted retry plus 24h, when the budget starts recovering.
+type BatchReparseSkipped struct {
+	KnowledgeID string `json:"knowledge_id" example:"doc-1"`
+	Reason      string `json:"reason" example:"RETRY_LIMIT_EXHAUSTED"`
+	RecoverAt   string `json:"recover_at,omitempty" example:"2026-11-20T09:00:00+08:00"`
+}
+
+// BatchReparseTaskData is the data object of POST /knowledge/batch-reparse:
+// the enqueued task, how many documents actually entered it, and the
+// documents the retry quota rejected (skipped is present only when any were
+// dropped; an all-rejected batch returns reparse_count=0 and no task_id).
+type BatchReparseTaskData struct {
+	TaskID       string                `json:"task_id,omitempty"`
+	ReparseCount int                   `json:"reparse_count" extensions:"x-agent"`
+	Skipped      []BatchReparseSkipped `json:"skipped,omitempty"`
+}
+
+// BatchReparseSubmittedResponse is the batch-reparse success envelope.
+type BatchReparseSubmittedResponse struct {
+	Success bool                 `json:"success" example:"true"`
+	Message string               `json:"message"`
+	Data    BatchReparseTaskData `json:"data"`
+}
+
 // TaskIDData is a task id payload.
 type TaskIDData struct {
 	TaskID string `json:"task_id" extensions:"x-agent"`

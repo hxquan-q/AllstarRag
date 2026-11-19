@@ -34,6 +34,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/middleware"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -262,10 +263,10 @@ func newReparseQuotaEnv(t *testing.T, systemAdmin bool, docIDs ...string) *repar
 // wireReparseQuotaGate 是②实现落地后的复跑接线点：把限次闸（reparse_quota
 // 的判定依赖，计数源=本库 audit_logs）接到 handler。红阶段现状无闸，保持
 // 空实现——红组用例必须如实落红，不在此预埋任何判定。
+// ②落地后：一行接入（断言零改动），见下方赋值。
 func wireReparseQuotaGate(t *testing.T, h *KnowledgeHandler, db *gorm.DB) {
 	t.Helper()
-	_ = h
-	_ = db
+	h.reparseQuota = service.NewReparseQuotaGate(db)
 }
 
 func (e *reparseQuotaEnv) post(t *testing.T, path, body string) *httptest.ResponseRecorder {

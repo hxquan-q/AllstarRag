@@ -164,6 +164,48 @@ func (r *auditLogRepository) CountSinceForDedup(
 	return count, err
 }
 
+// CountRecentByAction counts audit rows for one document-scoped action inside
+// the trailing window and returns the earliest matching created_at (zero when
+// the count is 0). It powers the reparse retry quota (T04): the count decides
+// allow/reject, the earliest row becomes the recover_at hint (earliest + 24h).
+//
+// Filter is (tenant_id, action, target_type, target_id, created_at > since) —
+// per the T04 write-point audit the document ID lives in target_id (scope_id
+// holds the knowledge base ID, scope_type is a hardcoded knowledge_base).
+// The (tenant_id, action) composite index covers the leading columns; the
+// rest is residual filtering, no new index needed. The earliest row is a
+// second, reject-path-only query so the happy path stays one indexed COUNT.
+func (r *auditLogRepository) CountRecentByAction(
+	ctx context.Context,
+	tenantID uint64,
+	action types.AuditAction,
+	targetType string,
+	targetID string,
+	since time.Time,
+) (int64, time.Time, error) {
+	scope := func() *gorm.DB {
+		return r.db.WithContext(ctx).
+			Model(&types.AuditLog{}).
+			Where("tenant_id = ?", tenantID).
+			Where("action = ?", action).
+			Where("target_type = ?", targetType).
+			Where("target_id = ?", targetID).
+			Where("created_at > ?", since)
+	}
+	var count int64
+	if err := scope().Count(&count).Error; err != nil {
+		return 0, time.Time{}, err
+	}
+	if count == 0 {
+		return 0, time.Time{}, nil
+	}
+	var earliest types.AuditLog
+	if err := scope().Order("created_at ASC").Limit(1).Find(&earliest).Error; err != nil {
+		return count, time.Time{}, err
+	}
+	return count, earliest.CreatedAt, nil
+}
+
 // DeleteOlderThan purges rows strictly older than cutoff in a single
 // DELETE. The retention sweep (driven by the audit log service) calls
 // it once a day with cutoff = now - retention_days.
