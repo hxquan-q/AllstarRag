@@ -11,7 +11,7 @@ import (
 )
 
 // T02 票级验证：include_scoped 参数到 AuditLogQuery 的翻译口径。
-// 旧口径 = UnscopedOnly=true（仅成员治理行，scope_type=''）；
+// 旧口径 = UnscopedOnly=true（仅成员治理行，即 scope_type 为空串的行）；
 // include_scoped=true 把它放开为 false，知识库行为行随成员治理行一并返回。
 // handler 层只验翻译与透传（stub 服务）；KB 行真正进入返回由 repository 层
 // 用例实证（audit_log_scope_test.go）。
