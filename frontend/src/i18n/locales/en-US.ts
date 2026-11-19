@@ -1426,6 +1426,8 @@ export default {
       DOCREADER_PARSE_FAILED_SUGGESTION: "Check the file format and ask an administrator to inspect the DocReader logs for this attempt.",
       TASK_STALLED: 'Stopped after no progress',
       TASK_STALLED_SUGGESTION: 'Processing made no progress past the time limit and had no task left in the queue, so it was marked as failed. Click Retry; if this keeps happening, check the service this stage depends on (document parsing, model, or vector store).',
+      RETRY_LIMIT_EXHAUSTED: "Today's retry limit is used up",
+      RETRY_LIMIT_EXHAUSTED_SUGGESTION: 'Please contact your system administrator',
       UNKNOWN_SUGGESTION: 'Check the application logs for details.'
     }
   },
@@ -9637,5 +9639,11 @@ export default {
         outcome: 'Result',
       },
     },
+  },
+  reparseQuota: {
+    title: '"{title}" cannot be retried right now',
+    batchTitle: "These documents have used up today's retry limit and were not submitted",
+    docs: 'Documents: {docs}',
+    recoverAt: 'Quota expected to recover at {time}',
   },
 }

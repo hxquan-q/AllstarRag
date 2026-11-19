@@ -8290,6 +8290,8 @@ export default {
       DOCREADER_PARSE_FAILED_SUGGESTION: "請檢查檔案格式，並讓管理員查看本次解析對應的 DocReader 日誌。",
       TASK_STALLED: '長時間無進展，已自動終止',
       TASK_STALLED_SUGGESTION: '處理超過閾值仍沒有任何進展，且佇列中已無對應任務，已被系統標記為失敗。請點擊「重試」；如反覆出現，請檢查該階段依賴的服務（文件解析、模型、向量庫）是否正常。',
+      RETRY_LIMIT_EXHAUSTED: '今日重試次數已用完',
+      RETRY_LIMIT_EXHAUSTED_SUGGESTION: '請聯繫系統管理員處理',
       UNKNOWN_SUGGESTION: '請查看應用日誌獲取詳細資訊。'
     },
     status: {
@@ -9627,5 +9629,11 @@ export default {
         outcome: '結果',
       },
     },
+  },
+  reparseQuota: {
+    title: '「{title}」暫時無法重試',
+    batchTitle: '以下文件今日重試次數已用完，未能提交',
+    docs: '涉及文件：{docs}',
+    recoverAt: '額度預計 {time} 恢復',
   },
 }

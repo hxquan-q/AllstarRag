@@ -8289,6 +8289,8 @@ export default {
       DOCREADER_PARSE_FAILED_SUGGESTION: "파일 형식을 확인하고 관리자에게 이번 DocReader 로그 확인을 요청하세요.",
       TASK_STALLED: '진행이 없어 자동 중단됨',
       TASK_STALLED_SUGGESTION: '임계 시간을 넘도록 진행이 없고 대기열에도 해당 작업이 없어 실패로 표시되었습니다. 「다시 시도」를 누르세요. 반복되면 이 단계가 의존하는 서비스(문서 파싱, 모델, 벡터 저장소)를 확인하세요.',
+      RETRY_LIMIT_EXHAUSTED: '오늘의 재시도 횟수를 모두 사용했습니다',
+      RETRY_LIMIT_EXHAUSTED_SUGGESTION: '시스템 관리자에게 문의하세요',
       UNKNOWN_SUGGESTION: '자세한 내용은 애플리케이션 로그를 확인하세요.'
     },
     status: {
@@ -9631,5 +9633,11 @@ export default {
         outcome: '결과',
       },
     },
+  },
+  reparseQuota: {
+    title: '「{title}」은(는) 지금 다시 시도할 수 없습니다',
+    batchTitle: '다음 문서는 오늘의 재시도 횟수를 모두 사용하여 제출되지 않았습니다',
+    docs: '대상 문서: {docs}',
+    recoverAt: '할당량은 {time}경에 복구될 예정입니다',
   },
 }

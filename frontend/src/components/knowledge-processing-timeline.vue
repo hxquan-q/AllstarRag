@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import AssistantActionButton from '@/components/assistant/AssistantActionButton.vue'
 import { copyWithToast } from '@/utils/clipboard'
 import { getKnowledgeSpans, reparseKnowledge, cancelKnowledgeParse, getKnowledgeDetails } from '@/api/knowledge-base/index'
+import { detectReparseQuotaExhausted, formatRecoverAt, type ReparseQuotaNotice } from '../utils/reparseQuota'
 import {
   groupPostprocessGraphSpans,
   knowledgeSpansPayloadHasTrace,
@@ -87,7 +88,7 @@ const emit = defineEmits<{
   (e: 'close'): void
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const STAGES = ['docreader', 'chunking', 'embedding', 'multimodal', 'postprocess'] as const
 const POLL_INTERVAL_MS = 2000
@@ -481,17 +482,52 @@ async function copySpan(node: SpanNode) {
   await copyValue(node)
 }
 
+// 额度耗尽只作用于本次失败卡：不持久化，抽屉重开后由后端重新判定。
+const quotaNotice = ref<ReparseQuotaNotice | null>(null)
+const quotaRecoverLabel = computed(() => formatRecoverAt(quotaNotice.value?.recoverAt, locale.value))
+let quotaRecoverTimer: ReturnType<typeof setTimeout> | undefined
+
+// 到达后端给出的恢复时间就把卡片撤掉，重试按钮自然回到可用状态
+// （前端不缓存耗尽态，恢复仍以后端放行为准）。
+function setQuotaNotice(notice: ReparseQuotaNotice) {
+  if (quotaRecoverTimer !== undefined) clearTimeout(quotaRecoverTimer)
+  quotaNotice.value = notice
+  const recoverAt = notice.recoverAt ? new Date(notice.recoverAt).getTime() : NaN
+  if (Number.isNaN(recoverAt)) return
+  const delay = recoverAt - Date.now()
+  if (delay <= 0) return
+  quotaRecoverTimer = setTimeout(() => {
+    quotaNotice.value = null
+    quotaRecoverTimer = undefined
+  }, delay)
+}
+
+function clearQuotaNotice() {
+  if (quotaRecoverTimer !== undefined) clearTimeout(quotaRecoverTimer)
+  quotaRecoverTimer = undefined
+  quotaNotice.value = null
+}
+
+onBeforeUnmount(clearQuotaNotice)
+
 async function onRetry() {
   if (!props.knowledgeId) return
   try {
     await reparseKnowledge(props.knowledgeId)
+    clearQuotaNotice()
     selectedAttempt.value = undefined
     attemptStatuses.clear()
     selectedSpanId.value = null
     autoSelectPending.value = true
     await fetchSpans()
-  } catch {
-    // ignore
+  } catch (error) {
+    const notice = detectReparseQuotaExhausted(error)
+    // 额度耗尽：重试位置换成联系管理员的人话卡片（本组件模板）。
+    if (notice) {
+      setQuotaNotice(notice)
+      return
+    }
+    // 其余错误维持原行为：失败卡已有后端 last_error 可看，不额外提示。
   }
 }
 
@@ -1282,7 +1318,7 @@ const errorHeadline = computed(() => {
 // Retry stays reachable from the toolbar when a failure has no
 // last_error payload to hang the in-card button off.
 const showToolbarRetry = computed(
-  () => data.value?.parse_status === 'failed' && !showLastError.value,
+  () => data.value?.parse_status === 'failed' && !showLastError.value && !quotaNotice.value,
 )
 
 const stagesStatDisplay = computed(() => {
@@ -1712,10 +1748,24 @@ const processConfigLines = computed<string[]>(() => {
               <AssistantActionButton :label="t('assistant.actions.diagnose')"
                 :query="t('assistant.prompts.documentFailure', { title: docTitle || knowledgeId, id: knowledgeId })"
                 :selection="{ field: errorHeadline, text: [data.last_error.error_code, data.last_error.error_message].filter(Boolean).join('\n') }" />
-              <button v-if="data.parse_status === 'failed'" type="button" class="kp-err-btn" @click="onRetry">
+              <button v-if="data.parse_status === 'failed' && !quotaNotice" type="button" class="kp-err-btn" @click="onRetry">
                 <t-icon name="refresh" size="14px" />
                 <span>{{ t('knowledgeStages.retry') }}</span>
               </button>
+            </div>
+          </div>
+
+          <!-- 重试额度耗尽（429 RETRY_LIMIT_EXHAUSTED）：重试按钮位置换成人话
+               卡片，无按钮；抽屉重开或窗口滚动后由后端放行，前端不缓存该状态。 -->
+          <div v-if="quotaNotice" class="kp-quota-card" role="alert">
+            <div class="kp-quota-top">
+              <span class="kp-quota-glyph" aria-hidden="true">!</span>
+              <span class="kp-quota-title">{{ t('reparseQuota.title', { title: docTitle || knowledgeId }) }}</span>
+            </div>
+            <div class="kp-quota-reason">{{ localizedErrorTitle('RETRY_LIMIT_EXHAUSTED') }}</div>
+            <div class="kp-quota-hint">{{ localizedErrorSuggestion('RETRY_LIMIT_EXHAUSTED') }}</div>
+            <div v-if="quotaRecoverLabel" class="kp-quota-recover">
+              {{ t('reparseQuota.recoverAt', { time: quotaRecoverLabel }) }}
             </div>
           </div>
         </div>
@@ -3088,6 +3138,68 @@ const processConfigLines = computed<string[]>(() => {
 .kp-err-btn:hover {
   background: var(--td-error-color);
   color: var(--td-text-color-anti);
+}
+
+/* 重试额度耗尽卡片：与 .kp-last-error 同骨架，改用 warning 色调。
+   卡片内不放按钮——耗尽后重试只会被后端再次拒绝，恢复以窗口滚动为准。 */
+.kp-quota-card {
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: var(--td-warning-color-light);
+  border: 1px solid var(--td-warning-color-3);
+  border-left: 3px solid var(--td-warning-color);
+  border-radius: var(--td-radius-medium);
+}
+
+.kp-quota-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.kp-quota-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  background: var(--td-warning-color);
+  color: var(--td-text-color-anti);
+  border-radius: 50%;
+  font-size: var(--app-text-xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.kp-quota-title {
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kp-quota-reason {
+  margin-top: 7px;
+  font-size: var(--app-text-sm);
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.kp-quota-hint {
+  margin-top: 5px;
+  font-size: var(--app-text-sm);
+  line-height: 1.5;
+  color: var(--td-text-color-secondary);
+}
+
+.kp-quota-recover {
+  margin-top: 5px;
+  font-size: var(--app-text-xs);
+  color: var(--td-text-color-placeholder);
 }
 
 /* Same card shape as .kp-last-error in the warning tone: the run may still

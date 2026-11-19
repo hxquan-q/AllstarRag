@@ -1426,6 +1426,8 @@ export default {
       DOCREADER_PARSE_FAILED_SUGGESTION: "ファイル形式を確認し、管理者に今回の DocReader ログの確認を依頼してください。",
       TASK_STALLED: '進捗がないため自動停止しました',
       TASK_STALLED_SUGGESTION: 'しきい値を超えても進捗がなく、キューにも対応するタスクがないため失敗としてマークされました。「再試行」を押してください。繰り返し発生する場合は、この段階が依存するサービス（文書解析、モデル、ベクトルストア）を確認してください。',
+      RETRY_LIMIT_EXHAUSTED: '本日の再試行回数をすべて使い切りました',
+      RETRY_LIMIT_EXHAUSTED_SUGGESTION: 'システム管理者に連絡してください',
       UNKNOWN_SUGGESTION: '詳細はアプリケーションログを確認してください。'
     }
   },
@@ -9631,5 +9633,11 @@ export default {
         outcome: '結果',
       },
     },
+  },
+  reparseQuota: {
+    title: '「{title}」は現在再試行できません',
+    batchTitle: '次の文書は本日の再試行回数を使い切ったため送信されませんでした',
+    docs: '対象文書：{docs}',
+    recoverAt: '上限は {time} 頃に回復する見込みです',
   },
 }

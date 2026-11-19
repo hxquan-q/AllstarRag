@@ -42,6 +42,7 @@ import {
   type KnowledgeFolderTree,
 } from "@/api/knowledge-base/index";
 import { isBatchDownloadableKnowledge } from './knowledgeDownloadFileName';
+import { detectReparseQuotaExhausted, formatRecoverAt, readReparseQuotaSkips } from '../../utils/reparseQuota';
 import { waitForKnowledgeDeletion } from '@/utils/knowledgeDeletion';
 import { knowledgeSpansPayloadHasTrace } from '@/utils/knowledgeTrace';
 import FAQEntryManager from './components/FAQEntryManager.vue';
@@ -89,7 +90,7 @@ import { useMarqueeSelect } from '@/hooks/useMarqueeSelect';
 import { useAssistantPageContext } from '@/composables/useAssistantPageContext';
 import type { ParserEngineInfo } from '@/api/system';
 const route = useRoute();
-const { t } = useI18n();
+const { t, locale } = useI18n();
 const kbId = computed(() => (route.params as any).kbId as string || '');
 const kbInfo = ref<any>(null);
 const uploadSourceRef = ref<InstanceType<typeof KbUploadSourceDropdown> | null>(null);
@@ -592,6 +593,17 @@ const pendingReparseAck = new Map<string, ReturnType<typeof setTimeout>>();
 // 等待结束后仍保留重建版本，避免迟到的旧查询再次被当成当前结果。
 const reparseVersionById = new Map<string, number>();
 
+// 重试额度耗尽提示（T06）：只活在本页会话里，不写 localStorage、不做标记；
+// 刷新或 24h 窗口滚动后由后端重新放行，前端回到正常可重试状态。
+const reparseQuotaNotice = ref<{ batch: boolean; docs: string[]; recoverAt?: string } | null>(null);
+const reparseQuotaRecoverLabel = computed(() =>
+  formatRecoverAt(reparseQuotaNotice.value?.recoverAt, locale.value));
+const knowledgeDisplayName = (id: string) => {
+  const item = cardList.value.find((c) => c.id === id);
+  return item?.file_name || item?.title || id;
+};
+watch(kbId, () => { reparseQuotaNotice.value = null; });
+
 const clearReparseAck = (id: string) => {
   const timer = pendingReparseAck.get(id);
   if (timer !== undefined) clearTimeout(timer);
@@ -652,11 +664,27 @@ const confirmBatchReparse = async () => {
     const res: any = await batchReparseKnowledge(targetKbId, ids);
     if (statusPollingDisposed || submissionGeneration !== statusPollGeneration) return;
     if (res?.success) {
-      MessagePlugin.success(t('knowledgeBase.batchReparseSuccess', { count: ids.length }));
-      applyOptimisticBatchReparse(ids);
-      clearSelection();
-      batchMode.value = false;
-      scheduleWikiStatusProbes();
+      // 限次预检剔除的文档不进入成功提示与乐观状态（T06）：批量结果里
+      // 用人话点名它们，成功部分按后端实际入队数照常提示。
+      const quotaSkips = readReparseQuotaSkips(res);
+      const skippedIds = new Set(quotaSkips.map((skip) => skip.knowledgeId));
+      const submittedIds = ids.filter((id) => !skippedIds.has(id));
+      const submittedCount = typeof res?.data?.reparse_count === 'number'
+        ? res.data.reparse_count
+        : submittedIds.length;
+      if (quotaSkips.length) {
+        reparseQuotaNotice.value = {
+          batch: true,
+          docs: quotaSkips.map((skip) => knowledgeDisplayName(skip.knowledgeId)),
+        };
+      }
+      if (submittedCount > 0) {
+        MessagePlugin.success(t('knowledgeBase.batchReparseSuccess', { count: submittedCount }));
+        applyOptimisticBatchReparse(submittedIds);
+        clearSelection();
+        batchMode.value = false;
+        scheduleWikiStatusProbes();
+      }
     } else {
       MessagePlugin.error(res?.message || t('knowledgeBase.batchReparseFailed'));
     }
@@ -2091,6 +2119,7 @@ const confirmRebuildKnowledge = async (index: number, item: KnowledgeCard) => {
 const submitReparse = async (id: string, processConfig?: KnowledgeProcessOverrides) => {
   try {
     await reparseKnowledge(id, processConfig ? { process_config: processConfig } : undefined);
+    reparseQuotaNotice.value = null;
     delete traceAvailableById[id];
     traceAvailableById[id] = true;
     MessagePlugin.success(t('knowledgeBase.rebuildSubmitted'));
@@ -2098,6 +2127,16 @@ const submitReparse = async (id: string, processConfig?: KnowledgeProcessOverrid
     loadKnowledgeFiles(kbId.value);
     scheduleWikiStatusProbes();
   } catch (error: any) {
+    const quota = detectReparseQuotaExhausted(error);
+    // 额度耗尽：在本页警示区出与时间线同一张人话卡片，不再裸抛 429 文案。
+    if (quota) {
+      reparseQuotaNotice.value = {
+        batch: false,
+        docs: [knowledgeDisplayName(id)],
+        recoverAt: quota.recoverAt,
+      };
+      return;
+    }
     MessagePlugin.error(error?.message || t('knowledgeBase.rebuildFailed'));
   }
 };
@@ -2692,6 +2731,27 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
                   </div>
                 </div>
               </div>
+              <!-- 重试额度耗尽（T06）：单文档重建与批量重解析共用的本页警示区，
+                   不新造全局弹窗；关闭或刷新即消失，后端额度恢复后自然可重试。 -->
+              <div v-if="reparseQuotaNotice" class="doc-reparse-quota" role="alert">
+                <t-alert theme="warning" :close="true" @close="reparseQuotaNotice = null">
+                  <template #message>
+                    <div class="doc-reparse-quota__title">
+                      {{ reparseQuotaNotice.batch
+                        ? t('reparseQuota.batchTitle')
+                        : t('reparseQuota.title', { title: reparseQuotaNotice.docs[0] }) }}
+                    </div>
+                    <div v-if="reparseQuotaNotice.batch" class="doc-reparse-quota__docs">
+                      {{ t('reparseQuota.docs', { docs: reparseQuotaNotice.docs.join('、') }) }}
+                    </div>
+                    <div class="doc-reparse-quota__reason">{{ t('knowledgeStages.errorCode.RETRY_LIMIT_EXHAUSTED') }}</div>
+                    <div class="doc-reparse-quota__hint">{{ t('knowledgeStages.errorCode.RETRY_LIMIT_EXHAUSTED_SUGGESTION') }}</div>
+                    <div v-if="reparseQuotaRecoverLabel" class="doc-reparse-quota__recover">
+                      {{ t('reparseQuota.recoverAt', { time: reparseQuotaRecoverLabel }) }}
+                    </div>
+                  </template>
+                </t-alert>
+              </div>
               <div class="doc-scroll-container"
                 :class="{
                   'is-empty': !cardList.length && !visibleSubFolders.length && !docListLoading,
@@ -3263,6 +3323,40 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
 @container doc-card-area (max-width: 540px) {
   .doc-filter-bar__trailing { flex-wrap: wrap; }
   .doc-filter-bar .doc-search-input { flex: 1 0 100%; }
+}
+
+/* 重试额度耗尽警示区（T06）：文档列表上方一行，不占滚动区。 */
+.doc-reparse-quota {
+  flex-shrink: 0;
+  margin-bottom: 8px;
+
+  &__title {
+    font-weight: 600;
+    color: var(--td-text-color-primary);
+  }
+
+  &__docs {
+    margin-top: 4px;
+    color: var(--td-text-color-primary);
+    word-break: break-all;
+  }
+
+  &__reason {
+    margin-top: 4px;
+    font-weight: 600;
+    color: var(--td-text-color-primary);
+  }
+
+  &__hint {
+    margin-top: 2px;
+    color: var(--td-text-color-secondary);
+  }
+
+  &__recover {
+    margin-top: 2px;
+    font-size: var(--app-text-xs);
+    color: var(--td-text-color-placeholder);
+  }
 }
 
 .doc-scroll-container {
