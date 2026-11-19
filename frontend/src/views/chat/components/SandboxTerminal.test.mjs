@@ -11,7 +11,7 @@ const prompt = readFileSync(promptUrl, 'utf8')
 const promptPath = fileURLToPath(promptUrl)
 
 test('xterm palette keeps prompt green but ls directories blue', () => {
-  assert.match(theme, /--td-brand-color-4: #07c05f/)
+  assert.match(theme, /--td-brand-color-4: #0EA5E9/)
   assert.match(terminal, /brightGreen: '#07c05f'/)
   assert.match(terminal, /brightBlue: '#729fcf'/)
   assert.doesNotMatch(terminal, /brightBlue: '#07c05f'/)

@@ -206,7 +206,7 @@ export function buildLoginGradient(base: string, mode: BrandMode): string {
 /**
  * 由主色派生 TDesign 的 --td-brand-color-1..10。
  *
- * 明度阶梯对齐 theme.css 里现有绿色色阶的观感：
+ * 明度阶梯对齐 theme.css 里默认天蓝色阶的观感：
  * - light：1 是接近白的浅底，4 是主色，3 比 4 亮（hover）、5 比 4 暗（active），
  *   6~10 依次加深，最深一档仍保留同色相，避免偏黑。
  * - dark：1 是主色 20% 透明的浅底，6 是主色，2~5 依次加深、7~10 依次提亮，
@@ -224,7 +224,7 @@ export function deriveBrandScale(base: string, mode: BrandMode): Record<string, 
     const tintSaturation = clamp(s * 0.6, 24, 92)
     scale['--td-brand-color-1'] = hslToHex(h, tintSaturation, 94)
 
-    // 2~10 相对主色的明度偏移（百分比），与 theme.css 的绿色台阶同向。
+    // 2~10 相对主色的明度偏移（百分比），与 theme.css 的默认天蓝台阶同向。
     const offsets = [10, 5, 0, -5, -10, -15, -19, -23, -27]
     let previous = 94
     offsets.forEach((offset, index) => {

@@ -6,7 +6,7 @@ import TDesign from "tdesign-vue-next";
 // 引入组件库的少量全局样式变量
 import "tdesign-vue-next/dist/tdesign.css";
 import "@/assets/theme/theme.css";
-// 客户版主题必须在 theme.css 之后加载：同优先级下后加载的 html[data-customer] 规则才能覆盖绿色令牌。
+// 客户版主题必须在 theme.css 之后加载：同优先级下后加载的 html[data-customer] 规则才能覆盖默认品牌令牌。
 import "@/assets/theme/brand.css";
 // 客户版移动端公共样式（T01 骨架）：同样全部挂在 html[data-customer="true"] 下，
 // 并且页面规则再包一层 max-width: 1023px，管理端不会命中。
@@ -35,8 +35,8 @@ installTDesignIconOfflineGuard();
 
 initTheme();
 initFont();
-// 只登记主题监听并补写已有客户版变量；这里不设置 data-customer，
-// 登录页与登录后的角色判定分别由 T03 / T04 决定。
+// 启动即写入品牌变量（所有角色），保障首帧与角色未判页面（如 onboarding）也跟随品牌色；
+// 这里不设置 data-customer，登录页与登录后的角色判定分别由 T03 / T04 决定。
 initCustomerBrandTheme();
 
 async function bootstrap() {

@@ -151,60 +151,54 @@ function writeBrandCssVars(mode: BrandMode): void {
   }
 }
 
-function removeBrandCssVars(): void {
-  const style = document.documentElement.style
-  for (const name of Object.keys(brandVarsByMode.light)) {
-    style.removeProperty(name)
-  }
-}
-
 /**
- * 客户版主题开关，供登录页（T03）和登录后的角色判定（T04）调用。
- * 开：挂 data-customer，按当前深浅写入品牌变量；
- * 关：移除标记并清掉内联变量，管理员端继续用 theme.css 的绿色。
- *
- * 变量写在 documentElement 的内联样式上（优先级最高），所以关闭时必须显式清除，
- * 否则管理员端会残留天蓝。
+ * 把品牌主题应用到文档，供登录页（T03）和登录后的角色判定（T04）调用。
+ * 管理端主色同为品牌色（C6 2026-11-18 修订）：亮/暗品牌变量对任何角色都按当前
+ * 深浅模式写入；enabled 只控制 data-customer 标记的挂/摘，客户版专属视觉
+ * （圆角/阴影/线条）锁在该标记的作用域内，管理端不挂即不命中。
  */
 export function applyCustomerTheme(enabled: boolean): void {
   if (typeof document === 'undefined') return
 
+  writeBrandCssVars(effectiveThemeMode())
   if (enabled) {
     document.documentElement.dataset.customer = 'true'
-    writeBrandCssVars(effectiveThemeMode())
   } else {
     document.documentElement.removeAttribute('data-customer')
-    removeBrandCssVars()
   }
 }
 
 let themeObserverInstalled = false
 
 /**
- * 启动时调用一次：监听 theme-mode 与 data-customer 变化，
- * 客户版开着时重新写入对应模式的变量，关闭时清掉。
+ * 启动时调用一次：先按当前模式写入品牌变量，再监听 theme-mode 变化重写。
+ * 启动即写，不依赖角色是否已判定（onboarding 等页面硬刷新后也能跟随 config.js）；
+ * 受守卫页面在 mount 前 await router.isReady()，启动写入不会造成首帧闪色。
  * 这里只跟随 useTheme / 调用方已经维护的属性，不另建主题系统。
  */
 export function initCustomerBrandTheme(): void {
   if (typeof document === 'undefined' || themeObserverInstalled) return
   themeObserverInstalled = true
 
-  // 页面在 main.ts 执行前就带上 data-customer 时（例如服务端注入），先补一次。
-  if (document.documentElement.dataset.customer === 'true') {
-    writeBrandCssVars(effectiveThemeMode())
-  }
+  // 启动即写：不论是否已挂 data-customer、角色是否已判，都先套用当前深浅模式。
+  writeBrandCssVars(effectiveThemeMode())
 
   new MutationObserver(() => {
-    if (document.documentElement.dataset.customer === 'true') {
-      writeBrandCssVars(effectiveThemeMode())
-    } else {
-      // 外部直接移除 data-customer 时也要清掉内联变量，避免管理员端残留天蓝。
-      removeBrandCssVars()
-    }
+    // theme-mode 切换时跟随重写；品牌色变量对任何角色都在场，与 data-customer 无关。
+    writeBrandCssVars(effectiveThemeMode())
   }).observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ['theme-mode', 'data-customer'],
+    attributeFilter: ['theme-mode'],
   })
+}
+
+/**
+ * 仅供单元测试使用：复位 observer 安装标记，让每个用例都能从"未安装"状态开始，
+ * 不依赖用例执行顺序（同一模块实例跨用例只安装一次会让后置用例空转）。
+ * 只复位标记，不断开已安装的 observer；生产代码不要调用。
+ */
+export function resetCustomerBrandThemeForTests(): void {
+  themeObserverInstalled = false
 }
 
 export interface ApplyDocumentBrandOptions {
@@ -226,7 +220,7 @@ function applyFavicon(url: string): void {
 
 /**
  * 把品牌应用到文档：标题、favicon、客户版标记与品牌色变量。
- * 颜色变量由 applyCustomerTheme 统一写入，关闭客户版时会一并清除。
+ * 品牌色变量对任何角色都写入，customer 选项只控制客户版标记的挂/摘。
  */
 export function applyDocumentBrand(options: ApplyDocumentBrandOptions = {}): void {
   if (typeof document === 'undefined') return

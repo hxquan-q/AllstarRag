@@ -45,9 +45,9 @@ const emojiChar = computed(() => {
   return v.slice(6).trim() || '';
 });
 
-// 预定义渐变色（与项目绿色主色协调，偏空间/协作感）
+// 预定义渐变色（与品牌天蓝主色协调，偏空间/协作感）
 const gradients = [
-  { from: '#07c05f', to: '#059669' },  // 主绿
+  { from: 'var(--td-brand-color-4)', to: 'var(--td-brand-color)' },  // 主色天蓝（跟随运行时品牌令牌）
   { from: '#11998e', to: '#38ef7d' },  // 深绿渐变
   { from: '#43e97b', to: '#38f9d7' },  // 绿青
   { from: '#02aab0', to: '#00cdac' },  // 青绿
@@ -97,7 +97,8 @@ const avatarStyle = computed(() => {
 const letterStyle = computed(() => {
   const g = gradient.value;
   return {
-    textShadow: `0 1px 2px ${g.to}80, 0 0 8px ${g.from}30`
+    // 颜色可能是 var()，不能再拼 hex+alpha；用 color-mix 得到等价的半透明阴影。
+    textShadow: `0 1px 2px color-mix(in srgb, ${g.to} 50%, transparent), 0 0 8px color-mix(in srgb, ${g.from} 19%, transparent)`
   };
 });
 </script>

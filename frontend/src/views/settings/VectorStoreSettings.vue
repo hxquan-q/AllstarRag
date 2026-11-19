@@ -1184,7 +1184,7 @@ onMounted(async () => {
   color: #0089FF;
 }
 .vectorstore-drawer--weaviate .setting-drawer__header-icon {
-  background: color-mix(in srgb, var(--td-brand-color) 12%, transparent);
+  background: rgba(7, 160, 80, 0.12);
   color: #07A050;
 }
 .vectorstore-drawer--elasticsearch .setting-drawer__header-icon,
