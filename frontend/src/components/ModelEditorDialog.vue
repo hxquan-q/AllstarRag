@@ -96,8 +96,8 @@
               v-if="activeModelType !== 'rerank'"
               type="button"
               class="source-option"
-              :class="{ 'is-active': formData.source === 'local', 'is-disabled': ollamaServiceStatus === false }"
-              :disabled="ollamaServiceStatus === false"
+              :class="{ 'is-active': formData.source === 'local', 'is-disabled': ollamaAccessDenied || ollamaServiceStatus === false }"
+              :disabled="ollamaAccessDenied || ollamaServiceStatus === false"
               role="radio"
               :aria-checked="formData.source === 'local'"
               @click="formData.source = 'local'"
@@ -107,8 +107,13 @@
             </button>
           </div>
 
-          <!-- Ollama不可用时的提示信息 -->
-          <div v-if="shouldShowOllamaUnavailableTip(formData.source, activeModelType, ollamaServiceStatus)"
+          <!-- 非系统管理员：后端对该接口 403（T01 守卫），只给能力说明 -->
+          <div v-if="ollamaAccessDenied && activeModelType !== 'rerank'" class="ollama-unavailable-tip">
+            <t-icon name="lock-on" class="tip-icon" />
+            <span class="tip-text">{{ $t('common.systemAdminOnly') }}</span>
+          </div>
+          <!-- Ollama不可用时的提示信息（超管视角，行为不变） -->
+          <div v-else-if="shouldShowOllamaUnavailableTip(formData.source, activeModelType, ollamaServiceStatus)"
             class="ollama-unavailable-tip">
             <t-icon name="error-circle-filled" class="tip-icon" />
             <span class="tip-text">{{ $t('model.editor.ollamaUnavailable') }}</span>
@@ -216,8 +221,14 @@
 
           <!-- WeKnoraCloud 提示信息 -->
           <template v-if="formData.provider === 'weknoracloud'">
+            <!-- 非系统管理员：凭证接口 403（T01 守卫），只给能力说明 -->
+            <div v-if="wkcAccessDenied" class="weknoracloud-hint weknoracloud-hint--warn">
+              <t-icon name="lock-on" class="hint-icon hint-icon--warn" />
+              <div>{{ $t('common.systemAdminOnly') }}</div>
+            </div>
+
             <!-- 凭证已配置 -->
-            <div v-if="wkcCredentialState === 'configured'" class="weknoracloud-hint weknoracloud-hint--ok">
+            <div v-else-if="wkcCredentialState === 'configured'" class="weknoracloud-hint weknoracloud-hint--ok">
               <t-icon name="check-circle-filled" class="hint-icon hint-icon--ok" />
               <div>
                 {{ $t('settings.weknoraCloud.modelHintConfigured') }}
@@ -1283,14 +1294,28 @@ let downloadInterval: any = null
 // Ollama 服务状态
 const ollamaServiceStatus = ref<boolean | null>(null)
 const checkingOllamaStatus = ref(false)
+// 后端按角色拒绝（403）时置位：Ollama / 小爱云接口自 T01 起仅系统管理员可调，
+// 不能把 403 当成「Ollama 不可用 / 凭证未配置」展示（F4）。
+const ollamaAccessDenied = ref(false)
+const wkcAccessDenied = ref(false)
 
 // WeKnoraCloud 凭证状态
 const wkcCredentialState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
+
+function isAccessDenied(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { status?: number }).status === 403
+}
 
 const checkWkcCredentialStatus = async () => {
   wkcCredentialState.value = 'loading'
   try {
     const status = await getWeKnoraCloudStatus()
+    // 403 只说明当前身份无权配置该能力，模板给「仅系统管理员可用」说明。
+    if (status.forbidden) {
+      wkcAccessDenied.value = true
+      wkcCredentialState.value = 'unconfigured'
+      return
+    }
     if (status.needs_reinit) {
       wkcCredentialState.value = 'expired'
     } else if (status.has_models) {
@@ -1298,7 +1323,8 @@ const checkWkcCredentialStatus = async () => {
     } else {
       wkcCredentialState.value = 'unconfigured'
     }
-  } catch {
+  } catch (error) {
+    wkcAccessDenied.value = isAccessDenied(error)
     wkcCredentialState.value = 'unconfigured'
   }
 }
@@ -1430,6 +1456,12 @@ const checkOllamaServiceStatus = async () => {
   checkingOllamaStatus.value = true
   try {
     const result = await checkOllamaStatus()
+    // 403 = 后端按角色拒绝（非系统管理员），不是服务故障；模板改为能力说明。
+    if (result.forbidden) {
+      ollamaAccessDenied.value = true
+      ollamaServiceStatus.value = null
+      return
+    }
     ollamaServiceStatus.value = result.available
     console.log('Ollama服务状态检查完成:', result.available)
   } catch (error) {
@@ -1758,12 +1790,19 @@ const handleModelFilter = (filterWords: string) => {
 const loadOllamaModels = async () => {
   // 只在选择 local 来源时加载
   if (formData.value.source !== 'local') return
+  // 后端已按角色拒绝（403）：不再请求，避免错误提示覆盖能力说明。
+  if (ollamaAccessDenied.value) return
 
   loadingOllamaModels.value = true
   try {
     const models = await listOllamaModels()
     ollamaModelList.value = models
   } catch (error) {
+    // 状态请求与打开下拉之间有竞态：这里再兜一次 403，避免误报加载失败。
+    if (isAccessDenied(error)) {
+      ollamaAccessDenied.value = true
+      return
+    }
     console.error(t('model.editor.loadModelListFailed'), error)
     MessagePlugin.error(t('model.editor.loadModelListFailed'))
   } finally {

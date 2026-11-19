@@ -33,7 +33,7 @@ withDefaults(
   defineProps<{
     title: string
     subtitle?: string
-    variant?: 'chrome' | 'claw' | 'cli'
+    variant?: 'chrome' | 'cli'
   }>(),
   { variant: 'chrome' },
 )

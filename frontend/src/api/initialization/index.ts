@@ -196,7 +196,9 @@ export function initializeSystemByKB(kbId: string, config: InitializationConfig)
 }
 
 // 检查Ollama服务状态
-export function checkOllamaStatus(): Promise<{ available: boolean; version?: string; error?: string; baseUrl?: string }> {
+// forbidden=true 表示后端按角色 403 拒绝（Ollama 接口仅系统管理员可调）：
+// 调用方应展示「仅系统管理员可用」，而不是把 403 当成服务不可用。
+export function checkOllamaStatus(): Promise<{ available: boolean; version?: string; error?: string; baseUrl?: string; forbidden?: boolean }> {
     return new Promise((resolve, reject) => {
         get('/api/v1/initialization/ollama/status')
             .then((response: any) => {
@@ -204,7 +206,11 @@ export function checkOllamaStatus(): Promise<{ available: boolean; version?: str
             })
             .catch((error: any) => {
                 console.error('Failed to check Ollama status:', error);
-                resolve({ available: false, error: error.message || t('error.initialization.checkFailed') });
+                resolve({
+                    available: false,
+                    forbidden: error?.status === 403,
+                    error: error.message || t('error.initialization.checkFailed'),
+                });
             });
     });
 }

@@ -139,12 +139,7 @@
             <p class="migration-error-desc">{{ $t('system.dbMigrationFailedDesc') }}</p>
             <pre class="migration-error-detail">{{ systemInfo.db_migration_error }}</pre>
             <div class="migration-error-actions">
-              <t-link
-                theme="primary"
-                :href="troubleshootingDocsURL"
-                target="_blank"
-                rel="noopener noreferrer"
-              >{{ $t('system.dbMigrationViewDocs') }}</t-link>
+              <p class="migration-error-guide">{{ $t('system.dbMigrationGuide') }}</p>
             </div>
           </template>
         </t-alert>
@@ -192,7 +187,6 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import type { SystemInfo } from '@/api/system'
 import { useEditorResourcesStore } from '@/stores/editorResources'
 import { useI18n } from 'vue-i18n'
-import { docsUrl } from '@/utils/docsUrl'
 
 const { t, locale } = useI18n()
 
@@ -241,11 +235,11 @@ function formatUptime(totalSeconds: number): string {
   return parts.join(' ')
 }
 
-const troubleshootingDocsURL = docsUrl('troubleshootingMigrations')
-
 // T03（admin-feature-surface）：原「提交 Issue」外链（WeKnora GitHub）已按
 // 裁定清单移除，改为人话指引——文案见 system.dbMigrationFailedDesc
 // （如遇迁移问题，请联系系统管理员处理）。
+// CP3 OQ3：原「查看排查文档」外链（weknora.weixin.qq.com）一并移除，
+// 同一位置改为保留错误详情、联系管理员的排查指引（system.dbMigrationGuide）。
 
 // Methods
 const loadInfo = async () => {
@@ -355,6 +349,13 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   font-size: var(--app-text-md);
+}
+
+.migration-error-guide {
+  margin: 0;
+  font-size: var(--app-text-md);
+  line-height: 1.5;
+  color: var(--td-text-color-primary);
 }
 
 .setting-control {

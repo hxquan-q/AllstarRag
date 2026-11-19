@@ -54,6 +54,9 @@ export interface ListAuditLogParams {
   limit?: number
   // Optional filters; backend matches on equality.
   action?: AuditAction
+  // 多选 action 过滤（后端 `action IN (...)`，逗号分隔；与 action 叠加生效）。
+  // 操作记录 Tab 用它把 19 项白名单下推，避免白名单外行占用分页。
+  actions?: AuditAction[]
   outcome?: AuditOutcome
   actor?: string
   // 关键词：匹配 action、操作人/目标的用户名或邮箱（后端大小写不敏感）。
@@ -79,6 +82,7 @@ export async function listAuditLog(
   if (params.after_id) qs.append('after_id', String(params.after_id))
   if (params.limit) qs.append('limit', String(params.limit))
   if (params.action) qs.append('action', params.action)
+  if (params.actions && params.actions.length > 0) qs.append('actions', params.actions.join(','))
   if (params.outcome) qs.append('outcome', params.outcome)
   if (params.actor) qs.append('actor', params.actor)
   if (params.q) qs.append('q', params.q)

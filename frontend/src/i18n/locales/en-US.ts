@@ -3089,6 +3089,7 @@ export default {
   common: {
     add: 'Add',
     me: 'Me',
+    systemAdminOnly: 'This capability is available to system administrators only',
     confirm: 'Confirm',
     cancel: 'Cancel',
     unsavedChanges: {
@@ -4772,7 +4773,7 @@ export default {
     dbMigrationFailedTag: 'Migration failed',
     dbMigrationFailedTitle: 'Database migration failed',
     dbMigrationFailedDesc: 'The startup database migration did not complete successfully. Some tables or indexes may be missing, which can break Wiki ingest, the knowledge graph, and other features. If the migration keeps failing, contact your system administrator.',
-    dbMigrationViewDocs: 'View troubleshooting guide',
+    dbMigrationGuide: 'Database migration troubleshooting: keep the error details above and contact your system administrator. After the issue is fixed, restart the service and the migration retries automatically.',
     keywordIndexEngineLabel: 'Keyword Index Engine',
     keywordIndexEngineDescription: 'Currently used keyword index engine',
     vectorStoreEngineLabel: 'Vector Store Engine',

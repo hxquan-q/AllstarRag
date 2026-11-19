@@ -46,6 +46,30 @@ export const OPERATION_LOG_SCOPED_AUDIT_ACTIONS = [
   'kb.deleted',
 ] as const
 
+/**
+ * 操作记录 Tab 的白名单（单一来源，OperationLog.vue 与前端下推的
+ * `actions` 参数都引用它）：11 个成员治理动作 + 8 个本空间文档写行为。
+ *
+ * 有意不含 rbac.member_left / access_denied / invitation_declined /
+ * invitation_expired，以及 tag.* / datasource.* / kb.share_* / wiki.* /
+ * faq.* / knowledge.move_* / kb.duplicated / kb.clone_*（T05 口径）。
+ * TenantMembers 的成员审计抽屉不走这张表。
+ */
+export const OPERATION_LOG_AUDIT_ACTIONS = [
+  'rbac.member_added',
+  'rbac.member_removed',
+  'rbac.member_role_changed',
+  'rbac.member_password_reset',
+  'rbac.invitation_sent',
+  'rbac.invitation_accepted',
+  'rbac.invitation_revoked',
+  'rbac.member_banned',
+  'rbac.member_unbanned',
+  'rbac.member_purged',
+  'rbac.owner_transferred',
+  ...OPERATION_LOG_SCOPED_AUDIT_ACTIONS,
+] as const
+
 /** Platform control-plane audit events (system settings → audit tab). */
 export const SYSTEM_GLOBAL_AUDIT_ACTIONS = [
   'system.setting_changed',

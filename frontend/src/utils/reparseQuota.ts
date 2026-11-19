@@ -63,3 +63,17 @@ export function formatRecoverAt(value?: string, locale?: string): string {
   if (Number.isNaN(at.getTime())) return ''
   return at.toLocaleString(locale || undefined, { dateStyle: 'medium', timeStyle: 'short' })
 }
+
+/** 批量被拒文档里最早的一条恢复时间（RFC3339 原文）；全部缺失/无效时返回 undefined。 */
+export function earliestRecoverAt(skips: ReparseQuotaSkip[]): string | undefined {
+  let earliest: string | undefined
+  let earliestMs = Number.POSITIVE_INFINITY
+  for (const skip of skips) {
+    if (!skip.recoverAt) continue
+    const at = new Date(skip.recoverAt).getTime()
+    if (Number.isNaN(at) || at >= earliestMs) continue
+    earliestMs = at
+    earliest = skip.recoverAt
+  }
+  return earliest
+}

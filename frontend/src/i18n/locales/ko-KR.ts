@@ -4395,7 +4395,7 @@ export default {
     dbMigrationFailedTag: '마이그레이션 실패',
     dbMigrationFailedTitle: '데이터베이스 마이그레이션 실패',
     dbMigrationFailedDesc: '시작 시 데이터베이스 마이그레이션이 정상적으로 완료되지 않았습니다. 일부 테이블이나 인덱스가 생성되지 않았을 수 있으며, Wiki와 지식 그래프 기능 등이 동작하지 않을 수 있습니다. 마이그레이션 문제가 해결되지 않으면 시스템 관리자에게 문의해 주세요.',
-    dbMigrationViewDocs: '문제 해결 문서 보기',
+    dbMigrationGuide: '데이터베이스 마이그레이션 문제 해결: 위의 오류 세부 정보를 보관하고 시스템 관리자에게 문의하세요. 문제가 해결되면 서비스를 다시 시작하면 마이그레이션이 자동으로 다시 시도됩니다.',
     keywordIndexEngineLabel: '키워드 인덱스 엔진',
     keywordIndexEngineDescription: '현재 사용 중인 키워드 인덱스 엔진',
     vectorStoreEngineLabel: '벡터 저장소 엔진',
@@ -6532,6 +6532,7 @@ export default {
   common: {
     add: '추가',
     me: '나',
+    systemAdminOnly: '이 기능은 시스템 관리자만 사용할 수 있습니다',
     confirm: '확인',
     cancel: '취소',
     unsavedChanges: {

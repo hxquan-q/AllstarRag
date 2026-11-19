@@ -42,7 +42,7 @@ import {
   type KnowledgeFolderTree,
 } from "@/api/knowledge-base/index";
 import { isBatchDownloadableKnowledge } from './knowledgeDownloadFileName';
-import { detectReparseQuotaExhausted, formatRecoverAt, readReparseQuotaSkips } from '../../utils/reparseQuota';
+import { detectReparseQuotaExhausted, earliestRecoverAt, formatRecoverAt, readReparseQuotaSkips } from '../../utils/reparseQuota';
 import { waitForKnowledgeDeletion } from '@/utils/knowledgeDeletion';
 import { knowledgeSpansPayloadHasTrace } from '@/utils/knowledgeTrace';
 import FAQEntryManager from './components/FAQEntryManager.vue';
@@ -676,6 +676,8 @@ const confirmBatchReparse = async () => {
         reparseQuotaNotice.value = {
           batch: true,
           docs: quotaSkips.map((skip) => knowledgeDisplayName(skip.knowledgeId)),
+          // FS8：被拒文档可能各自有恢复时间，批量卡显示最早的一条（有值才显示）。
+          recoverAt: earliestRecoverAt(quotaSkips),
         };
       }
       if (submittedCount > 0) {

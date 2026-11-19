@@ -4397,7 +4397,7 @@ export default {
     dbMigrationFailedTag: '遷移失敗',
     dbMigrationFailedTitle: '資料庫遷移失敗',
     dbMigrationFailedDesc: '啟動時資料庫遷移未成功完成，部分表或索引可能未建立，會導致 Wiki、知識圖譜等功能例外。如遇遷移問題，請聯絡系統管理員處理。',
-    dbMigrationViewDocs: '查看排查文件',
+    dbMigrationGuide: '資料庫遷移排查：請保留上方錯誤詳情並聯絡系統管理員；問題處理後重新啟動服務，遷移會自動重試。',
     keywordIndexEngineLabel: '關鍵字索引引擎',
     keywordIndexEngineDescription: '當前使用的關鍵字索引引擎',
     vectorStoreEngineLabel: '向量存儲引擎',
@@ -6533,6 +6533,7 @@ export default {
   common: {
     add: '新增',
     me: '我',
+    systemAdminOnly: '此能力僅系統管理員可用',
     confirm: '確認',
     cancel: '取消',
     unsavedChanges: {

@@ -3089,6 +3089,7 @@ export default {
   common: {
     add: '追加',
     me: '自分',
+    systemAdminOnly: 'この機能はシステム管理者のみ利用できます',
     confirm: '確認',
     cancel: 'キャンセル',
     unsavedChanges: {
@@ -4772,7 +4773,7 @@ export default {
     dbMigrationFailedTag: 'マイグレーション失敗',
     dbMigrationFailedTitle: 'データベースのマイグレーションに失敗しました',
     dbMigrationFailedDesc: '起動時のデータベースマイグレーションが正常に完了しませんでした。一部のテーブルやインデックスが欠落し、Wikiの取り込みやナレッジグラフなどの機能が動作しない可能性があります。マイグレーション問題が解決しない場合は、システム管理者に連絡してください。',
-    dbMigrationViewDocs: 'トラブルシューティングガイドを表示',
+    dbMigrationGuide: 'データベースマイグレーションのトラブル対応：上記のエラー詳細を控えてシステム管理者に連絡してください。問題の解消後にサービスを再起動すると、マイグレーションは自動的に再試行されます。',
     keywordIndexEngineLabel: 'キーワードインデックスエンジン',
     keywordIndexEngineDescription: '現在使用中のキーワードインデックスエンジン',
     vectorStoreEngineLabel: 'ベクトルストアエンジン',

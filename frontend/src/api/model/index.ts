@@ -326,6 +326,8 @@ export interface WeKnoraCloudStatusResult {
   has_models: boolean
   needs_reinit: boolean
   reason?: string
+  /** 后端按角色 403 拒绝（凭证接口仅系统管理员可调）；调用方据此显示能力说明。 */
+  forbidden?: boolean
 }
 
 export function getWeKnoraCloudStatus(): Promise<WeKnoraCloudStatusResult> {
@@ -341,8 +343,8 @@ export function getWeKnoraCloudStatus(): Promise<WeKnoraCloudStatusResult> {
           resolve({ has_models: false, needs_reinit: false })
         }
       })
-      .catch(() => {
-        resolve({ has_models: false, needs_reinit: false })
+      .catch((error: any) => {
+        resolve({ has_models: false, needs_reinit: false, forbidden: error?.status === 403 })
       })
   })
 }

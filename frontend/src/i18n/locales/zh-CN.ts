@@ -4397,7 +4397,7 @@ export default {
     dbMigrationFailedTag: '迁移失败',
     dbMigrationFailedTitle: '数据库迁移失败',
     dbMigrationFailedDesc: '启动时数据库迁移未成功完成，部分表或索引可能未创建，会导致 Wiki、知识图谱等功能异常。如遇迁移问题，请联系系统管理员处理。',
-    dbMigrationViewDocs: '查看排查文档',
+    dbMigrationGuide: '数据库迁移排查：请保留上方错误详情并联系系统管理员；问题处理后重启服务，迁移会自动重试。',
     keywordIndexEngineLabel: '关键词索引引擎',
     keywordIndexEngineDescription: '当前使用的关键词索引引擎',
     vectorStoreEngineLabel: '向量存储引擎',
@@ -6533,6 +6533,7 @@ export default {
   common: {
     add: '添加',
     me: '我',
+    systemAdminOnly: '该能力仅系统管理员可用',
     confirm: '确认',
     cancel: '取消',
     unsavedChanges: {

@@ -42,7 +42,6 @@
                 stroke-linecap="round" />
             </svg>
             <ResourceIcon v-else-if="item.key === 'assistant'" type="assistant" :size="17" class="nav-icon" />
-            <span v-else-if="item.emoji" class="nav-icon nav-icon-emoji">{{ item.emoji }}</span>
             <t-icon v-else :name="item.icon" class="nav-icon" />
             <span class="nav-label">{{ item.label }}</span>
             <t-icon v-if="item.children && item.children.length > 0"
@@ -319,7 +318,6 @@ type NavItem = {
   key: string
   icon: string
   label: string
-  emoji?: string
   children?: Array<{ key: string; label: string }>
 }
 
@@ -447,7 +445,6 @@ const navItems = computed(() => {
   const integrationItems: NavItem[] = INTEGRATION_PREVIEW_ITEMS.map((item) => ({
     key: integrationSectionKey(item.key),
     icon: item.icon.type === 'icon' ? item.icon.name : 'integration',
-    emoji: item.icon.type === 'emoji' ? item.icon.value : undefined,
     label: t(`integrations.tabs.${item.key}`),
   }))
   const all: NavItem[] = [

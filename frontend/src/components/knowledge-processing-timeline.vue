@@ -592,6 +592,8 @@ function onAttemptChange(n: number) {
 watch(
   () => props.knowledgeId,
   () => {
+    // 换文档时上一次的额度耗尽卡不属于当前知识（F5）。
+    clearQuotaNotice()
     selectedAttempt.value = undefined
     data.value = null
     processOverrides.value = null
@@ -1756,8 +1758,9 @@ const processConfigLines = computed<string[]>(() => {
           </div>
 
           <!-- 重试额度耗尽（429 RETRY_LIMIT_EXHAUSTED）：重试按钮位置换成人话
-               卡片，无按钮；抽屉重开或窗口滚动后由后端放行，前端不缓存该状态。 -->
-          <div v-if="quotaNotice" class="kp-quota-card" role="alert">
+               卡片，无按钮；抽屉重开或窗口滚动后由后端放行，前端不缓存该状态。
+               文档重建成功（parse_status 离开 failed）后卡片同步消失（FS5）。 -->
+          <div v-if="quotaNotice && data?.parse_status === 'failed'" class="kp-quota-card" role="alert">
             <div class="kp-quota-top">
               <span class="kp-quota-glyph" aria-hidden="true">!</span>
               <span class="kp-quota-title">{{ t('reparseQuota.title', { title: docTitle || knowledgeId }) }}</span>

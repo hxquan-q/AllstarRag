@@ -201,7 +201,12 @@
             匹配"一条信息"该有的样子。
           -->
           <template v-if="currentEngine.Name === 'weknoracloud'">
-            <div v-if="wkcState === 'configured'" class="inline-alert inline-alert--ok">
+            <!-- 非系统管理员：凭证接口不对其开放（T01 守卫），只给能力说明 -->
+            <div v-if="!authStore.isSystemAdmin" class="inline-alert">
+              <t-icon name="lock-on" class="inline-alert__icon" />
+              <span>{{ $t('common.systemAdminOnly') }}</span>
+            </div>
+            <div v-else-if="wkcState === 'configured'" class="inline-alert inline-alert--ok">
               <t-icon name="check-circle-filled" class="inline-alert__icon" />
               <span>{{ $t('settings.weknoraCloud.credentialConfigured') }}</span>
             </div>
@@ -727,6 +732,11 @@ async function onSave() {
 const wkcState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
 
 async function checkWkcStatus() {
+  // 小爱云凭证接口仅系统管理员可调；非超管不请求，状态由模板的能力说明替代。
+  if (!authStore.isSystemAdmin) {
+    wkcState.value = 'unconfigured'
+    return
+  }
   wkcState.value = 'loading'
   try {
     const status = await getWeKnoraCloudStatus()

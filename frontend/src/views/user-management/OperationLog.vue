@@ -48,7 +48,7 @@
         </template>
         <template #target="{ row }">
           <div class="operation-log__target">
-            <span>{{ displayUser(row.target_user_id) }}</span>
+            <span>{{ targetLabel(row) }}</span>
             <span v-if="roleDiff(row)" class="operation-log__muted">{{ roleDiff(row) }}</span>
           </div>
         </template>
@@ -73,7 +73,7 @@ import { useI18n } from 'vue-i18n'
 import { listAuditLog, type AuditLog, type AuditOutcome } from '@/api/tenant/audit-log'
 import { listUsers, resolveUserManagementError } from '@/api/user-management'
 import { auditActionLabel } from '@/i18n/auditActionLabel'
-import { AUDIT_ACTION_I18N_ROOTS } from '@/i18n/auditActionRegistry'
+import { AUDIT_ACTION_I18N_ROOTS, OPERATION_LOG_AUDIT_ACTIONS } from '@/i18n/auditActionRegistry'
 
 const props = defineProps<{ tenantId: number | null | undefined }>()
 
@@ -84,28 +84,9 @@ const PAGE_SIZE = 50
 // access_denied、vector_store.* 等噪音不进入本 Tab（白名单模式）。
 // 本 Tab 查询带 include_scoped=true 纳入知识库 scope 行；TenantMembers 共享
 // 同一接口但不传参，仍只拿到成员治理行，行为零变化。
-const MEMBER_ACTIONS = [
-  'rbac.member_added',
-  'rbac.member_removed',
-  'rbac.member_role_changed',
-  'rbac.member_password_reset',
-  'rbac.invitation_sent',
-  'rbac.invitation_accepted',
-  'rbac.invitation_revoked',
-  'rbac.member_banned',
-  'rbac.member_unbanned',
-  'rbac.member_purged',
-  'rbac.owner_transferred',
-  // 文档/知识库核心写行为：回答「谁动了哪个文档」。
-  'knowledge.created',
-  'knowledge.updated',
-  'knowledge.deleted',
-  'knowledge.batch_deleted',
-  'knowledge.reparse_started',
-  'kb.created',
-  'kb.updated',
-  'kb.deleted',
-] as const
+// 白名单单一来源在 auditActionRegistry（FS7）：既用于本地过滤（双保险），
+// 也作为 `actions` 参数下推给后端，避免白名单外行混进分页后整页被滤空（FS3）。
+const MEMBER_ACTIONS = OPERATION_LOG_AUDIT_ACTIONS
 
 const entries = ref<AuditLog[]>([])
 const cursor = ref(0)
@@ -141,6 +122,22 @@ function displayUser(userId: string): string {
   return userNames.value[userId] || t('userManagement.operations.unknownUser')
 }
 
+/**
+ * 目标列（OQ4/FS4）：文档类行优先显示文档名（details.title）、知识库行显示
+ * 库名（details.name）；都没有（或非白名单动作）再回退 target_user_id/「—」。
+ * 只对白名单动作生效，平台/噪音动作的渲染口径不变。
+ */
+function targetLabel(row: AuditLog): string {
+  if ((MEMBER_ACTIONS as readonly string[]).includes(row.action)) {
+    const details = typeof row.details === 'object' && row.details ? row.details : null
+    const title = details?.title
+    if (typeof title === 'string' && title.trim()) return title.trim()
+    const name = details?.name
+    if (typeof name === 'string' && name.trim()) return name.trim()
+  }
+  return displayUser(row.target_user_id)
+}
+
 function roleDiff(row: AuditLog): string {
   if (row.action !== 'rbac.member_role_changed') return ''
   const details = typeof row.details === 'object' && row.details ? row.details : null
@@ -167,6 +164,11 @@ function outcomeTheme(outcome: AuditOutcome): 'success' | 'danger' | 'default' {
 function outcomeLabel(outcome: AuditOutcome): string {
   if (outcome === 'success') return t('userManagement.operations.outcomeSuccess')
   if (outcome === 'denied' || outcome === 'failed') return t('userManagement.operations.outcomeFailed')
+  // 文档上传/重解析的 outcome 是 accepted / partial / canceled（FS2），
+  // 复用知识库活动页已有的词条，中文客户不再看到英文原值。
+  if (outcome === 'accepted') return t('knowledgeEditor.activity.outcomes.accepted')
+  if (outcome === 'partial') return t('knowledgeEditor.activity.outcomes.partial')
+  if (outcome === 'canceled') return t('knowledgeEditor.activity.outcomes.canceled')
   return outcome
 }
 
@@ -229,6 +231,8 @@ async function load(reset: boolean) {
       after_id: reset ? undefined : cursor.value || undefined,
       limit: PAGE_SIZE,
       action: actionFilter.value || undefined,
+      // 白名单随查询下推（后端 IN 过滤，FS3），本地仍保留 includes 双保险。
+      actions: [...MEMBER_ACTIONS],
       q: keyword.value.trim() || undefined,
       include_scoped: true,
     })
