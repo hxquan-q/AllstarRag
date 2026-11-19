@@ -6,7 +6,7 @@ import TDesign from "tdesign-vue-next";
 // 引入组件库的少量全局样式变量
 import "tdesign-vue-next/dist/tdesign.css";
 import "@/assets/theme/theme.css";
-// 客户版主题必须在 theme.css 之后加载：同优先级下后加载的 html[data-customer] 规则才能覆盖绿色令牌。
+// 客户版主题必须在 theme.css 之后加载：同优先级下后加载的 html[data-customer] 规则才能覆盖默认品牌令牌。
 import "@/assets/theme/brand.css";
 // 客户版移动端公共样式（T01 骨架）：同样全部挂在 html[data-customer="true"] 下，
 // 并且页面规则再包一层 max-width: 1023px，管理端不会命中。
