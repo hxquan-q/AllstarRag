@@ -102,26 +102,42 @@ type infraGuardRoute struct {
 }
 
 var infraGuardRoutes = []infraGuardRoute{
-	{name: "ollama_status", method: http.MethodGet,
-		path: "/api/v1/initialization/ollama/status", allowedCode: http.StatusOK},
-	{name: "ollama_models_list", method: http.MethodGet,
-		path: "/api/v1/initialization/ollama/models", allowedCode: http.StatusInternalServerError},
-	{name: "ollama_models_check", method: http.MethodPost,
+	{
+		name: "ollama_status", method: http.MethodGet,
+		path: "/api/v1/initialization/ollama/status", allowedCode: http.StatusOK,
+	},
+	{
+		name: "ollama_models_list", method: http.MethodGet,
+		path: "/api/v1/initialization/ollama/models", allowedCode: http.StatusInternalServerError,
+	},
+	{
+		name: "ollama_models_check", method: http.MethodPost,
 		path: "/api/v1/initialization/ollama/models/check",
-		body: `{"models":["qwen3:0.6b"]}`, allowedCode: http.StatusInternalServerError},
-	{name: "ollama_models_download", method: http.MethodPost,
+		body: `{"models":["qwen3:0.6b"]}`, allowedCode: http.StatusInternalServerError,
+	},
+	{
+		name: "ollama_models_download", method: http.MethodPost,
 		path: "/api/v1/initialization/ollama/models/download",
-		body: `{"modelName":"qwen3:0.6b"}`, allowedCode: http.StatusInternalServerError},
-	{name: "ollama_download_progress", method: http.MethodGet,
+		body: `{"modelName":"qwen3:0.6b"}`, allowedCode: http.StatusInternalServerError,
+	},
+	{
+		name: "ollama_download_progress", method: http.MethodGet,
 		path:        "/api/v1/initialization/ollama/download/progress/t01-missing-task",
-		allowedCode: http.StatusNotFound},
-	{name: "ollama_download_tasks", method: http.MethodGet,
-		path: "/api/v1/initialization/ollama/download/tasks", allowedCode: http.StatusOK},
-	{name: "weknoracloud_credentials", method: http.MethodPost,
+		allowedCode: http.StatusNotFound,
+	},
+	{
+		name: "ollama_download_tasks", method: http.MethodGet,
+		path: "/api/v1/initialization/ollama/download/tasks", allowedCode: http.StatusOK,
+	},
+	{
+		name: "weknoracloud_credentials", method: http.MethodPost,
 		path: "/api/v1/weknoracloud/credentials",
-		body: `{"app_id":"app","app_secret":"secret"}`, allowedCode: http.StatusOK},
-	{name: "weknoracloud_status", method: http.MethodGet,
-		path: "/api/v1/models/weknoracloud/status", allowedCode: http.StatusOK},
+		body: `{"app_id":"app","app_secret":"secret"}`, allowedCode: http.StatusOK,
+	},
+	{
+		name: "weknoracloud_status", method: http.MethodGet,
+		path: "/api/v1/models/weknoracloud/status", allowedCode: http.StatusOK,
+	},
 }
 
 func infraGuardEngine(
@@ -270,8 +286,10 @@ func TestInfraRoutesAllowPlatformAPIKey(t *testing.T) {
 func TestInfraRoutesRejectTenantAPIKeys(t *testing.T) {
 	scopes := map[string]*types.TenantAPIKeyScope{
 		"tenant_full_access": {KeyID: 102, FullAccess: true},
-		"tenant_manage_models": {KeyID: 103,
-			Capabilities: types.StringArray{string(types.APIKeyCapabilityManageModels)}},
+		"tenant_manage_models": {
+			KeyID:        103,
+			Capabilities: types.StringArray{string(types.APIKeyCapabilityManageModels)},
+		},
 	}
 	for name, scope := range scopes {
 		scope := scope
