@@ -113,17 +113,26 @@ func RegisterInitializationRoutes(r *gin.RouterGroup, handler *handler.Initializ
 	g.apiKeyRoute(r, http.MethodPut, "/initialization/config/:kbId",
 		apiKeyManageKnowledgeBases(apiKeyFullAccess()), g.OwnedKBOrAdminFromKbIDParam(), g.KBAccessWrite("kbId"), handler.UpdateKBConfig)
 
-	// Ollama / 远程 API / 抽取等系统级检测/下载操作。这些不绑某个 KB，
-	// 会改空间级模型配置或拉远端模型；JWT 侧只读探测 Viewer+、变更 Admin+。
-	// 对 API key 均为空间级：full-access key 可用，scoped key 需要 manage_models。
-	g.apiKeyRoute(r, http.MethodGet, "/initialization/ollama/status", apiKeyManageModels(apiKeyFullAccess()), g.Viewer(), handler.CheckOllamaStatus)
-	g.apiKeyRoute(r, http.MethodGet, "/initialization/ollama/models", apiKeyManageModels(apiKeyFullAccess()), g.Viewer(), handler.ListOllamaModels)
-	g.apiKeyRoute(r, http.MethodPost, "/initialization/ollama/models/check", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.CheckOllamaModels)
-	g.apiKeyRoute(r, http.MethodPost, "/initialization/ollama/models/download", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.DownloadOllamaModel)
-	g.apiKeyRoute(r, http.MethodGet, "/initialization/ollama/download/progress/:taskId", apiKeyManageModels(apiKeyFullAccess()), g.Viewer(), handler.GetDownloadProgress)
-	g.apiKeyRoute(r, http.MethodGet, "/initialization/ollama/download/tasks", apiKeyManageModels(apiKeyFullAccess()), g.Viewer(), handler.ListDownloadTasks)
+	// Ollama 检测/下载操作（admin-feature-surface 裁剪）：仅系统管理员可用。
+	// 这些不绑某个 KB，会改空间级模型配置或拉远端模型，故收进平台管理面。
+	// UI gating 在前端 Settings 分区裁剪（owner 端不渲染 Ollama 分区）；
+	// 真权限=RequireSystemAdmin：空间角色一律 403 并落审计，不受 RBAC 开关影响。
+	// API-key 策略声明不动：RequireSystemAdmin 只放平台级 key，租户级 key 拒绝。
+	g.apiKeyRoute(r, http.MethodGet, "/initialization/ollama/status",
+		apiKeyManageModels(apiKeyFullAccess()), g.SystemAdmin(), handler.CheckOllamaStatus)
+	g.apiKeyRoute(r, http.MethodGet, "/initialization/ollama/models",
+		apiKeyManageModels(apiKeyFullAccess()), g.SystemAdmin(), handler.ListOllamaModels)
+	g.apiKeyRoute(r, http.MethodPost, "/initialization/ollama/models/check",
+		apiKeyManageModels(apiKeyFullAccess()), g.SystemAdmin(), handler.CheckOllamaModels)
+	g.apiKeyRoute(r, http.MethodPost, "/initialization/ollama/models/download",
+		apiKeyManageModels(apiKeyFullAccess()), g.SystemAdmin(), handler.DownloadOllamaModel)
+	g.apiKeyRoute(r, http.MethodGet, "/initialization/ollama/download/progress/:taskId",
+		apiKeyManageModels(apiKeyFullAccess()), g.SystemAdmin(), handler.GetDownloadProgress)
+	g.apiKeyRoute(r, http.MethodGet, "/initialization/ollama/download/tasks",
+		apiKeyManageModels(apiKeyFullAccess()), g.SystemAdmin(), handler.ListDownloadTasks)
 
-	// 远程API相关接口
+	// 远程API相关接口：仍是空间角色语义（变更 Admin+），
+	// 对 API key 为空间级：full-access key 可用，scoped key 需要 manage_models。
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/remote/check", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.CheckRemoteModel)
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/embedding/test", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.TestEmbeddingModel)
 	g.apiKeyRoute(r, http.MethodPost, "/initialization/rerank/check", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.CheckRerankModel)
@@ -353,9 +362,13 @@ func RegisterDataSourceRoutes(
 
 // RegisterWeKnoraCloudRoutes 注册 WeKnoraCloud 初始化路由
 // RegisterWeKnoraCloudRoutes registers the WeKnoraCloud credential
-// management endpoints. SaveCredentials persists external SaaS keys
-// for the tenant (Admin+), Status is a low-risk readiness probe (Viewer+).
+// management endpoints (admin-feature-surface: system admin only).
 func RegisterWeKnoraCloudRoutes(r *gin.RouterGroup, handler *handler.WeKnoraCloudHandler, g *rbacGuards) {
-	g.apiKeyRoute(r, http.MethodPost, "/weknoracloud/credentials", apiKeyManageModels(apiKeyFullAccess()), g.Admin(), handler.SaveCredentials)
-	g.apiKeyRoute(r, http.MethodGet, "/models/weknoracloud/status", apiKeyManageModels(apiKeyFullAccess()), g.Viewer(), handler.Status)
+	// UI gating 在前端 Settings 分区裁剪（owner 端不渲染小爱云分区）；
+	// 真权限=RequireSystemAdmin：空间角色一律 403 并落审计，不受 RBAC 开关影响。
+	// API-key 策略声明不动：RequireSystemAdmin 只放平台级 key，租户级 key 拒绝。
+	g.apiKeyRoute(r, http.MethodPost, "/weknoracloud/credentials",
+		apiKeyManageModels(apiKeyFullAccess()), g.SystemAdmin(), handler.SaveCredentials)
+	g.apiKeyRoute(r, http.MethodGet, "/models/weknoracloud/status",
+		apiKeyManageModels(apiKeyFullAccess()), g.SystemAdmin(), handler.Status)
 }
