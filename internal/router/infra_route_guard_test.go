@@ -181,10 +181,11 @@ func infraGuardEngine(
 	return engine
 }
 
-func infraGuardDo(
+// infraGuardDoRec 执行请求并返回整个 recorder（供响应体文案断言用）。
+func infraGuardDoRec(
 	t *testing.T, s infraGuardSession, rbacOn bool, audit *infraGuardAuditStub,
 	method, path, body string,
-) int {
+) *httptest.ResponseRecorder {
 	t.Helper()
 	var reader io.Reader
 	if body != "" {
@@ -193,7 +194,14 @@ func infraGuardDo(
 	req := httptest.NewRequest(method, path, reader)
 	w := httptest.NewRecorder()
 	infraGuardEngine(t, s, rbacOn, audit).ServeHTTP(w, req)
-	return w.Code
+	return w
+}
+
+func infraGuardDo(
+	t *testing.T, s infraGuardSession, rbacOn bool, audit *infraGuardAuditStub,
+	method, path, body string,
+) int {
+	return infraGuardDoRec(t, s, rbacOn, audit, method, path, body).Code
 }
 
 // 红点 1：JWT 空间角色（owner/admin/contributor/viewer）调 8 条路由全部 403。
@@ -305,9 +313,13 @@ func TestInfraRoutesRejectEvenWhenRBACDisabled(t *testing.T) {
 func TestInfraRoutesDenialFiresAudit(t *testing.T) {
 	audit := &infraGuardAuditStub{}
 	s := infraGuardSession{role: types.TenantRoleOwner, userID: "u-owner-audit"}
-	code := infraGuardDo(t, s, true, audit, http.MethodGet,
+	w := infraGuardDoRec(t, s, true, audit, http.MethodGet,
 		"/api/v1/initialization/ollama/status", "")
-	require.Equal(t, http.StatusForbidden, code, "owner 调 Ollama 状态接口必须 403")
+	require.Equal(t, http.StatusForbidden, w.Code, "owner 调 Ollama 状态接口必须 403")
+	// T01 验收条件 6：拒绝文案沿用 RequireSystemAdmin 既有文案，不新造
+	//（队长对红阶段 Q1 的裁决：票级复跑补字面断言锁定）。
+	require.Contains(t, w.Body.String(), "Forbidden: system administrator required",
+		"403 响应体必须携带 RequireSystemAdmin 统一拒绝文案（验收条件 6）")
 	require.Len(t, audit.calls, 1, "拒绝必须恰好落一条 rbac 拒绝审计")
 	got := audit.calls[0]
 	require.Equal(t, memberGuardTenantID, got.tenantID)
