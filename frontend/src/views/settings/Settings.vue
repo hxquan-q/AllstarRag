@@ -281,6 +281,10 @@ import {
   settingsQueryUnchanged,
 } from '@/config/settingsRoute'
 import { isCustomerSettingsSection, isCustomerViewer } from '@/config/customerAccess'
+import {
+  REMOVED_INTEGRATION_TABS,
+  SYSTEM_ADMIN_ONLY_INTEGRATION_TABS,
+} from '@/config/ownerSurface'
 
 const route = useRoute()
 const router = useRouter()
@@ -384,11 +388,23 @@ const canSeeSection = (key: string): boolean => {
   // normalizeSettingsSection 跳到 user-management。
   if (key === 'members') return false
   if (isIntegrationSection(key)) {
-    const min = INTEGRATION_TAB_MIN_ROLE[integrationTabFromSection(key)]
+    const tab = integrationTabFromSection(key)
+    // T03 裁定清单（admin-feature-surface）：claw 全角色删除；chrome / cli
+    // 仅系统管理员可见（超管保留=用户有意，勿统一）。这里只裁界面入口与
+    // deep-link 兜底（UI gating only）；这几个 tab 都是纯外链页，无后端
+    // 接口，真权限以后端 RBAC 为准（C4）。
+    if (REMOVED_INTEGRATION_TABS.has(tab)) return false
+    if (SYSTEM_ADMIN_ONLY_INTEGRATION_TABS.has(tab)) return authStore.isSystemAdmin
+    const min = INTEGRATION_TAB_MIN_ROLE[tab]
     if (!min) return true
     if (authStore.canAccessAllTenants) return true
     return authStore.hasRole(min)
   }
+  // T03 裁定清单：Ollama / 小爱云分区仅系统管理员可见（超管保留=用户
+  // 有意）。这里只是 UI gating：真权限在后端 RequireSystemAdmin（T01 已
+  // 对空间角色 403）；deep-link ?section=ollama|weknoracloud 对无权身份
+  // 落到 role-denied 兜底（C4）。
+  if (key === 'ollama' || key === 'weknoracloud') return authStore.isSystemAdmin
   if (SYSTEM_ADMIN_SECTIONS.has(key)) {
     return authStore.isSystemAdmin
   }
@@ -425,6 +441,9 @@ const navItems = computed(() => {
   // 一律走 SETTINGS_SECTION_MIN_ROLE 表，避免 ad-hoc isAdmin/isOwner 散落在多处。
   // 服务端在每条路由上仍以 g.Viewer/Admin/Owner 为准，这里只决定 UI 是
   // 否露入口；改动入口规则请同步更新 settingsAccess.ts 和对应后端路由。
+  // T03（admin-feature-surface）例外：ollama / weknoracloud / chrome / cli
+  // 的「仅系统管理员」闸在 canSeeSection 里显式判定（ownerSurface.ts +
+  // 内联），不走角色档位表。
   const integrationItems: NavItem[] = INTEGRATION_PREVIEW_ITEMS.map((item) => ({
     key: integrationSectionKey(item.key),
     icon: item.icon.type === 'icon' ? item.icon.name : 'integration',

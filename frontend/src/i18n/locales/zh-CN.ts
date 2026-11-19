@@ -847,60 +847,6 @@ export default {
     filterByAgent: '按智能体筛选',
     filterByAgentWithName: '按智能体筛选：{name}',
     filterAllAgents: '全部智能体',
-    claw: {
-      title: '小爱 Skill',
-      subtitle: '通过小爱知识库 REST API 导入文档并执行混合检索（向量 + 关键词）。适用于上传文件/URL/Markdown 到知识库、跨库检索与浏览知识内容。',
-      capabilitiesTitle: 'Skill 能力',
-      stepsTitle: '配置步骤',
-      openApiSettings: '打开 API 信息',
-      copy: '复制',
-      copyEnvSuccess: '已复制环境变量示例',
-      copyCmdSuccess: '已复制安装命令',
-      ecosystemNote: 'Skill 托管于 ClawHub（{\'@\'}lyingbug/weknora），完整 API 说明与版本历史请参见 ClawHub 页面。',
-      installCta: '前往 ClawHub',
-      installCtaHint: '安装小爱 Skill · 将在新标签页打开',
-      hubMeta: 'ClawHub · {\'@\'}lyingbug/weknora · MIT-0',
-      steps: {
-        verify: {
-          title: '验证连接',
-          desc: '安装后让 Agent 列出知识库或执行一次检索，确认 API 凭证与网络可达。'
-        },
-        install: {
-          title: '安装 Skill',
-          desc: '在已安装 OpenClaw CLI 的环境中执行下方命令，或前往 ClawHub 页面按指引安装。'
-        },
-        env: {
-          title: '配置环境变量',
-          desc: '在终端或 ~/.zshrc、~/.bashrc 中设置 WEKNORA_BASE_URL 与 WEKNORA_API_KEY。下方示例已填入当前 API 地址，请将 API Key 替换为实际值。'
-        },
-        api: {
-          title: '获取 API 凭证',
-          desc: '在「设置 → API 信息」中复制 API Key 与 API 地址。'
-        }
-      },
-      capabilities: {
-        browse: {
-          title: '浏览知识库',
-          desc: '列出知识库与条目、查看详情，管理已导入的知识内容。'
-        },
-        search: {
-          title: '混合检索',
-          desc: '单库 hybrid-search 与跨库 knowledge-search，结合向量与关键词召回。'
-        },
-        manual: {
-          title: '写入 Markdown',
-          desc: '以 Markdown 形式创建或编辑知识条目，适合会议记录与结构化笔记。'
-        },
-        url: {
-          title: '导入网页',
-          desc: '通过 URL 抓取网页内容并写入知识库，支持解析状态轮询。'
-        },
-        upload: {
-          title: '上传文件',
-          desc: '将 PDF、Word、Excel 等文档上传至知识库，自动解析与向量化。'
-        }
-      }
-    },
     chrome: {
       title: '知识管理助手',
       subtitle: '配合小爱知识库自建服务使用：在任意网页侧边栏提问、剪藏内容、Markdown 速记，将浏览中的知识沉淀到你的知识库。',
@@ -1234,7 +1180,6 @@ export default {
       api: 'API 集成',
       chrome: 'Chrome 插件',
       cli: 'CLI',
-      claw: 'Claw Skill',
       mcpserver: 'MCP Server'
     }
   },
@@ -4164,7 +4109,6 @@ export default {
     title: '常规设置',
     allSettings: '全部设置',
     personalSettings: '个人设置',
-    helpAndDocs: '帮助与文档',
     description: '配置语言、外观等基础选项',
     settings: '设置',
     close: '关闭设置'
@@ -4424,7 +4368,7 @@ export default {
     loadingInfo: '正在加载信息...',
     retry: '重试',
     versionLabel: '应用版本',
-    versionDescription: '当前应用服务（weknora-app）的版本号',
+    versionDescription: '当前应用服务的版本号',
     frontendVersionLabel: 'UI 版本',
     frontendVersionDescription: '当前 UI 界面（weknora-ui）的构建版本号',
     versionMismatch: '与应用版本不一致',
@@ -4444,9 +4388,8 @@ export default {
     dbVersionDescription: '当前数据库迁移版本号',
     dbMigrationFailedTag: '迁移失败',
     dbMigrationFailedTitle: '数据库迁移失败',
-    dbMigrationFailedDesc: '启动时数据库迁移未成功完成，部分表或索引可能未创建，会导致 Wiki、知识图谱等功能异常。建议先查看排查文档自助修复；如仍无法解决，请通过下方链接反馈。',
+    dbMigrationFailedDesc: '启动时数据库迁移未成功完成，部分表或索引可能未创建，会导致 Wiki、知识图谱等功能异常。如遇迁移问题，请联系系统管理员处理。',
     dbMigrationViewDocs: '查看排查文档',
-    dbMigrationReportIssue: '无法修复？提交 Issue',
     keywordIndexEngineLabel: '关键词索引引擎',
     keywordIndexEngineDescription: '当前使用的关键词索引引擎',
     vectorStoreEngineLabel: '向量存储引擎',
@@ -6620,9 +6563,6 @@ export default {
     all: '全部',
     clear: '清空',
     website: '官方网站',
-    clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: '在 GitHub 打开仓库，若觉得有用欢迎点个 Star',
     on: '开启',
     off: '关闭',
     confirmDelete: '确认删除',

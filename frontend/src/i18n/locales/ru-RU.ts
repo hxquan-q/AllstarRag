@@ -847,60 +847,6 @@ export default {
     filterByAgent: 'Фильтр по агенту',
     filterByAgentWithName: 'Фильтр по агенту: {name}',
     filterAllAgents: 'Все агенты',
-    claw: {
-      title: 'XiaoAi Skill',
-      subtitle: 'Импорт документов и гибридный поиск (вектор + ключевые слова) через REST API XiaoAi — загрузки, URL, Markdown и поиск.',
-      capabilitiesTitle: 'Возможности Skill',
-      stepsTitle: 'Шаги настройки',
-      openApiSettings: 'Открыть API-информацию',
-      copy: 'Копировать',
-      copyEnvSuccess: 'Пример переменных скопирован',
-      copyCmdSuccess: 'Команда установки скопирована',
-      ecosystemNote: 'Skill размещён на ClawHub ({\'@\'}lyingbug/weknora). Полная документация API — на странице ClawHub.',
-      installCta: 'Открыть ClawHub',
-      installCtaHint: 'Установка XiaoAi Skill · откроется в новой вкладке',
-      hubMeta: 'ClawHub · {\'@\'}lyingbug/weknora · MIT-0',
-      steps: {
-        verify: {
-          title: 'Проверка',
-          desc: 'Попросите агента вывести список БЗ или выполнить поиск.'
-        },
-        install: {
-          title: 'Установка Skill',
-          desc: 'Выполните команду ниже в среде с OpenClaw CLI или следуйте инструкциям на ClawHub.'
-        },
-        env: {
-          title: 'Переменные окружения',
-          desc: 'Задайте WEKNORA_BASE_URL и WEKNORA_API_KEY в shell или ~/.zshrc / ~/.bashrc. Пример ниже использует текущий API URL — замените API Key на фактическое значение.'
-        },
-        api: {
-          title: 'API-учётные данные',
-          desc: 'Скопируйте API Key и URL в «Настройки → API-информация».'
-        }
-      },
-      capabilities: {
-        browse: {
-          title: 'Просмотр знаний',
-          desc: 'Списки БЗ и записей, детали и управление контентом.'
-        },
-        search: {
-          title: 'Гибридный поиск',
-          desc: 'hybrid-search по одной БЗ и knowledge-search по нескольким.'
-        },
-        manual: {
-          title: 'Markdown',
-          desc: 'Создание и правка записей в формате Markdown.'
-        },
-        url: {
-          title: 'Импорт URL',
-          desc: 'Загрузка веб-страниц по URL с отслеживанием parse_status.'
-        },
-        upload: {
-          title: 'Загрузка файлов',
-          desc: 'PDF, Word, Excel и др. с автоматическим разбором.'
-        }
-      }
-    },
     chrome: {
       title: 'Помощник по знаниям',
       subtitle: 'Для self-hosted XiaoAi: вопросы в боковой панели, клиппинг страниц и Markdown-заметки в базы знаний прямо при просмотре.',
@@ -1234,7 +1180,6 @@ export default {
       api: 'API-интеграция',
       chrome: 'Расширение Chrome',
       cli: 'CLI',
-      claw: 'Claw Skill',
       mcpserver: 'MCP-сервер'
     }
   },
@@ -4162,7 +4107,6 @@ export default {
     title: 'Общие настройки',
     allSettings: 'Все настройки',
     personalSettings: 'Личные настройки',
-    helpAndDocs: 'Справка и документация',
     description: 'Настройка языка, внешнего вида и других базовых параметров',
     settings: 'Настройки',
     close: 'Закрыть настройки'
@@ -4422,7 +4366,7 @@ export default {
     loadingInfo: 'Загрузка данных...',
     retry: 'Повторить',
     versionLabel: 'Версия приложения',
-    versionDescription: 'Версия сервиса приложения (weknora-app)',
+    versionDescription: 'Версия сервиса приложения',
     frontendVersionLabel: 'Версия UI',
     frontendVersionDescription: 'Версия сборки UI (weknora-ui)',
     versionMismatch: 'Не совпадает с версией приложения',
@@ -4442,9 +4386,8 @@ export default {
     dbVersionDescription: 'Текущая версия миграции базы данных',
     dbMigrationFailedTag: 'Миграция не удалась',
     dbMigrationFailedTitle: 'Сбой миграции базы данных',
-    dbMigrationFailedDesc: 'Миграция базы данных при запуске не завершилась успешно. Часть таблиц или индексов могла не создаться, из-за чего Wiki, граф знаний и другие функции могут не работать. Сначала ознакомьтесь с руководством по диагностике ниже; если проблема сохраняется, сообщите о ней по ссылке.',
+    dbMigrationFailedDesc: 'Миграция базы данных при запуске не завершилась успешно. Часть таблиц или индексов могла не создаться, из-за чего Wiki, граф знаний и другие функции могут не работать. Если проблема с миграцией не решается, обратитесь к системному администратору.',
     dbMigrationViewDocs: 'Открыть руководство по диагностике',
-    dbMigrationReportIssue: 'Не удаётся починить? Создать issue',
     keywordIndexEngineLabel: 'Движок индексации ключевых слов',
     keywordIndexEngineDescription: 'Используемый в настоящее время движок индексации ключевых слов',
     vectorStoreEngineLabel: 'Движок векторного хранилища',
@@ -6619,9 +6562,6 @@ export default {
     all: 'Все',
     clear: 'Очистить',
     website: 'Официальный сайт',
-    clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: 'Открыть репозиторий на GitHub — поставьте Star, если проект полезен',
     on: 'Вкл',
     off: 'Выкл',
     confirmDelete: 'Подтвердить удаление',

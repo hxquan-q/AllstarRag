@@ -847,60 +847,6 @@ export default {
     filterByAgent: '에이전트별 필터',
     filterByAgentWithName: '에이전트별 필터: {name}',
     filterAllAgents: '전체 에이전트',
-    claw: {
-      title: 'XiaoAi Skill',
-      subtitle: 'XiaoAi REST API로 문서를 가져오고 하이브리드 검색(벡터+키워드)을 수행합니다. 파일/URL/Markdown 업로드 및 검색에 사용.',
-      capabilitiesTitle: 'Skill 기능',
-      stepsTitle: '구성 단계',
-      openApiSettings: 'API 정보 열기',
-      copy: '복사',
-      copyEnvSuccess: '환경 변수 예시가 복사되었습니다',
-      copyCmdSuccess: '설치 명령이 복사되었습니다',
-      ecosystemNote: 'Skill은 ClawHub({\'@\'}lyingbug/weknora)에 호스팅됩니다. 전체 API 문서는 ClawHub 페이지를 참고하세요.',
-      installCta: 'ClawHub 열기',
-      installCtaHint: 'XiaoAi Skill 설치 · 새 탭에서 열림',
-      hubMeta: 'ClawHub · {\'@\'}lyingbug/weknora · MIT-0',
-      steps: {
-        verify: {
-          title: '연결 확인',
-          desc: '에이전트로 지식베이스 목록 또는 검색을 실행해 연결을 확인하세요.'
-        },
-        install: {
-          title: 'Skill 설치',
-          desc: 'OpenClaw CLI가 설치된 환경에서 아래 명령을 실행하거나 ClawHub 안내를 따르세요.'
-        },
-        env: {
-          title: '환경 변수 설정',
-          desc: '셸 또는 ~/.zshrc, ~/.bashrc에 WEKNORA_BASE_URL과 WEKNORA_API_KEY를 설정하세요. 아래 예시는 현재 API 주소를 사용하며, API Key는 실제 값으로 바꾸세요.'
-        },
-        api: {
-          title: 'API 자격 증명',
-          desc: '설정 → API 정보에서 API Key와 주소를 복사하세요.'
-        }
-      },
-      capabilities: {
-        browse: {
-          title: '지식 탐색',
-          desc: '지식베이스·항목 목록, 상세 보기 및 관리.'
-        },
-        search: {
-          title: '하이브리드 검색',
-          desc: '단일 KB hybrid-search 및 교차 KB knowledge-search.'
-        },
-        manual: {
-          title: 'Markdown 작성',
-          desc: 'Markdown으로 지식 항목을 생성·편집.'
-        },
-        url: {
-          title: 'URL 가져오기',
-          desc: 'URL로 웹 페이지를 지식베이스에 가져오고 파싱 상태를 확인.'
-        },
-        upload: {
-          title: '파일 업로드',
-          desc: 'PDF, Word, Excel 등을 업로드하고 자동 파싱·벡터화.'
-        }
-      }
-    },
     chrome: {
       title: '지식 관리 어시스턴트',
       subtitle: '자체 호스팅 XiaoAi와 함께: 사이드바에서 질문하고, 웹 페이지를 클리핑하며, Markdown 메모를 지식베이스에 저장하세요.',
@@ -1234,7 +1180,6 @@ export default {
       api: 'API 연동',
       chrome: 'Chrome 확장',
       cli: 'CLI',
-      claw: 'Claw Skill',
       mcpserver: 'MCP 서버'
     }
   },
@@ -4162,7 +4107,6 @@ export default {
     title: '일반 설정',
     allSettings: '모든 설정',
     personalSettings: '개인 설정',
-    helpAndDocs: '도움말 및 문서',
     description: '언어, 외관 등 기본 옵션 설정',
     settings: '설정',
     close: '설정 닫기'
@@ -4422,7 +4366,7 @@ export default {
     loadingInfo: '정보 로딩 중...',
     retry: '재시도',
     versionLabel: '앱 버전',
-    versionDescription: '애플리케이션 서비스(weknora-app)의 버전 번호',
+    versionDescription: '애플리케이션 서비스의 버전 번호',
     frontendVersionLabel: 'UI 버전',
     frontendVersionDescription: 'UI(weknora-ui) 빌드 버전 번호',
     versionMismatch: '앱 버전과 일치하지 않음',
@@ -4442,9 +4386,8 @@ export default {
     dbVersionDescription: '현재 데이터베이스 마이그레이션 버전',
     dbMigrationFailedTag: '마이그레이션 실패',
     dbMigrationFailedTitle: '데이터베이스 마이그레이션 실패',
-    dbMigrationFailedDesc: '시작 시 데이터베이스 마이그레이션이 정상적으로 완료되지 않았습니다. 일부 테이블이나 인덱스가 생성되지 않았을 수 있으며, Wiki와 지식 그래프 기능 등이 동작하지 않을 수 있습니다. 먼저 아래 문제 해결 문서를 확인하여 직접 복구해 보고, 그래도 해결되지 않으면 이슈를 등록해 주세요.',
+    dbMigrationFailedDesc: '시작 시 데이터베이스 마이그레이션이 정상적으로 완료되지 않았습니다. 일부 테이블이나 인덱스가 생성되지 않았을 수 있으며, Wiki와 지식 그래프 기능 등이 동작하지 않을 수 있습니다. 마이그레이션 문제가 해결되지 않으면 시스템 관리자에게 문의해 주세요.',
     dbMigrationViewDocs: '문제 해결 문서 보기',
-    dbMigrationReportIssue: '해결되지 않나요? 이슈 등록',
     keywordIndexEngineLabel: '키워드 인덱스 엔진',
     keywordIndexEngineDescription: '현재 사용 중인 키워드 인덱스 엔진',
     vectorStoreEngineLabel: '벡터 저장소 엔진',
@@ -6619,9 +6562,6 @@ export default {
     all: '전체',
     clear: '지우기',
     website: '공식 웹사이트',
-    clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: 'GitHub에서 저장소로 이동합니다. 유용하다면 Star를 부탁드립니다',
     on: '켜기',
     off: '끄기',
     confirmDelete: '삭제 확인',

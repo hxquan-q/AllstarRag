@@ -3125,9 +3125,6 @@ export default {
     all: 'すべて',
     clear: 'クリア',
     website: '公式サイト',
-    clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: 'GitHubでリポジトリを開きます。役に立ったらStarをお願いします',
     on: 'オン',
     off: 'オフ',
     confirmDelete: '削除の確認',
@@ -4752,7 +4749,7 @@ export default {
     loadingInfo: '情報を読み込み中...',
     retry: '再試行',
     versionLabel: 'アプリバージョン',
-    versionDescription: 'アプリケーションサービス（weknora-app）のバージョン',
+    versionDescription: 'アプリケーションサービスのバージョン',
     frontendVersionLabel: 'UIバージョン',
     frontendVersionDescription: 'UI（weknora-ui）のビルドバージョン',
     versionMismatch: 'アプリバージョンと不一致',
@@ -4772,9 +4769,8 @@ export default {
     dbVersionDescription: '現在のデータベースマイグレーションのバージョン',
     dbMigrationFailedTag: 'マイグレーション失敗',
     dbMigrationFailedTitle: 'データベースのマイグレーションに失敗しました',
-    dbMigrationFailedDesc: '起動時のデータベースマイグレーションが正常に完了しませんでした。一部のテーブルやインデックスが欠落し、Wikiの取り込みやナレッジグラフなどの機能が動作しない可能性があります。まず下記のトラブルシューティングガイドを確認し、解決しない場合はリンクから問題を報告してください。',
+    dbMigrationFailedDesc: '起動時のデータベースマイグレーションが正常に完了しませんでした。一部のテーブルやインデックスが欠落し、Wikiの取り込みやナレッジグラフなどの機能が動作しない可能性があります。マイグレーション問題が解決しない場合は、システム管理者に連絡してください。',
     dbMigrationViewDocs: 'トラブルシューティングガイドを表示',
-    dbMigrationReportIssue: '解決しない場合は問題を報告',
     keywordIndexEngineLabel: 'キーワードインデックスエンジン',
     keywordIndexEngineDescription: '現在使用中のキーワードインデックスエンジン',
     vectorStoreEngineLabel: 'ベクトルストアエンジン',
@@ -5565,7 +5561,6 @@ export default {
       title: '一般設定',
       allSettings: 'すべての設定',
       personalSettings: '個人設定',
-      helpAndDocs: 'ヘルプとドキュメント',
       description: '言語や外観などの基本オプションを設定します',
       settings: '設定',
       close: '設定を閉じる'
@@ -8623,7 +8618,6 @@ export default {
       api: 'API連携',
       chrome: 'Chrome拡張機能',
       cli: 'CLI',
-      claw: 'Clawスキル',
       mcpserver: 'MCP サーバー'
     },
     api: {
@@ -8852,60 +8846,6 @@ export default {
       installCta: 'Chromeウェブストア',
       installCtaHint: '公式拡張機能 · 新しいタブで開きます',
       storeMeta: 'Chromeウェブストア · v1.0.0'
-    },
-    claw: {
-      title: 'XiaoAi Skill',
-      subtitle: 'XiaoAi REST API経由でドキュメントをインポートし、ハイブリッド検索（ベクトル＋キーワード）を実行します。ファイルのアップロード、URLインポート、Markdownでの登録、ナレッジベース横断検索に対応します。',
-      capabilitiesTitle: 'スキルの機能',
-      capabilities: {
-        upload: {
-          title: 'ファイルのアップロード',
-          desc: 'PDF、Word、Excelなどをアップロードし、自動で解析・ベクトル化します。'
-        },
-        url: {
-          title: 'URLのインポート',
-          desc: 'URLからWebページを取得してナレッジベースに取り込み、解析ステータスをポーリングします。'
-        },
-        manual: {
-          title: 'Markdownで作成',
-          desc: 'ナレッジをMarkdownとして作成・編集します。議事録の記録に最適です。'
-        },
-        search: {
-          title: 'ハイブリッド検索',
-          desc: 'ベクトルとキーワードのリコールを組み合わせて、ナレッジベース単位のハイブリッド検索とナレッジベース横断検索を行います。'
-        },
-        browse: {
-          title: 'ナレッジの閲覧',
-          desc: 'ナレッジベースとナレッジの一覧表示、詳細の確認、インポート済みコンテンツの管理を行います。'
-        }
-      },
-      stepsTitle: '設定手順',
-      steps: {
-        api: {
-          title: 'API認証情報を取得',
-          desc: '「設定 → API情報」からAPIキーとベースURLをコピーします。'
-        },
-        env: {
-          title: '環境変数を設定',
-          desc: 'シェルまたは~/.zshrc / ~/.bashrcでWEKNORA_BASE_URLとWEKNORA_API_KEYを設定します。下記の例では現在のAPIベースURLを使用しています。APIキーは実際の値に置き換えてください。'
-        },
-        install: {
-          title: 'スキルをインストール',
-          desc: 'OpenClaw CLIをインストール済みの環境で下記のコマンドを実行するか、ClawHubページの手順に従ってください。'
-        },
-        verify: {
-          title: '接続を確認',
-          desc: 'エージェントにナレッジベースの一覧表示や検索を実行させ、認証情報と接続を確認します。'
-        }
-      },
-      openApiSettings: 'API情報を開く',
-      copy: 'コピー',
-      copyEnvSuccess: '環境変数の例をコピーしました',
-      copyCmdSuccess: 'インストールコマンドをコピーしました',
-      ecosystemNote: 'スキルはClawHub（{\'@\'}lyingbug/weknora）でホストされています。完全なAPIドキュメントとバージョン履歴はClawHubページをご覧ください。',
-      installCta: 'ClawHubを開く',
-      installCtaHint: 'XiaoAi Skillをインストール · 新しいタブで開きます',
-      hubMeta: 'ClawHub · {\'@\'}lyingbug/weknora · MIT-0'
     }
   },
   credential: {

@@ -3125,9 +3125,6 @@ export default {
     all: 'All',
     clear: 'Clear',
     website: 'Official Website',
-    clawhubSkill: 'Claw Skill',
-    github: 'GitHub',
-    githubStarTip: 'Open the repo on GitHub — star it if you find it useful',
     on: 'On',
     off: 'Off',
     confirmDelete: 'Confirm Delete',
@@ -4752,7 +4749,7 @@ export default {
     loadingInfo: 'Loading information...',
     retry: 'Retry',
     versionLabel: 'App Version',
-    versionDescription: 'Version of the application service (weknora-app)',
+    versionDescription: 'Version of the application service',
     frontendVersionLabel: 'UI Version',
     frontendVersionDescription: 'Build version of the UI (weknora-ui)',
     versionMismatch: 'Mismatch with app version',
@@ -4772,9 +4769,8 @@ export default {
     dbVersionDescription: 'Current database migration version',
     dbMigrationFailedTag: 'Migration failed',
     dbMigrationFailedTitle: 'Database migration failed',
-    dbMigrationFailedDesc: 'The startup database migration did not complete successfully. Some tables or indexes may be missing, which can break Wiki ingest, the knowledge graph, and other features. Check the troubleshooting guide below first; if the issue persists, report it via the link.',
+    dbMigrationFailedDesc: 'The startup database migration did not complete successfully. Some tables or indexes may be missing, which can break Wiki ingest, the knowledge graph, and other features. If the migration keeps failing, contact your system administrator.',
     dbMigrationViewDocs: 'View troubleshooting guide',
-    dbMigrationReportIssue: 'Can\'t fix it? Report an issue',
     keywordIndexEngineLabel: 'Keyword Index Engine',
     keywordIndexEngineDescription: 'Currently used keyword index engine',
     vectorStoreEngineLabel: 'Vector Store Engine',
@@ -5565,7 +5561,6 @@ export default {
       title: 'General Settings',
       allSettings: 'All Settings',
       personalSettings: 'Personal Settings',
-      helpAndDocs: 'Help & Documentation',
       description: 'Configure language, appearance and other basic options',
       settings: 'Settings',
       close: 'Close Settings'
@@ -8623,7 +8618,6 @@ export default {
       api: 'API Integration',
       chrome: 'Chrome Extension',
       cli: 'CLI',
-      claw: 'Claw Skill',
       mcpserver: 'MCP Server'
     },
     api: {
@@ -8852,60 +8846,6 @@ export default {
       installCta: 'Chrome Web Store',
       installCtaHint: 'Official extension · opens in a new tab',
       storeMeta: 'Chrome Web Store · v1.0.0'
-    },
-    claw: {
-      title: 'XiaoAi Skill',
-      subtitle: 'Import documents and run hybrid retrieval (vector + keyword) via the XiaoAi REST API—for uploads, URL imports, Markdown entries, and cross-KB search.',
-      capabilitiesTitle: 'Skill capabilities',
-      capabilities: {
-        upload: {
-          title: 'Upload files',
-          desc: 'Upload PDF, Word, Excel, and more; automatic parsing and vectorization.'
-        },
-        url: {
-          title: 'Import URLs',
-          desc: 'Fetch web pages by URL into a knowledge base with parse-status polling.'
-        },
-        manual: {
-          title: 'Write Markdown',
-          desc: 'Create or edit knowledge entries as Markdown—ideal for meeting notes.'
-        },
-        search: {
-          title: 'Hybrid search',
-          desc: 'Per-KB hybrid-search and cross-KB knowledge-search combining vector and keyword recall.'
-        },
-        browse: {
-          title: 'Browse knowledge',
-          desc: 'List knowledge bases and entries, view details, and manage imported content.'
-        }
-      },
-      stepsTitle: 'Setup steps',
-      steps: {
-        api: {
-          title: 'Get API credentials',
-          desc: 'Copy API Key and base URL from Settings → API Info.'
-        },
-        env: {
-          title: 'Configure environment',
-          desc: 'Set WEKNORA_BASE_URL and WEKNORA_API_KEY in your shell or ~/.zshrc / ~/.bashrc. The example below uses your current API base URL—replace the API Key with your actual value.'
-        },
-        install: {
-          title: 'Install the skill',
-          desc: 'Run the command below in an environment with the OpenClaw CLI installed, or follow the ClawHub page instructions.'
-        },
-        verify: {
-          title: 'Verify connection',
-          desc: 'Ask the agent to list knowledge bases or run a search to confirm credentials and connectivity.'
-        }
-      },
-      openApiSettings: 'Open API Info',
-      copy: 'Copy',
-      copyEnvSuccess: 'Environment example copied',
-      copyCmdSuccess: 'Install command copied',
-      ecosystemNote: 'Skill hosted on ClawHub ({\'@\'}lyingbug/weknora). See the ClawHub page for full API docs and version history.',
-      installCta: 'Open ClawHub',
-      installCtaHint: 'Install XiaoAi Skill · opens in a new tab',
-      hubMeta: 'ClawHub · {\'@\'}lyingbug/weknora · MIT-0'
     }
   },
   credential: {

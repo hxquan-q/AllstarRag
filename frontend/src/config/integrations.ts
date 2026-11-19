@@ -3,8 +3,10 @@ import type { DeploymentCapabilityKey } from './deploymentCapabilities'
 export const CHROME_EXTENSION_URL =
   'https://chromewebstore.google.com/detail/jpemjbopikggjlmikmclgbmkhhopjdgd?utm_source=item-share-cb'
 
-export const CLAWHUB_SKILL_URL = 'https://clawhub.ai/lyingbug/weknora'
-
+// T03（admin-feature-surface）：claw 已按裁定清单全角色删除（外链页 + 导航项）。
+// 'claw' 仍保留在 IntegrationTab / INTEGRATION_TABS 里：settingsRoute 的
+// integration-claw 映射靠它把旧 deep-link ?section=integration-claw 归一化，
+// 再由 Settings.vue canSeeSection 落到 role-denied 兜底，不能一并删。
 export type IntegrationTab = 'im' | 'embed' | 'api' | 'mcpserver' | 'cli' | 'chrome' | 'claw'
 
 export const INTEGRATION_TABS: IntegrationTab[] = ['im', 'embed', 'api', 'mcpserver', 'cli', 'chrome', 'claw']
@@ -38,5 +40,4 @@ export const INTEGRATION_PREVIEW_ITEMS: Array<{
   { key: 'mcpserver', icon: { type: 'icon', name: 'tools' } },
   { key: 'cli', icon: { type: 'icon', name: 'code' } },
   { key: 'chrome', icon: { type: 'icon', name: 'extension' } },
-  { key: 'claw', icon: { type: 'emoji', value: '🦞' } },
 ]
