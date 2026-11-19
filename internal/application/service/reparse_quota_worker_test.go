@@ -19,12 +19,14 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/application/access"
 	"github.com/Tencent/WeKnora/internal/application/repository"
+	apperrors "github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 	"github.com/hibiken/asynq"
@@ -342,7 +344,11 @@ func TestCP3R1_B6_ConcurrentWorkerAndSingleDoNotOversell(t *testing.T) {
 		release, err := env.gate.Acquire(singleCtx, workerQuotaTenant, doc)
 		mu.Lock()
 		if err != nil {
-			unexpected = append(unexpected, err)
+			// 429 是并发下另一入口先占满额度的正常拒绝；只有非 429 才算意外。
+			var appErr *apperrors.AppError
+			if !errors.As(err, &appErr) || appErr.HTTPCode != 429 {
+				unexpected = append(unexpected, err)
+			}
 			mu.Unlock()
 			return
 		}

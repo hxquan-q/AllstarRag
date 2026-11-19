@@ -6,6 +6,7 @@ package repository
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -16,7 +17,7 @@ import (
 
 func newAuditActionsDB(t *testing.T) (*gorm.DB, interfaces.AuditLogRepository) {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open("file:audit-log-actions?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "audit-actions.db")), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
