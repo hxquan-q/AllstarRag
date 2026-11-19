@@ -156,19 +156,23 @@ test('customer hidden sections are all filtered out', () => {
   }
 })
 
-test('admin keeps every workspace section; system admin adds the five global ones', () => {
+test('admin keeps every workspace section except the T03 surface cuts; system admin adds the five global ones', () => {
   // 普通 admin / owner 看不到 5 个系统管理分区（requiresSystemAdmin）；演示用的管理员是系统管理员。
   // 26 个基础分区里 agentlines 只对客户可见（C6）；user-management 只认能力投影
-  // （F14）：owner 的投影含 user.view 可见；普通 admin 与跨空间超管（投影为空，
-  // 不再由 canAccessAllTenants 放行）不可见。因此 admin 19、owner 20、
-  // crossTenant 19（F14 前为 20）、系统管理员 25。
+  // （F14）；T03（admin-feature-surface）再把 ollama / weknoracloud 收窄为
+  // 仅系统管理员可见（UI gating only，真权限在 RequireSystemAdmin，C4）。
+  // 因此 admin 16、owner 17、crossTenant 16、系统管理员 24（保留 ollama/weknoracloud）。
   // T20：members 分区入口隐藏（并入用户管理），各角色可见数再减 1。
-  assert.equal(visibleFor('admin').length, 18)
-  assert.equal(visibleFor('owner').length, 19)
-  assert.equal(visibleFor('admin', { crossTenant: true }).length, 18)
+  assert.equal(visibleFor('admin').length, 16)
+  assert.equal(visibleFor('owner').length, 17)
+  assert.equal(visibleFor('admin', { crossTenant: true }).length, 16)
+  assert.equal(visibleFor('admin').includes('ollama'), false, 'T03: admin 不见 ollama（仅系统管理员）')
+  assert.equal(visibleFor('owner').includes('weknoracloud'), false, 'T03: owner 不见 weknoracloud（仅系统管理员）')
   const systemAdmin = visibleFor('admin', { systemAdmin: true })
   assert.equal(systemAdmin.length, 24)
   assert.equal(systemAdmin.includes('members'), false)
+  assert.equal(systemAdmin.includes('ollama'), true, 'T03: 系统管理员保留 ollama（用户有意，勿统一）')
+  assert.equal(systemAdmin.includes('weknoracloud'), true, 'T03: 系统管理员保留 weknoracloud')
   assert.deepEqual(systemAdmin, baseKeys.filter((key) => key !== 'agentlines' && key !== 'members'))
 })
 
