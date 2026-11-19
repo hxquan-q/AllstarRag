@@ -47,6 +47,7 @@ type auditLogListResponse struct {
 // @Param        outcome   query  string  false  "按 outcome 精确过滤（success / denied）"
 // @Param        actor     query  string  false  "按 actor_user_id 精确过滤"
 // @Param        q         query  string  false  "关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）"
+// @Param        include_scoped  query  bool    false  "true 时返回含知识库行为的行（如文档上传/删除）；缺省 false 仅返回成员治理行为"
 // @Success      200  {object}  auditLogListResponse
 // @Failure      400  {object}  errors.AppError
 // @Failure      403  {object}  errors.AppError  "本空间 owner/普通管理员或系统管理员以外，或路径空间与当前空间不一致"
@@ -78,13 +79,17 @@ func (h *AuditLogHandler) ListTenantAuditLog(c *gin.Context) {
 		}
 	}
 
+	// include_scoped=true 时纳入知识库行为行（scope_type=knowledge_base），供操作记录 Tab 展示文档类行为；
+	// 缺省或非法值按 false 处理，即仅成员治理行为的旧口径，不传参的消费方（TenantMembers）不受影响。
+	includeScoped, _ := strconv.ParseBool(c.DefaultQuery("include_scoped", "false"))
+
 	q := &interfaces.AuditLogQuery{
 		AfterID:      afterID,
 		Limit:        limit,
 		Action:       types.AuditAction(c.Query("action")),
 		Outcome:      types.AuditOutcome(c.Query("outcome")),
 		ActorUserID:  c.Query("actor"),
-		UnscopedOnly: true,
+		UnscopedOnly: !includeScoped,
 		Search:       strings.TrimSpace(c.Query("q")),
 	}
 
