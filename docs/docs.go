@@ -22806,6 +22806,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "按 action 多选过滤，逗号分隔（如 knowledge.created,knowledge.deleted）；与 action 叠加生效",
+                        "name": "actions",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "按 outcome 精确过滤（success / denied）",
                         "name": "outcome",
                         "in": "query"

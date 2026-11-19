@@ -29321,6 +29321,11 @@ paths:
         in: query
         name: action
         type: string
+      - description: 按 action 多选过滤，逗号分隔（如 knowledge.created,knowledge.deleted）；与 action
+          叠加生效
+        in: query
+        name: actions
+        type: string
       - description: 按 outcome 精确过滤（success / denied）
         in: query
         name: outcome
