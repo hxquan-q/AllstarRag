@@ -9032,7 +9032,15 @@ export default {
         'rbac.member_banned': 'Member banned',
         'rbac.member_unbanned': 'Member unbanned',
         'rbac.member_purged': 'Member permanently deleted',
-        'rbac.owner_transferred': 'Ownership transferred'
+        'rbac.owner_transferred': 'Ownership transferred',
+        'knowledge.created': 'Document uploaded',
+        'knowledge.updated': 'Document updated',
+        'knowledge.deleted': 'Document deleted',
+        'knowledge.batch_deleted': 'Documents batch deleted',
+        'knowledge.reparse_started': 'Reparse started',
+        'kb.created': 'Knowledge base created',
+        'kb.updated': 'Knowledge base updated',
+        'kb.deleted': 'Knowledge base deleted'
       },
       outcome: {
         success: 'Success',

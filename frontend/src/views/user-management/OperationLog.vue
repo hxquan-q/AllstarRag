@@ -80,7 +80,10 @@ const props = defineProps<{ tenantId: number | null | undefined }>()
 const { t, tm, locale } = useI18n()
 
 const PAGE_SIZE = 50
-// 只展示成员管理相关动作；access_denied 等噪音不进入 owner 的操作记录。
+// 操作记录只展示「成员治理 + 知识库/文档核心写行为」两类动作；
+// access_denied、vector_store.* 等噪音不进入本 Tab（白名单模式）。
+// 本 Tab 查询带 include_scoped=true 纳入知识库 scope 行；TenantMembers 共享
+// 同一接口但不传参，仍只拿到成员治理行，行为零变化。
 const MEMBER_ACTIONS = [
   'rbac.member_added',
   'rbac.member_removed',
@@ -93,6 +96,15 @@ const MEMBER_ACTIONS = [
   'rbac.member_unbanned',
   'rbac.member_purged',
   'rbac.owner_transferred',
+  // 文档/知识库核心写行为：回答「谁动了哪个文档」。
+  'knowledge.created',
+  'knowledge.updated',
+  'knowledge.deleted',
+  'knowledge.batch_deleted',
+  'knowledge.reparse_started',
+  'kb.created',
+  'kb.updated',
+  'kb.deleted',
 ] as const
 
 const entries = ref<AuditLog[]>([])
@@ -218,6 +230,7 @@ async function load(reset: boolean) {
       limit: PAGE_SIZE,
       action: actionFilter.value || undefined,
       q: keyword.value.trim() || undefined,
+      include_scoped: true,
     })
     if (!isLatestRequest(seq)) return
     if (!resp.success) throw new Error(resp.message || '')

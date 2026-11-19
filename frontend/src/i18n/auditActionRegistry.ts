@@ -34,6 +34,18 @@ export const TENANT_MEMBER_AUDIT_ACTIONS = [
   'rbac.owner_transferred',
 ] as const
 
+/** 操作记录 Tab 额外展示的知识库/文档核心写行为（沿用 tenantMember 动作包显示名）。 */
+export const OPERATION_LOG_SCOPED_AUDIT_ACTIONS = [
+  'knowledge.created',
+  'knowledge.updated',
+  'knowledge.deleted',
+  'knowledge.batch_deleted',
+  'knowledge.reparse_started',
+  'kb.created',
+  'kb.updated',
+  'kb.deleted',
+] as const
+
 /** Platform control-plane audit events (system settings → audit tab). */
 export const SYSTEM_GLOBAL_AUDIT_ACTIONS = [
   'system.setting_changed',
@@ -141,6 +153,7 @@ export const REGISTERED_AUDIT_ACTION_ENTRIES: ReadonlyArray<{
   actions: readonly string[]
 }> = [
   { root: AUDIT_ACTION_I18N_ROOTS.tenantMember, actions: TENANT_MEMBER_AUDIT_ACTIONS },
+  { root: AUDIT_ACTION_I18N_ROOTS.tenantMember, actions: OPERATION_LOG_SCOPED_AUDIT_ACTIONS },
   { root: AUDIT_ACTION_I18N_ROOTS.systemGlobal, actions: SYSTEM_GLOBAL_AUDIT_ACTIONS },
   { root: AUDIT_ACTION_I18N_ROOTS.kbActivity, actions: KB_ACTIVITY_ACTIONS },
 ]

@@ -9032,7 +9032,15 @@ export default {
         'rbac.member_banned': 'メンバーを禁止',
         'rbac.member_unbanned': 'メンバーの禁止を解除',
         'rbac.member_purged': 'メンバーを完全削除',
-        'rbac.owner_transferred': '所有者の移譲'
+        'rbac.owner_transferred': '所有者の移譲',
+        'knowledge.created': 'ドキュメントをアップロード',
+        'knowledge.updated': 'ドキュメントを更新',
+        'knowledge.deleted': 'ドキュメントを削除',
+        'knowledge.batch_deleted': 'ドキュメントを一括削除',
+        'knowledge.reparse_started': '再解析',
+        'kb.created': 'ナレッジベースを作成',
+        'kb.updated': 'ナレッジベースを更新',
+        'kb.deleted': 'ナレッジベースを削除'
       },
       outcome: {
         success: '成功',

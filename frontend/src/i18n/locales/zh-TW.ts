@@ -666,7 +666,15 @@ export default {
         'rbac.member_banned': '封禁成員',
         'rbac.member_unbanned': '解封成員',
         'rbac.member_purged': '徹底刪除成員',
-        'rbac.owner_transferred': '交接工作區所有權'
+        'rbac.owner_transferred': '交接工作區所有權',
+        'knowledge.created': '上傳文件',
+        'knowledge.updated': '更新文件',
+        'knowledge.deleted': '刪除文件',
+        'knowledge.batch_deleted': '批次刪除文件',
+        'knowledge.reparse_started': '重新解析',
+        'kb.created': '建立知識庫',
+        'kb.updated': '更新知識庫',
+        'kb.deleted': '刪除知識庫'
       },
       columns: {
         time: '時間',

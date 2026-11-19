@@ -666,7 +666,15 @@ export default {
         'rbac.member_banned': '封禁成员',
         'rbac.member_unbanned': '解封成员',
         'rbac.member_purged': '彻底删除成员',
-        'rbac.owner_transferred': '交接空间所有权'
+        'rbac.owner_transferred': '交接空间所有权',
+        'knowledge.created': '上传文档',
+        'knowledge.updated': '更新文档',
+        'knowledge.deleted': '删除文档',
+        'knowledge.batch_deleted': '批量删除文档',
+        'knowledge.reparse_started': '重新解析',
+        'kb.created': '创建知识库',
+        'kb.updated': '更新知识库',
+        'kb.deleted': '删除知识库'
       },
       columns: {
         time: '时间',

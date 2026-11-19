@@ -666,7 +666,15 @@ export default {
         'rbac.member_banned': '회원 차단',
         'rbac.member_unbanned': '회원 차단 해제',
         'rbac.member_purged': '회원 영구 삭제',
-        'rbac.owner_transferred': '소유권 이전'
+        'rbac.owner_transferred': '소유권 이전',
+        'knowledge.created': '문서 업로드',
+        'knowledge.updated': '문서 업데이트',
+        'knowledge.deleted': '문서 삭제',
+        'knowledge.batch_deleted': '문서 일괄 삭제',
+        'knowledge.reparse_started': '재분석',
+        'kb.created': '지식 베이스 생성',
+        'kb.updated': '지식 베이스 업데이트',
+        'kb.deleted': '지식 베이스 삭제'
       },
       columns: {
         time: '시간',

@@ -58,6 +58,9 @@ export interface ListAuditLogParams {
   actor?: string
   // 关键词：匹配 action、操作人/目标的用户名或邮箱（后端大小写不敏感）。
   q?: string
+  // true 时一并返回知识库行为行（scope_type=knowledge_base，如文档上传/删除）；
+  // 缺省 false 只返回成员治理行，TenantMembers 等不传参的消费方行为不变。
+  include_scoped?: boolean
 }
 
 /**
@@ -79,6 +82,8 @@ export async function listAuditLog(
   if (params.outcome) qs.append('outcome', params.outcome)
   if (params.actor) qs.append('actor', params.actor)
   if (params.q) qs.append('q', params.q)
+  // 只有 true 才显式传参；false/缺省都不拼参数，保持旧请求形态。
+  if (params.include_scoped) qs.append('include_scoped', 'true')
   const tail = qs.toString()
   const url = `/api/v1/tenants/${tenantId}/audit-log${tail ? '?' + tail : ''}`
   return (await get(url)) as unknown as ListAuditLogResponse

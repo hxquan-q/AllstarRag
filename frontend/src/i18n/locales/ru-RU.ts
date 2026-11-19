@@ -666,7 +666,15 @@ export default {
         'rbac.member_banned': 'Участник заблокирован',
         'rbac.member_unbanned': 'Участник разблокирован',
         'rbac.member_purged': 'Участник удалён безвозвратно',
-        'rbac.owner_transferred': 'Передача владения'
+        'rbac.owner_transferred': 'Передача владения',
+        'knowledge.created': 'Загрузка документа',
+        'knowledge.updated': 'Обновление документа',
+        'knowledge.deleted': 'Удаление документа',
+        'knowledge.batch_deleted': 'Массовое удаление документов',
+        'knowledge.reparse_started': 'Повторный разбор',
+        'kb.created': 'Создание базы знаний',
+        'kb.updated': 'Обновление базы знаний',
+        'kb.deleted': 'Удаление базы знаний'
       },
       columns: {
         time: 'Время',
