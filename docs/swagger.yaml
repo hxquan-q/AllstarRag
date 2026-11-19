@@ -10878,6 +10878,40 @@ definitions:
     required:
     - ids
     type: object
+  internal_handler.BatchReparseSkipped:
+    properties:
+      knowledge_id:
+        example: doc-1
+        type: string
+      reason:
+        example: RETRY_LIMIT_EXHAUSTED
+        type: string
+      recover_at:
+        example: "2026-11-20T09:00:00+08:00"
+        type: string
+    type: object
+  internal_handler.BatchReparseSubmittedResponse:
+    properties:
+      data:
+        $ref: '#/definitions/internal_handler.BatchReparseTaskData'
+      message:
+        type: string
+      success:
+        example: true
+        type: boolean
+    type: object
+  internal_handler.BatchReparseTaskData:
+    properties:
+      reparse_count:
+        type: integer
+        x-agent: true
+      skipped:
+        items:
+          $ref: '#/definitions/internal_handler.BatchReparseSkipped'
+        type: array
+      task_id:
+        type: string
+    type: object
   internal_handler.CapabilitiesResponse:
     properties:
       capabilities:
@@ -21112,7 +21146,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: 删除知识中现有的文档内容并重新解析，使用异步任务方式处理
+      description: |-
+        删除知识中现有的文档内容并重新解析，使用异步任务方式处理
+        24h 内每文档重试 ≤3 次（系统管理员豁免），超限返回 429：
+        error.code=1006，details.error_code=RETRY_LIMIT_EXHAUSTED，
+        details.recover_at 为额度恢复时间（RFC3339）。
       parameters:
       - description: 知识ID
         in: path
@@ -21147,6 +21185,10 @@ paths:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
         "404":
           description: 知识不存在
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "429":
+          description: 重试限次耗尽（24h≤3次，系统管理员豁免）
           schema:
             $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
       security:
@@ -21307,7 +21349,11 @@ paths:
     post:
       consumes:
       - application/json
-      description: 按 ID 列表批量重新解析单个知识库下的多个知识条目
+      description: |-
+        按 ID 列表批量重新解析单个知识库下的多个知识条目
+        enqueue 前逐文档预检 24h 重试额度（≤3 次，系统管理员豁免）：
+        超限文档不入队，data.skipped 逐条点名（knowledge_id/reason/
+        recover_at）；全超限时 reparse_count=0、不产生任务。
       parameters:
       - description: 批量重解析请求
         in: body
@@ -21319,9 +21365,9 @@ paths:
       - application/json
       responses:
         "200":
-          description: 任务已提交
+          description: 任务已提交；被限次剔除的文档在 data.skipped 点名
           schema:
-            $ref: '#/definitions/internal_handler.SubmittedTaskResponse'
+            $ref: '#/definitions/internal_handler.BatchReparseSubmittedResponse'
         "400":
           description: 请求参数错误
           schema:

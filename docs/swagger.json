@@ -9533,7 +9533,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "按 ID 列表批量重新解析单个知识库下的多个知识条目",
+                "description": "按 ID 列表批量重新解析单个知识库下的多个知识条目\nenqueue 前逐文档预检 24h 重试额度（≤3 次，系统管理员豁免）：\n超限文档不入队，data.skipped 逐条点名（knowledge_id/reason/\nrecover_at）；全超限时 reparse_count=0、不产生任务。",
                 "consumes": [
                     "application/json"
                 ],
@@ -9557,9 +9557,9 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "任务已提交",
+                        "description": "任务已提交；被限次剔除的文档在 data.skipped 点名",
                         "schema": {
-                            "$ref": "#/definitions/internal_handler.SubmittedTaskResponse"
+                            "$ref": "#/definitions/internal_handler.BatchReparseSubmittedResponse"
                         }
                     },
                     "400": {
@@ -10465,7 +10465,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "删除知识中现有的文档内容并重新解析，使用异步任务方式处理",
+                "description": "删除知识中现有的文档内容并重新解析，使用异步任务方式处理\n24h 内每文档重试 ≤3 次（系统管理员豁免），超限返回 429：\nerror.code=1006，details.error_code=RETRY_LIMIT_EXHAUSTED，\ndetails.recover_at 为额度恢复时间（RFC3339）。",
                 "consumes": [
                     "application/json"
                 ],
@@ -10527,6 +10527,12 @@
                     },
                     "404": {
                         "description": "知识不存在",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "429": {
+                        "description": "重试限次耗尽（24h≤3次，系统管理员豁免）",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
                         }
@@ -38991,6 +38997,56 @@
                     "items": {
                         "type": "string"
                     }
+                }
+            }
+        },
+        "internal_handler.BatchReparseSkipped": {
+            "type": "object",
+            "properties": {
+                "knowledge_id": {
+                    "type": "string",
+                    "example": "doc-1"
+                },
+                "reason": {
+                    "type": "string",
+                    "example": "RETRY_LIMIT_EXHAUSTED"
+                },
+                "recover_at": {
+                    "type": "string",
+                    "example": "2026-11-20T09:00:00+08:00"
+                }
+            }
+        },
+        "internal_handler.BatchReparseSubmittedResponse": {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "$ref": "#/definitions/internal_handler.BatchReparseTaskData"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
+        "internal_handler.BatchReparseTaskData": {
+            "type": "object",
+            "properties": {
+                "reparse_count": {
+                    "type": "integer",
+                    "x-agent": true
+                },
+                "skipped": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/internal_handler.BatchReparseSkipped"
+                    }
+                },
+                "task_id": {
+                    "type": "string"
                 }
             }
         },
