@@ -444,7 +444,7 @@ const navItems = computed(() => {
   // 内联），不走角色档位表。
   const integrationItems: NavItem[] = INTEGRATION_PREVIEW_ITEMS.map((item) => ({
     key: integrationSectionKey(item.key),
-    icon: item.icon.type === 'icon' ? item.icon.name : 'integration',
+    icon: item.icon.name,
     label: t(`integrations.tabs.${item.key}`),
   }))
   const all: NavItem[] = [

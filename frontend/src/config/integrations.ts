@@ -25,9 +25,7 @@ export const INTEGRATION_TAB_CAPABILITY: Partial<Record<IntegrationTab, Deployme
   mcpserver: 'integrations.mcpserver',
 }
 
-export type IntegrationPreviewIcon =
-  | { type: 'icon'; name: string }
-  | { type: 'emoji'; value: string }
+export type IntegrationPreviewIcon = { type: 'icon'; name: string }
 
 /** Sidebar hover preview + Integrations modal nav — add new entries here. */
 export const INTEGRATION_PREVIEW_ITEMS: Array<{

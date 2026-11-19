@@ -339,11 +339,6 @@ function showBadge(item: SettingsModalNavItem): boolean {
       width: 16px;
       height: 16px;
     }
-
-    &.nav-icon-emoji {
-      font-size: var(--app-text-base);
-      line-height: 1;
-    }
   }
 
   .nav-label {

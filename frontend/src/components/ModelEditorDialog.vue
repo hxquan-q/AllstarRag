@@ -124,8 +124,8 @@
           </div>
         </div>
 
-        <!-- Ollama 本地模型选择器 -->
-        <div v-if="formData.source === 'local'" class="form-item">
+        <!-- Ollama 本地模型选择器；非系统管理员不渲染（后端按角色拒绝，展示无意义） -->
+        <div v-if="formData.source === 'local' && !ollamaAccessDenied" class="form-item">
           <label class="form-label required">{{ $t('model.modelName') }}</label>
           <div class="model-select-row">
             <t-select v-model="formData.modelName" :loading="loadingOllamaModels" :class="{ 'downloading': downloading }"
@@ -645,6 +645,7 @@ import {
 } from '@/api/model'
 import { useI18n } from 'vue-i18n'
 import { useUIStore } from '@/stores/ui'
+import { useAuthStore } from '@/stores/auth'
 import { useModelProvidersStore } from '@/stores/modelProviders'
 import {
   credentialLabelForModelType,
@@ -747,6 +748,7 @@ interface Props {
 
 const { t, locale } = useI18n()
 const uiStore = useUIStore()
+const authStore = useAuthStore()
 const providersStore = useModelProvidersStore()
 
 const props = withDefaults(defineProps<Props>(), {
@@ -1302,29 +1304,27 @@ const wkcAccessDenied = ref(false)
 // WeKnoraCloud 凭证状态
 const wkcCredentialState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loading')
 
-function isAccessDenied(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && (error as { status?: number }).status === 403
-}
-
 const checkWkcCredentialStatus = async () => {
+  // 凭证接口仅系统管理员可调：非超管不请求，直接按能力受限渲染，
+  // 避免每次打开模型编辑器都吃一次 403 并写 rbac.access_denied 审计。
+  if (!authStore.isSystemAdmin) {
+    wkcAccessDenied.value = true
+    wkcCredentialState.value = 'unconfigured'
+    return
+  }
   wkcCredentialState.value = 'loading'
-  try {
-    const status = await getWeKnoraCloudStatus()
-    // 403 只说明当前身份无权配置该能力，模板给「仅系统管理员可用」说明。
-    if (status.forbidden) {
-      wkcAccessDenied.value = true
-      wkcCredentialState.value = 'unconfigured'
-      return
-    }
-    if (status.needs_reinit) {
-      wkcCredentialState.value = 'expired'
-    } else if (status.has_models) {
-      wkcCredentialState.value = 'configured'
-    } else {
-      wkcCredentialState.value = 'unconfigured'
-    }
-  } catch (error) {
-    wkcAccessDenied.value = isAccessDenied(error)
+  const status = await getWeKnoraCloudStatus()
+  // 403 兜底：身份在打开后被收回时仍给「仅系统管理员可用」说明，不当成「未配置」。
+  if (status.forbidden) {
+    wkcAccessDenied.value = true
+    wkcCredentialState.value = 'unconfigured'
+    return
+  }
+  if (status.needs_reinit) {
+    wkcCredentialState.value = 'expired'
+  } else if (status.has_models) {
+    wkcCredentialState.value = 'configured'
+  } else {
     wkcCredentialState.value = 'unconfigured'
   }
 }
@@ -1452,6 +1452,13 @@ const getBaseUrlPlaceholder = () => {
 
 // 检查Ollama服务状态
 const checkOllamaServiceStatus = async () => {
+  // 状态接口仅系统管理员可调：非超管不请求，直接按能力受限渲染，
+  // 避免每次打开模型编辑器都吃一次 403 并写 rbac.access_denied 审计。
+  if (!authStore.isSystemAdmin) {
+    ollamaAccessDenied.value = true
+    ollamaServiceStatus.value = null
+    return
+  }
   console.log('开始检查Ollama服务状态...')
   checkingOllamaStatus.value = true
   try {
@@ -1786,35 +1793,28 @@ const handleModelFilter = (filterWords: string) => {
   return true // 让 TDesign 使用我们的 filteredOllamaModels
 }
 
-// 加载 Ollama 模型列表
-const loadOllamaModels = async () => {
+// 加载 Ollama 模型列表；返回是否真的发起了请求并拿到列表（早退返回 false）
+const loadOllamaModels = async (): Promise<boolean> => {
   // 只在选择 local 来源时加载
-  if (formData.value.source !== 'local') return
+  if (formData.value.source !== 'local') return false
   // 后端已按角色拒绝（403）：不再请求，避免错误提示覆盖能力说明。
-  if (ollamaAccessDenied.value) return
+  if (ollamaAccessDenied.value) return false
 
   loadingOllamaModels.value = true
   try {
-    const models = await listOllamaModels()
-    ollamaModelList.value = models
-  } catch (error) {
-    // 状态请求与打开下拉之间有竞态：这里再兜一次 403，避免误报加载失败。
-    if (isAccessDenied(error)) {
-      ollamaAccessDenied.value = true
-      return
-    }
-    console.error(t('model.editor.loadModelListFailed'), error)
-    MessagePlugin.error(t('model.editor.loadModelListFailed'))
+    ollamaModelList.value = await listOllamaModels()
+    return true
   } finally {
     loadingOllamaModels.value = false
   }
 }
 
-// 刷新模型列表
+// 刷新模型列表：只有真的拉到列表才提示成功，早退时不弹假成功
 const refreshOllamaModels = async () => {
   ollamaModelList.value = [] // 清空以强制重新加载
-  await loadOllamaModels()
-  MessagePlugin.success(t('model.editor.listRefreshed'))
+  if (await loadOllamaModels()) {
+    MessagePlugin.success(t('model.editor.listRefreshed'))
+  }
 }
 
 // 监听下拉框可见性变化
