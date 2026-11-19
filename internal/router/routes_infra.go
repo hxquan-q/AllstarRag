@@ -361,7 +361,7 @@ func RegisterDataSourceRoutes(
 }
 
 // RegisterWeKnoraCloudRoutes 注册 WeKnoraCloud 凭证管理接口
-//（admin-feature-surface 裁剪后仅系统管理员可用）。
+// （admin-feature-surface 裁剪后仅系统管理员可用）。
 func RegisterWeKnoraCloudRoutes(r *gin.RouterGroup, handler *handler.WeKnoraCloudHandler, g *rbacGuards) {
 	// UI gating 在前端 Settings 分区裁剪（owner 端不渲染小爱云分区）；
 	// 真权限=RequireSystemAdmin：空间角色一律 403 并落审计，不受 RBAC 开关影响。
