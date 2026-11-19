@@ -22,6 +22,9 @@ type AuditLogQuery struct {
 	ScopeType    string
 	ScopeID      string
 	UnscopedOnly bool
+	// Actions 是可选的多选 action 过滤（IN 查询）；非空时与 Action 叠加生效。
+	// 供操作记录 Tab 把前端白名单下推，避免先取整页再过滤导致空页。
+	Actions []types.AuditAction
 	// Search 是可选关键词：同时匹配 action、操作人/目标用户的用户名或邮箱。
 	// 匹配大小写不敏感，% 和 _ 按字面处理；不搜索 details / request_path。
 	Search string

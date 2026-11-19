@@ -234,6 +234,20 @@ func IsSystemAdminFromContext(ctx context.Context) bool {
 	return v
 }
 
+// WithReparseQuotaExempt 在 ctx 上标记：本次重新解析不占用 24h 重试额度
+// （rebuild-index 触发、文件替换触发的重建）。异步 worker 由任务 payload
+// 透传该结论，审计写点据此在 details 里打 quota_exempt 标记。
+func WithReparseQuotaExempt(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ReparseQuotaExemptContextKey, true)
+}
+
+// IsReparseQuotaExempt 报告 ctx 是否标记了本次重新解析不占重试额度。
+// 键缺失按 false 处理（计入额度），即默认严格口径。
+func IsReparseQuotaExempt(ctx context.Context) bool {
+	v, ok := ctx.Value(ReparseQuotaExemptContextKey).(bool)
+	return ok && v
+}
+
 // SessionTenantIDFromContext extracts the session-owner tenant ID from ctx.
 // Falls back to TenantIDFromContext when the session key is absent.
 func SessionTenantIDFromContext(ctx context.Context) (uint64, bool) {

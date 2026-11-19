@@ -142,6 +142,9 @@ var contextCloneAcrossDetach = map[ContextKey]bool{
 	// The authenticated MCP endpoint. Read only by the MCP tool handlers on
 	// the request context that authenticated it.
 	MCPEndpointContextKey: false,
+	// 一次重新解析「不占重试额度」的许可。只在单次 reparseKnowledge 调用内
+	// 被读来给审计行打标记；默认严格计入，detach 后不应自动继承成豁免。
+	ReparseQuotaExemptContextKey: false,
 }
 
 // ContextKeysClonedAcrossDetach returns the keys logger.CloneContext carries

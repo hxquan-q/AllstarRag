@@ -25,9 +25,13 @@ import (
 //
 // 并发口径：单文档入口在「查计数 → 服务提交（内部写审计行）」全程持有文档级
 // advisory lock（D-3 先例：PG pg_advisory_xact_lock / MySQL GET_LOCK / SQLite
-// 进程内互斥），并发请求串行判定，不会同看旧计数而超卖。批量入口只做无锁
-// 预检：审计行由异步 worker 稍后才写，此刻加锁封不住窗口，预检按快照剔除
-// 已超限文档即可。
+// 进程内互斥），并发请求串行判定，不会同看旧计数而超卖。批量入口在 handler
+// 侧做无锁预检，随后异步 worker 逐文档调用 AcquireBatch 复用同一把文档级锁
+// 与计数复核（F2）：两个并发批量/单文档请求不会同时放行同一文档的第 4 次。
+//
+// 不计入额度的来源（F1/FS1）：rebuild-index、文件替换触发的重建、系统管理员
+// 触发的重提交。这些行照写审计（留痕），但 details 带 quota_exempt=true，
+// CountRecentByAction 计数时排除。
 type ReparseQuotaGate struct {
 	db    *gorm.DB
 	audit interfaces.AuditLogRepository
@@ -55,23 +59,43 @@ func NewReparseQuotaGate(db *gorm.DB) *ReparseQuotaGate {
 // 无操作 no-op。返回的错误恒为 *apperrors.AppError：429=限次耗尽，5xx=计数/
 // 锁故障。
 func (g *ReparseQuotaGate) Acquire(ctx context.Context, tenantID uint64, knowledgeID string) (func(), error) {
-	if types.IsSystemAdminFromContext(ctx) {
-		return func() {}, nil
+	release, ok, recoverAt, err := g.AcquireBatch(
+		ctx, tenantID, knowledgeID, types.IsSystemAdminFromContext(ctx))
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, reparseQuotaExhaustedError(recoverAt)
+	}
+	return release, nil
+}
+
+// AcquireBatch 是批量/异步 worker 的逐文档复核（F2）：与单文档入口共用同一把
+// 文档级锁与计数。exempt=true（rebuild-index / 系统管理员来源）时不加锁直接
+// 放行，审计行由写点打 quota_exempt 标记。额度耗尽返回 ok=false 与恢复时间，
+// 由调用方在任务 outcome/日志里点名跳过（异步任务没有 429 响应）。额度未耗尽
+// 时返回的 release 需由调用方 defer，覆盖到 ReparseKnowledge 写完审计行。
+func (g *ReparseQuotaGate) AcquireBatch(
+	ctx context.Context, tenantID uint64, knowledgeID string, exempt bool,
+) (func(), bool, time.Time, error) {
+	if exempt {
+		return func() {}, true, time.Time{}, nil
 	}
 	release, err := g.lockDocument(ctx, tenantID, knowledgeID)
 	if err != nil {
-		return nil, err
+		return nil, false, time.Time{}, err
 	}
-	count, earliest, err := g.countWindow(ctx, tenantID, knowledgeID)
+	ok, recoverAt, err := g.verdict(ctx, tenantID, knowledgeID)
 	if err != nil {
 		release()
-		return nil, err
+		return nil, false, time.Time{}, err
 	}
-	if count >= reparseQuotaLimit {
+	if !ok {
+		// 超限不再提交，锁可以立即释放；返回 no-op 让调用方统一 defer。
 		release()
-		return nil, reparseQuotaExhaustedError(earliest)
+		return func() {}, false, recoverAt, nil
 	}
-	return release, nil
+	return release, true, time.Time{}, nil
 }
 
 // ReparseQuotaSkip 是批量预检剔除的一条文档记录（响应 data.skipped 元素）。
@@ -105,7 +129,8 @@ func (g *ReparseQuotaGate) FilterBatch(
 	return allowed, skipped, nil
 }
 
-// verdict 报告单文档当前是否仍有额度，顺带返回额度恢复时间（最早计数+24h）。
+// verdict 报告单文档当前是否仍有额度；耗尽时返回额度恢复时间（最早计数
+// +24h，与单文档 429 的 recover_at 同口径，F3）。
 func (g *ReparseQuotaGate) verdict(ctx context.Context, tenantID uint64, knowledgeID string) (bool, time.Time, error) {
 	if types.IsSystemAdminFromContext(ctx) {
 		return true, time.Time{}, nil
@@ -114,7 +139,10 @@ func (g *ReparseQuotaGate) verdict(ctx context.Context, tenantID uint64, knowled
 	if err != nil {
 		return false, time.Time{}, err
 	}
-	return count < reparseQuotaLimit, earliest, nil
+	if count < reparseQuotaLimit {
+		return true, time.Time{}, nil
+	}
+	return false, earliest.Add(reparseQuotaWindow), nil
 }
 
 func (g *ReparseQuotaGate) countWindow(ctx context.Context, tenantID uint64, knowledgeID string) (int64, time.Time, error) {
@@ -131,9 +159,8 @@ func (g *ReparseQuotaGate) countWindow(ctx context.Context, tenantID uint64, kno
 
 // reparseQuotaExhaustedError 构造 429 信封：code=1006（ErrTooManyRequests，
 // quota 类守卫既有先例）+ 人话 message + details{error_code, recover_at}；
-// recover_at = 窗口内最早一次计数 + 24h，即额度开始恢复的时间（RFC3339）。
-func reparseQuotaExhaustedError(earliest time.Time) error {
-	recoverAt := earliest.Add(reparseQuotaWindow)
+// recoverAt = 窗口内最早一次计数 + 24h，即额度开始恢复的时间（RFC3339）。
+func reparseQuotaExhaustedError(recoverAt time.Time) error {
 	return apperrors.NewTooManyRequestsError(fmt.Sprintf(
 		"该文档 24 小时内重试次数已达上限（%d 次），请于 %s 后再试或联系系统管理员",
 		reparseQuotaLimit, recoverAt.Local().Format("2006-01-02 15:04"))).

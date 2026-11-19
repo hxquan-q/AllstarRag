@@ -175,7 +175,10 @@ func (s *knowledgeService) ReplaceKnowledgeFile(ctx context.Context,
 			existing.ID, err)
 	}
 
-	reparsed, err := s.reparseKnowledge(ctx, existing.ID, nil, true)
+	// FS1：文件替换触发的重建不是用户主动重试，不占用 24h 重试额度；审计行
+	// 照写但带 quota_exempt 标记（计数查询排除）。第 4 个参数 tasksDequeued
+	// 的既有语义（调用方已清理旧任务）不变。
+	reparsed, err := s.reparseKnowledge(types.WithReparseQuotaExempt(ctx), existing.ID, nil, true)
 	if err != nil {
 		logger.Errorf(ctx, "Reparse after replacing the file of knowledge %s failed, restoring source: %v",
 			existing.ID, err)

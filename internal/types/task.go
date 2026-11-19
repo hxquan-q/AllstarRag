@@ -459,6 +459,10 @@ type KnowledgeListReparsePayload struct {
 	KnowledgeIDs    []string                   `json:"knowledge_ids"`
 	ProcessConfig   *KnowledgeProcessOverrides `json:"process_config,omitempty"`
 	Initiator       TaskInitiator              `json:"initiator,omitempty"`
+	// QuotaExempt 表示本任务来源不占用每文档 24h 重试额度（rebuild-index
+	// 触发，或发起人是系统管理员）。worker 据此跳过逐文档复核，并在审计
+	// 行 details 里打 quota_exempt 标记。
+	QuotaExempt bool `json:"quota_exempt,omitempty"`
 }
 
 // KnowledgeMovePayload represents the knowledge move task payload

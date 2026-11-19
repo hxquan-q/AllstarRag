@@ -3010,10 +3010,16 @@ func (s *knowledgeService) reparseKnowledge(
 	// left by an earlier wiki-enabled run would otherwise drain a slot of
 	// the new attempt.
 	s.prepareWikiForReparse(ctx, existing)
+	// F1/F6：rebuild-index、文件替换、系统管理员触发的重解析不占用户 24h
+	// 重试额度。审计行照写留痕，但 details 带 quota_exempt 标记，计数查询排除。
+	quotaExempt := types.IsReparseQuotaExempt(ctx) || types.IsSystemAdminFromContext(ctx)
 	recordReparseStarted := func() {
+		details := map[string]any{"title": existing.Title, "type": existing.Type, "attempt": reparseAttempt}
+		if quotaExempt {
+			details["quota_exempt"] = true
+		}
 		recordKBActivity(ctx, s.audit, tenantID, existing.KnowledgeBaseID, types.AuditActionKnowledgeReparseStarted,
-			"knowledge", existing.ID, types.AuditOutcomeAccepted,
-			map[string]any{"title": existing.Title, "type": existing.Type, "attempt": reparseAttempt})
+			"knowledge", existing.ID, types.AuditOutcomeAccepted, details)
 	}
 
 	// For manual knowledge, use async manual processing (cleanup + re-indexing in worker)
@@ -4831,6 +4837,11 @@ func (s *knowledgeService) ProcessKnowledgeListReparse(ctx context.Context, t *a
 	ctx = payload.Initiator.Apply(ctx)
 	taskID, _ := asynq.GetTaskID(ctx)
 	ctx = withKBActivityTask(ctx, taskID, kbActivityTrigger(ctx))
+	// F1/F6：handler 在 enqueue 时已判定「发起人是系统管理员或 rebuild-index」，
+	// worker 把结论透传到 ctx，审计写点据此打 quota_exempt 标记。
+	if payload.QuotaExempt {
+		ctx = types.WithReparseQuotaExempt(ctx)
+	}
 
 	logger.Infof(ctx, "Processing knowledge list reparse task for %d knowledge items", len(payload.KnowledgeIDs))
 
@@ -4848,18 +4859,42 @@ func (s *knowledgeService) ProcessKnowledgeListReparse(ctx context.Context, t *a
 	ctx = context.WithValue(ctx, types.TenantIDContextKey, payload.TenantID)
 	ctx = context.WithValue(ctx, types.TenantInfoContextKey, tenant)
 
+	// F2：异步 worker 逐文档复核重试额度，与单文档入口共用同一把文档级锁。
+	// 超限文档跳过（不产生第 4 次 attempt，不算失败），原因记入任务日志与
+	// outcome；QuotaExempt 来源（rebuild/超管）不做复核。测试夹具未接线闸时
+	// （nil）保持既有行为。
+	var quotaSkipped int
 	outcome, err := runKnowledgeListReparseSubmissions(ids, func(id string) error {
+		if s.reparseQuota != nil && !payload.QuotaExempt {
+			release, ok, recoverAt, quotaErr := s.reparseQuota.AcquireBatch(
+				ctx, payload.TenantID, id, false)
+			if quotaErr != nil {
+				return quotaErr
+			}
+			defer release()
+			if !ok {
+				quotaSkipped++
+				logger.Infof(ctx, "Knowledge list reparse skipped %s: retry quota exhausted until %s",
+					id, recoverAt.Format(time.RFC3339))
+				return nil
+			}
+		}
 		_, err := s.ReparseKnowledge(ctx, id, payload.ProcessConfig)
 		return err
 	})
-	logger.Infof(ctx, "Knowledge list reparse task finished: %d submitted, %d failed",
-		outcome.Submitted, outcome.Failed)
+	// 跳过项在汇总里从 Submitted 划到 Skipped，任务日志里的分类才准确。
+	outcome.Submitted -= quotaSkipped
+	outcome.Skipped = quotaSkipped
+	logger.Infof(ctx, "Knowledge list reparse task finished: %d submitted, %d failed, %d quota-skipped",
+		outcome.Submitted, outcome.Failed, outcome.Skipped)
 	return err
 }
 
 type knowledgeListReparseOutcome struct {
 	Submitted int
 	Failed    int
+	// Skipped 是因重试额度耗尽被跳过的文档数（不产生任务、不算失败）。
+	Skipped int
 }
 
 // runKnowledgeListReparseSubmissions attempts every item so one bad document

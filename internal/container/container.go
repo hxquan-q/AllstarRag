@@ -301,7 +301,50 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		container.Provide(service.NewKBShareService),
 	) // KBShareService must be registered before KnowledgeService and KnowledgeTagService
 	must(container.Provide(service.NewAgentShareService))
-	must(container.Provide(service.NewKnowledgeService))
+	// T04/F2 生产装配：异步批量重解析 worker 的逐文档额度复核要与单文档入口
+	// 共用同一把闸；构造签名不变，闸经链式方法注入。
+	must(container.Provide(func(
+		cfg *config.Config,
+		repo interfaces.KnowledgeRepository,
+		documentReader interfaces.DocumentReader,
+		kbService interfaces.KnowledgeBaseService,
+		tenantRepo interfaces.TenantRepository,
+		tenantService interfaces.TenantService,
+		chunkService interfaces.ChunkService,
+		chunkRepo interfaces.ChunkRepository,
+		tagRepo interfaces.KnowledgeTagRepository,
+		tagService interfaces.KnowledgeTagService,
+		fileSvc interfaces.FileService,
+		storageResolver interfaces.StorageBackendResolver,
+		resourceCatalog interfaces.ResourceCatalog,
+		modelService interfaces.ModelService,
+		task interfaces.TaskEnqueuer,
+		taskInspector interfaces.TaskInspector,
+		graphEngine interfaces.RetrieveGraphRepository,
+		retrieveEngine interfaces.RetrieveEngineRegistry,
+		ownership retriever.TenantStoreOwnership,
+		redisClient *redis.Client,
+		kbShareService interfaces.KBShareService,
+		imageResolver *docparser.ImageResolver,
+		wikiRepo interfaces.WikiPageRepository,
+		wikiService interfaces.WikiPageService,
+		taskPendingRepo interfaces.TaskPendingOpsRepository,
+		spanTracker service.SpanTracker,
+		audit interfaces.AuditLogService,
+		db *gorm.DB,
+	) (interfaces.KnowledgeService, error) {
+		svc, err := service.NewKnowledgeService(
+			cfg, repo, documentReader, kbService, tenantRepo, tenantService,
+			chunkService, chunkRepo, tagRepo, tagService, fileSvc, storageResolver,
+			resourceCatalog, modelService, task, taskInspector, graphEngine,
+			retrieveEngine, ownership, redisClient, kbShareService, imageResolver,
+			wikiRepo, wikiService, taskPendingRepo, spanTracker, audit,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return service.AttachReparseQuota(svc, service.NewReparseQuotaGate(db)), nil
+	}))
 	must(container.Provide(service.NewSpanTracker))
 	must(container.Provide(service.NewChunkService))
 	must(container.Provide(service.NewKnowledgeTagService))

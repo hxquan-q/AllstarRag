@@ -84,6 +84,9 @@ type knowledgeService struct {
 	// which has a no-op fallback. See knowledge_span_tracker.go.
 	spanTracker SpanTracker
 	audit       interfaces.AuditLogService
+	// reparseQuota 是失败文档重试限次闸（T04/F2）。nil 表示未接线（测试夹具），
+	// 异步 worker 的逐文档复核随之跳过；生产由 container 注入。
+	reparseQuota *ReparseQuotaGate
 }
 
 const (
@@ -151,6 +154,19 @@ func NewKnowledgeService(
 		spanTracker:     spanTracker,
 		audit:           audit,
 	}, nil
+}
+
+// WithReparseQuota 注入失败文档重试限次闸（T04/F2）：异步批量 worker 逐文档
+// 复核复用与单文档入口相同的文档级锁与计数。nil 表示未接线（测试夹具）。
+func (s *knowledgeService) WithReparseQuota(gate *ReparseQuotaGate) interfaces.KnowledgeService {
+	s.reparseQuota = gate
+	return s
+}
+
+// AttachReparseQuota 给已构造的知识服务挂上限次闸并返回原服务，供 container
+// 生产装配使用（构造签名保持不变）。服务实现固定为 *knowledgeService。
+func AttachReparseQuota(svc interfaces.KnowledgeService, gate *ReparseQuotaGate) interfaces.KnowledgeService {
+	return svc.(*knowledgeService).WithReparseQuota(gate)
 }
 
 // tracker returns a usable SpanTracker — falls back to a no-op when the

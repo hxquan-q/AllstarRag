@@ -275,9 +275,12 @@ func (h *KnowledgeHandler) enqueueKnowledgeListDelete(
 }
 
 // enqueueKnowledgeListReparse enqueues an async batch-reparse task for the
-// given knowledge IDs and returns the asynq task ID.
+// given knowledge IDs and returns the asynq task ID. quotaExempt 表示本批来源
+// 不占每文档 24h 重试额度（rebuild-index 触发，或发起人是系统管理员），
+// worker 据此跳过逐文档复核并在审计行打 quota_exempt 标记。
 func (h *KnowledgeHandler) enqueueKnowledgeListReparse(
-	ctx context.Context, tenantID uint64, kbID string, ids []string, processConfig *types.KnowledgeProcessOverrides,
+	ctx context.Context, tenantID uint64, kbID string, ids []string,
+	processConfig *types.KnowledgeProcessOverrides, quotaExempt bool,
 ) (string, error) {
 	payload := types.KnowledgeListReparsePayload{
 		KnowledgeBaseID: kbID,
@@ -285,6 +288,7 @@ func (h *KnowledgeHandler) enqueueKnowledgeListReparse(
 		KnowledgeIDs:    ids,
 		ProcessConfig:   processConfig,
 		Initiator:       types.TaskInitiatorFromContext(ctx),
+		QuotaExempt:     quotaExempt,
 	}
 	langfuse.InjectTracing(ctx, &payload)
 	payloadBytes, err := json.Marshal(payload)
@@ -3465,7 +3469,10 @@ func (h *KnowledgeHandler) BatchReparseKnowledge(c *gin.Context) {
 		return
 	}
 
-	taskID, err := h.enqueueKnowledgeListReparse(ctx, effectiveTenantID, kbID, allowedIDs, req.ProcessConfig)
+	// F6：发起人是系统管理员时整批不占用户重试额度（worker 复核跳过，审计行
+	// 打 quota_exempt 标记）；普通成员批量照常计入。
+	taskID, err := h.enqueueKnowledgeListReparse(ctx, effectiveTenantID, kbID, allowedIDs,
+		req.ProcessConfig, types.IsSystemAdminFromContext(ctx))
 	if err != nil {
 		logger.Errorf(ctx, "Failed to enqueue batch knowledge reparse task: %v", err)
 		c.Error(errors.NewInternalServerError("Failed to enqueue batch reparse task"))
@@ -3559,7 +3566,9 @@ func (h *KnowledgeHandler) RebuildKnowledgeBaseIndex(c *gin.Context) {
 		if end > len(ids) {
 			end = len(ids)
 		}
-		taskID, err := h.enqueueKnowledgeListReparse(ctx, effectiveTenantID, kbID, ids[start:end], nil)
+		// R3：rebuild-index 不是用户重试，整批不占 24h 重试额度（worker 跳过
+		// 复核，审计行照写并打 quota_exempt 标记）。
+		taskID, err := h.enqueueKnowledgeListReparse(ctx, effectiveTenantID, kbID, ids[start:end], nil, true)
 		if err != nil {
 			logger.Errorf(ctx, "failed to enqueue rebuild-index task, kb_id: %s, err: %v",
 				secutils.SanitizeForLog(kbID), err)

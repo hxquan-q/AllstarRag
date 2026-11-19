@@ -123,6 +123,10 @@ const (
 	// ChatParserEngineContextKey carries the resolved parser engine
 	// from the agent's ChatParserEngineRules for chat attachment processing.
 	ChatParserEngineContextKey ContextKey = "ChatParserEngine"
+	// ReparseQuotaExemptContextKey 标记本次重新解析不占用 24h 重试额度
+	// （rebuild-index 触发、文件替换触发的重建）。审计行照写但 details 带
+	// quota_exempt 标记，限次计数查询排除这些行。
+	ReparseQuotaExemptContextKey ContextKey = "ReparseQuotaExempt"
 )
 
 // String returns the string representation of the context key

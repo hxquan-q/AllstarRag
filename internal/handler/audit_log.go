@@ -44,6 +44,7 @@ type auditLogListResponse struct {
 // @Param        after_id  query  int     false  "游标：返回 id 小于此值的记录（默认从最新开始）"
 // @Param        limit     query  int     false  "页大小，1-100，默认 50"
 // @Param        action    query  string  false  "按 action 精确过滤（如 rbac.member_added / rbac.access_denied）"
+// @Param        actions   query  string  false  "按 action 多选过滤，逗号分隔（如 knowledge.created,knowledge.deleted）；与 action 叠加生效"
 // @Param        outcome   query  string  false  "按 outcome 精确过滤（success / denied）"
 // @Param        actor     query  string  false  "按 actor_user_id 精确过滤"
 // @Param        q         query  string  false  "关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）"
@@ -87,6 +88,7 @@ func (h *AuditLogHandler) ListTenantAuditLog(c *gin.Context) {
 		AfterID:      afterID,
 		Limit:        limit,
 		Action:       types.AuditAction(c.Query("action")),
+		Actions:      parseAuditActions(c.Query("actions")),
 		Outcome:      types.AuditOutcome(c.Query("outcome")),
 		ActorUserID:  c.Query("actor"),
 		UnscopedOnly: !includeScoped,
@@ -180,6 +182,35 @@ func (h *AuditLogHandler) ListKnowledgeBaseActivity(c *gin.Context) {
 	c.JSON(http.StatusOK, auditLogListResponse{
 		Success: true, Data: entries, NextCursor: nextCursor,
 	})
+}
+
+// maxAuditActionFilters 是多选 action 过滤的上限：19 个白名单动作远低于此，
+// 上限只防外部输入拼出超长 IN 列表。
+const maxAuditActionFilters = 50
+
+// parseAuditActions 解析 actions 查询参数（逗号分隔的多选 action）。空值、
+// 空项与重复项忽略；超出上限的尾部项静默截断，与其余过滤参数的宽松口径一致。
+func parseAuditActions(raw string) []types.AuditAction {
+	if raw == "" {
+		return nil
+	}
+	actions := make([]types.AuditAction, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	for _, part := range strings.Split(raw, ",") {
+		action := strings.TrimSpace(part)
+		if action == "" {
+			continue
+		}
+		if _, ok := seen[action]; ok {
+			continue
+		}
+		if len(actions) >= maxAuditActionFilters {
+			break
+		}
+		seen[action] = struct{}{}
+		actions = append(actions, types.AuditAction(action))
+	}
+	return actions
 }
 
 func parseAuditCursor(c *gin.Context) (uint64, int) {

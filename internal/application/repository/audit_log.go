@@ -72,6 +72,9 @@ func (r *auditLogRepository) List(
 		if q.Action != "" {
 			tx = tx.Where("action = ?", q.Action)
 		}
+		if len(q.Actions) > 0 {
+			tx = tx.Where("action IN ?", q.Actions)
+		}
 		if q.Outcome != "" {
 			tx = tx.Where("outcome = ?", q.Outcome)
 		}
@@ -164,6 +167,22 @@ func (r *auditLogRepository) CountSinceForDedup(
 	return count, err
 }
 
+// excludeReparseQuotaExempt 追加「details.quota_exempt 不为 true」条件。限次
+// 计数只统计真正消耗用户重试额度的审计行：rebuild-index、文件替换、系统
+// 管理员触发的重解析照写审计行留痕，但 details 带 quota_exempt=true，不占
+// 用户额度。三种方言的 JSON 取值写法沿仓库既有先例（chunk.go 的方言分支），
+// 缺键行一律按「非豁免」计入（默认严格口径）。
+func excludeReparseQuotaExempt(db *gorm.DB) *gorm.DB {
+	switch db.Name() {
+	case "mysql":
+		return db.Where("COALESCE(JSON_UNQUOTE(JSON_EXTRACT(details, '$.quota_exempt')), '') <> 'true'")
+	case "postgres":
+		return db.Where("COALESCE(details->>'quota_exempt', '') <> 'true'")
+	default: // sqlite：json_extract 对 JSON true 返回整数 1
+		return db.Where("COALESCE(json_extract(details, '$.quota_exempt'), 0) <> 1")
+	}
+}
+
 // CountRecentByAction 统计某个文档级行为在滚动窗口内的审计行数，并返回窗口内
 // 最早一条的 created_at（没有匹配行时为零值）。它是 T04 重试限次闸的计数
 // 原语：计数决定放行还是拒绝，最早一条 + 24h 作为 recover_at 提示。
@@ -172,7 +191,8 @@ func (r *auditLogRepository) CountSinceForDedup(
 // 按 T04 写入点的审计口径，文档 ID 存在 target_id（scope_id 放知识库 ID，
 // scope_type 固定为 knowledge_base）。已有的 (tenant_id, action) 复合索引
 // 覆盖前导列，其余条件走残余过滤，无需新建索引。最早一条只在拒绝路径上
-// 二次查询，放行路径保持单次带索引 COUNT。
+// 二次查询，放行路径保持单次带索引 COUNT。details.quota_exempt=true 的行
+// （rebuild-index/文件替换/系统管理员来源）不占用户额度，计数与最早一条均排除。
 func (r *auditLogRepository) CountRecentByAction(
 	ctx context.Context,
 	tenantID uint64,
@@ -182,13 +202,13 @@ func (r *auditLogRepository) CountRecentByAction(
 	since time.Time,
 ) (int64, time.Time, error) {
 	scope := func() *gorm.DB {
-		return r.db.WithContext(ctx).
+		return excludeReparseQuotaExempt(r.db.WithContext(ctx).
 			Model(&types.AuditLog{}).
 			Where("tenant_id = ?", tenantID).
 			Where("action = ?", action).
 			Where("target_type = ?", targetType).
 			Where("target_id = ?", targetID).
-			Where("created_at > ?", since)
+			Where("created_at > ?", since))
 	}
 	var count int64
 	if err := scope().Count(&count).Error; err != nil {
