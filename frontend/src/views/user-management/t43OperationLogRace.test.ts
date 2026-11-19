@@ -11,6 +11,7 @@
 import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
 import { fixture, flush } from '../../test-utils/vueFixture.ts'
+import { OPERATION_LOG_AUDIT_ACTIONS } from '../../i18n/auditActionRegistry.ts'
 
 const OPERATIONS = new URL('./OperationLog.vue', import.meta.url)
 
@@ -55,7 +56,7 @@ function mountLog(t: TestContext) {
       resolveUserManagementError: (error: unknown) => `resolved:${String(error)}`,
     },
     '@/i18n/auditActionLabel': { auditActionLabel: (_t: unknown, action: string) => action },
-    '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' } },
+    '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' }, OPERATION_LOG_AUDIT_ACTIONS },
   }, { tenantId: 7 })
   return { vm: vm as any, calls }
 }

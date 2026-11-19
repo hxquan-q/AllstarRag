@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test, { type TestContext } from 'node:test'
 import { fixture, flush } from '../../test-utils/vueFixture.ts'
+import { OPERATION_LOG_AUDIT_ACTIONS } from '../../i18n/auditActionRegistry.ts'
 
 const i18n = { useI18n: () => ({ t: (key: string) => key, tm: () => ({}), locale: { value: 'zh-CN' } }) }
 const message = (errors: string[] = []) => ({
@@ -95,13 +96,20 @@ test('InviteManagement 撤销调用 revokeInvitation 并重新加载（T18）', 
 // ---------- T19 OperationLog ----------
 const OPERATIONS = new URL('./OperationLog.vue', import.meta.url)
 
-test('OperationLog 只展示成员管理动作，不含 access_denied 等噪音（T19/Q35）', () => {
+test('OperationLog 只展示成员管理动作，不含 access_denied 等噪音（T19/Q35 + FS7 单一来源）', () => {
   const source = readFileSync(OPERATIONS, 'utf8')
+  // FS7：白名单单一来源在 auditActionRegistry，组件只引用常量。
   for (const action of ['rbac.member_banned', 'rbac.member_unbanned', 'rbac.member_purged',
     'rbac.owner_transferred', 'rbac.member_role_changed', 'rbac.invitation_sent']) {
-    assert.ok(source.includes(`'${action}'`), `${action} must be listed`)
+    assert.ok(
+      (OPERATION_LOG_AUDIT_ACTIONS as readonly string[]).includes(action),
+      `${action} must be listed in OPERATION_LOG_AUDIT_ACTIONS`,
+    )
   }
-  assert.equal(/access_denied'/.test(source.split('const MEMBER_ACTIONS')[1]!.split('] as const')[0]!), false)
+  assert.equal((OPERATION_LOG_AUDIT_ACTIONS as readonly string[]).includes('rbac.access_denied'), false)
+  assert.equal(OPERATION_LOG_AUDIT_ACTIONS.length, 19, '11 成员治理 + 8 KB 行为')
+  assert.match(source, /const MEMBER_ACTIONS = OPERATION_LOG_AUDIT_ACTIONS/, '组件引用 registry 单一来源')
+  assert.equal(source.includes("'rbac.member_banned'"), false, '白名单字面量不得回流组件')
 })
 
 test('OperationLog 挂载按本空间拉审计并回填用户名（T19）', async (t) => {
@@ -123,7 +131,7 @@ test('OperationLog 挂载按本空间拉审计并回填用户名（T19）', asyn
       resolveUserManagementError: (e: unknown) => String(e),
     },
     '@/i18n/auditActionLabel': { auditActionLabel: (_t: unknown, action: string) => action },
-    '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' } },
+    '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' }, OPERATION_LOG_AUDIT_ACTIONS },
   }, { tenantId: 7 })
   await flush()
   assert.equal(calls.audit[0]?.[0], 7)

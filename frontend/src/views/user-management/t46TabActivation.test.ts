@@ -17,6 +17,7 @@
 import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
 import { mountInKeepAlive, settle } from './t46SfcMount.ts'
+import { OPERATION_LOG_AUDIT_ACTIONS } from '../../i18n/auditActionRegistry.ts'
 
 const OPERATIONS = new URL('./OperationLog.vue', import.meta.url)
 const INVITES = new URL('./InviteManagement.vue', import.meta.url)
@@ -54,7 +55,7 @@ function mountLogInTabs(t: TestContext, pages: Array<{ data: any[]; next_cursor:
         resolveUserManagementError: (error: unknown) => String(error),
       },
       '@/i18n/auditActionLabel': { auditActionLabel: (_t: unknown, action: string) => action },
-      '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' } },
+      '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' }, OPERATION_LOG_AUDIT_ACTIONS },
     },
     props: { tenantId: 7 },
   })

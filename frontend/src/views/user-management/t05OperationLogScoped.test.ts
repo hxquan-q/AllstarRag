@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs'
 import test, { type TestContext } from 'node:test'
 import { reactive, ref } from 'vue'
 import { auditActionLabel } from '../../i18n/auditActionLabel.ts'
-import { AUDIT_ACTION_I18N_ROOTS } from '../../i18n/auditActionRegistry.ts'
+import { AUDIT_ACTION_I18N_ROOTS, OPERATION_LOG_AUDIT_ACTIONS } from '../../i18n/auditActionRegistry.ts'
 import zhCN from '../../i18n/locales/zh-CN.ts'
 import { fixture, flush } from '../../test-utils/vueFixture.ts'
 import { findByTag, mountRendered, settle } from './t46SfcMount.ts'
@@ -66,7 +66,7 @@ const realI18n = {
 /** 真实 auditActionLabel / 真实 i18n 根常量，避免用打桩把显示名逻辑绕掉。 */
 const realAuditDeps = {
   '@/i18n/auditActionLabel': { auditActionLabel },
-  '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS },
+  '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS, OPERATION_LOG_AUDIT_ACTIONS },
 }
 
 const row = (id: number, action: string, actor = 'u-owner') => ({

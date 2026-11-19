@@ -143,6 +143,7 @@ function mountSfc(
   component: URL,
   dependencies: Record<string, unknown>,
   props: Record<string, unknown>,
+  liveProps?: vue.Ref<Record<string, unknown>>,
 ) {
   const f = fixture(t)
   const { descriptor } = parse(readFileSync(component, 'utf8'), { filename: component.pathname })
@@ -169,7 +170,17 @@ function mountSfc(
   const comp = scriptExports.default as Record<string, unknown>
   comp.render = renderExports.render
   const root = node('root')
-  const app = structRenderer(root).createApp(comp as vue.Component, props)
+  // liveProps 场景用宿主组件包一层：根组件 props 的外部变更不会刷新内部
+  // props，包一层后每次父渲染都传入新 props，watch(props.knowledgeId) 才会触发。
+  let childVm: any
+  const app = liveProps
+    ? structRenderer(root).createApp(vue.defineComponent({
+        setup: () => () => vue.h(comp as vue.Component, {
+          ...liveProps.value,
+          ref: (value: any) => { childVm = value },
+        }),
+      }))
+    : structRenderer(root).createApp(comp as vue.Component, props)
   app.config.warnHandler = () => {}
   // 模板里 KnowledgeBase.vue 用 $t（vue-i18n 全局注入），测试等价注入。
   app.config.globalProperties.$t = zhText as unknown as typeof app.config.globalProperties.$t
@@ -183,7 +194,8 @@ function mountSfc(
       return () => vue.h('div', { class: 't-alert-stub' }, slots.message ? [slots.message()] : (slots.default ? [slots.default()] : []))
     },
   })
-  const vm = app.mount(root) as any
+  const mountedRoot = app.mount(root) as any
+  const vm = childVm ?? mountedRoot
   t.after(async () => {
     try {
       await flush()
@@ -233,8 +245,16 @@ function failedSpans() {
   }
 }
 
-function mountTimeline(t: TestContext, reparse: (...args: any[]) => Promise<unknown>) {
+function mountTimeline(
+  t: TestContext,
+  reparse: (...args: any[]) => Promise<unknown>,
+  props: Record<string, unknown> = {},
+  live = false,
+) {
   const calls: any[][] = []
+  const liveProps = live
+    ? vue.ref<Record<string, unknown>>({ knowledgeId: 'doc-1', docTitle: '季度报告.pdf', autoPoll: false, ...props })
+    : undefined
   const mounted = mountSfc(t, TIMELINE, {
     'vue-i18n': realI18n,
     'tdesign-vue-next': { MessagePlugin: messageStub() },
@@ -252,12 +272,14 @@ function mountTimeline(t: TestContext, reparse: (...args: any[]) => Promise<unkn
       cancelKnowledgeParse: async () => ({ success: true }),
       getKnowledgeDetails: async () => ({ success: true, data: { metadata: {} } }),
     },
-  }, {
-    knowledgeId: 'doc-1',
-    docTitle: '季度报告.pdf',
-    autoPoll: false,
-  })
-  return { ...mounted, calls }
+  }, live ? {} : { knowledgeId: 'doc-1', docTitle: '季度报告.pdf', autoPoll: false, ...props }, liveProps)
+  return {
+    ...mounted,
+    calls,
+    setKnowledgeId: (id: string) => {
+      if (liveProps) liveProps.value = { ...liveProps.value, knowledgeId: id }
+    },
+  }
 }
 
 test('T06-A 时间线失败卡 429 → .kp-quota-card 文案逐字、隐藏重试按钮、无复制/诊断入口（条件 1/7）', async (t) => {
@@ -321,6 +343,36 @@ test('T06-C recover_at 到点自动撤卡、重试按钮回来（条件 4，假�
   assert.equal(mounted.vm.quotaNotice, null, '恢复时间到达后清空提示（不持久化）')
   assert.equal(byClass(mounted.root, 'kp-quota-card').length, 0, '到点后卡片消失')
   assert.equal(byClass(mounted.root, 'kp-err-btn').length, 1, '到点后重试按钮回到可点状态')
+})
+
+test('CP3-F5 切换文档清空上一文档的额度耗尽卡（watch knowledgeId）', async (t) => {
+  const recoverAt = new Date(Date.now() + 3_600_000).toISOString()
+  const mounted = mountTimeline(t, async () => { throw quotaError(recoverAt) }, {}, true)
+  await settle()
+  await mounted.vm.onRetry()
+  await settle()
+  assert.equal(byClass(mounted.root, 'kp-quota-card').length, 1, '前置：doc-1 有额度卡')
+
+  mounted.setKnowledgeId('doc-2')
+  await settle()
+
+  assert.equal(mounted.vm.quotaNotice, null, '换文档后不得保留上一文档的额度提示')
+  assert.equal(byClass(mounted.root, 'kp-quota-card').length, 0, '换文档后不得渲染上一文档的卡片')
+})
+
+test('CP3-FS5 额度卡仅在 parse_status=failed 时显示，重建成功后自动消失', async (t) => {
+  const recoverAt = new Date(Date.now() + 3_600_000).toISOString()
+  const mounted = mountTimeline(t, async () => { throw quotaError(recoverAt) })
+  await settle()
+  await mounted.vm.onRetry()
+  await settle()
+  assert.equal(mounted.vm.quotaNotice !== null, true, '前置：429 后已记录额度提示')
+  assert.equal(byClass(mounted.root, 'kp-quota-card').length, 1, '前置：failed 时卡片渲染')
+
+  // 文档重建成功：parse_status 离开 failed，卡片随条件消失（不清 quotaNotice 也能走隐藏）。
+  mounted.vm.data.parse_status = 'completed'
+  await settle()
+  assert.equal(byClass(mounted.root, 'kp-quota-card').length, 0, 'parse_status 离开 failed 后卡片必须消失')
 })
 
 test('T06-D 无持久状态：T06 相关代码零 localStorage/sessionStorage、新挂载无卡片（条件 4）', async (t) => {
@@ -517,6 +569,63 @@ test('T06-F 批量 200+skipped：被拒文档点名、成功数=reparse_count、
   const row = (id: string) => mounted.cards.value.find((item) => item.id === id)
   assert.equal(row('doc-1')!.parse_status, 'pending', '入队文档进入临时待处理')
   assert.equal(row('doc-2')!.parse_status, 'completed', '被拒文档不得被改成待处理')
+})
+
+test('CP3-FS8 批量被拒卡片显示最早恢复时间；无 recover_at 不显示时间行', async (t) => {
+  const early = new Date(Date.now() + 3_600_000).toISOString()
+  const late = new Date(Date.now() + 7_200_000).toISOString()
+  const mounted = mountKnowledgeBase(t, {
+    rows: [
+      { id: 'doc-1', file_name: '文档A.pdf', parse_status: 'completed' },
+      { id: 'doc-2', file_name: '文档B.pdf', parse_status: 'completed' },
+    ],
+    batch: async () => ({
+      success: true,
+      data: {
+        reparse_count: 0,
+        skipped: [
+          { knowledge_id: 'doc-1', reason: RETRY_LIMIT_EXHAUSTED, recover_at: late },
+          { knowledge_id: 'doc-2', reason: RETRY_LIMIT_EXHAUSTED, recover_at: early },
+        ],
+      },
+    }),
+  })
+  await settle()
+  mounted.resetRows()
+
+  mounted.vm.selectedIds = new Set(['doc-1', 'doc-2'])
+  mounted.vm.batchMode = true
+  await mounted.vm.confirmBatchReparse()
+  await settle()
+
+  const text = textOf(byClass(mounted.root, 'doc-reparse-quota')[0]!)
+  assert.ok(
+    text.includes(zhText('reparseQuota.recoverAt', { time: recoverLabel(early) })),
+    `批量卡显示最早恢复时间（早于另一条）：${text}`,
+  )
+  assert.equal(text.includes(recoverLabel(late)), false, '较晚的恢复时间不得出现在卡片上')
+})
+
+test('CP3-FS8 批量 skipped 缺 recover_at 时不渲染恢复时间行', async (t) => {
+  // 无 recover_at 时沿用既有口径：不渲染恢复时间行（键不出现）。
+  const noTime = mountKnowledgeBase(t, {
+    rows: [{ id: 'doc-3', file_name: '文档C.pdf', parse_status: 'completed' }],
+    batch: async () => ({
+      success: true,
+      data: {
+        reparse_count: 0,
+        skipped: [{ knowledge_id: 'doc-3', reason: RETRY_LIMIT_EXHAUSTED }],
+      },
+    }),
+  })
+  await settle()
+  noTime.resetRows()
+  noTime.vm.selectedIds = new Set(['doc-3'])
+  noTime.vm.batchMode = true
+  await noTime.vm.confirmBatchReparse()
+  await settle()
+  const noTimeText = textOf(byClass(noTime.root, 'doc-reparse-quota')[0]!)
+  assert.equal(noTimeText.includes('reparseQuota.recoverAt'), false, '缺 recover_at 不显示恢复时间行')
 })
 
 test('T06-G 批量全被拒：不提示成功、保留选择与批量模式（条件 3）', async (t) => {

@@ -32,6 +32,10 @@ async function fixture(options: {
   initiallyVisible?: boolean
   draft?: Record<string, unknown>
   edit?: boolean
+  modelSource?: string
+  isSystemAdmin?: boolean
+  ollamaStatus?: Record<string, unknown>
+  wkcStatus?: Record<string, unknown>
   check?: (payload: any) => Promise<Result>
   save?: (payload: any) => Promise<void>
   providers?: any[]
@@ -42,6 +46,8 @@ async function fixture(options: {
   const requests: any[] = []
   const saves: any[] = []
   const resolves: any[] = []
+  // CP3 I1：状态接口调用计数（非超管必须为零请求）。
+  const statusCalls = { ollama: 0, wkc: 0, list: 0 }
   const providers: any[] = options.providers || []
   const catalogEvents: string[] = []
   const catalogRequests: Array<{ type?: string; force?: boolean }> = []
@@ -69,7 +75,7 @@ async function fixture(options: {
     draft: options.draft,
     modelType: options.initialType || options.type || 'chat',
     modelData: options.edit ? {
-      id: 'saved-model', modelName: 'old-model', name: '', source: 'remote',
+      id: 'saved-model', modelName: 'old-model', name: '', source: options.modelSource ?? 'remote',
       baseUrl: 'https://example.com/v1', provider: 'generic', isDefault: false,
     } : null,
   })
@@ -86,19 +92,30 @@ async function fixture(options: {
       if (name === 'vue') return require('vue')
       if (name === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key, te: () => false, locale: { value: 'en-US' } }) }
       if (name === '@/stores/ui') return { useUIStore: () => ({}) }
+      if (name === '@/stores/auth') return { useAuthStore: () => ({ isSystemAdmin: options.isSystemAdmin ?? true }) }
       if (name === 'tdesign-vue-next') return {
         MessagePlugin: Object.fromEntries(['success', 'error', 'warning', 'info'].map(key => [key, (text: string) => toasts.push(text)])),
       }
       if (name === '@/api/initialization') return {
         checkRemoteModel: check, testEmbeddingModel: check, checkRerankModel: check, checkASRModel: check,
-        listModelProviders: async () => [], checkOllamaStatus: async () => ({ available: false }),
+        listModelProviders: async () => [], checkOllamaStatus: async () => {
+          statusCalls.ollama++
+          return options.ollamaStatus ?? { available: false }
+        },
+        listOllamaModels: async () => { statusCalls.list++; return [] },
+        checkOllamaModels: async () => ({}),
+        downloadOllamaModel: async () => ({}),
+        getDownloadProgress: async () => ({ status: 'completed', progress: 100 }),
         resolveModelCatalog: async (params: any) => { resolves.push(params); return options.resolve ? options.resolve(params) : {
           provider: params.provider, api: 'openai-completions', base_url: params.base_url, remote_model: params.model,
           cataloged: false, model: {}, capabilities: { provider: params.provider, api: 'openai-completions', cataloged: false, reasoning: false, thinking_levels: [], thinking_format: 'none' },
         } },
       }
       if (name === '@/stores/modelProviders') return { useModelProvidersStore: () => providersStore }
-      if (name === '@/api/model') return { getWeKnoraCloudStatus: async () => ({ has_models: true, needs_reinit: false }) }
+      if (name === '@/api/model') return { getWeKnoraCloudStatus: async () => {
+        statusCalls.wkc++
+        return options.wkcStatus ?? { has_models: true, needs_reinit: false }
+      } }
       if (name === '@/utils/weknoraCloudModels') return require('../utils/weknoraCloudModels.ts')
       if (name === '@/utils/docsUrl') return require('../utils/docsUrl.ts')
       if (name === '@/stores/modelProvidersState') return require('../stores/modelProvidersState.ts')
@@ -133,7 +150,7 @@ async function fixture(options: {
   }
   vm.formRef = { validate: async () => true }
   await nextTick()
-  return { vm, props, requests, saves, toasts, visibility, resolves, catalogEvents, catalogRequests, close: () => app.unmount() }
+  return { vm, props, requests, saves, toasts, visibility, resolves, catalogEvents, catalogRequests, statusCalls, close: () => app.unmount() }
 }
 
 for (const initiallyVisible of [true, false]) {
@@ -1275,5 +1292,51 @@ test('opening the model editor refreshes its catalog candidates', async () => {
     f.props.visible = true
     await nextTick()
     assert.equal(f.catalogEvents[0], 'refresh')
+  } finally { f.close() }
+})
+
+// ---------- CP3 修复轮 1（I1 / L1）：非系统管理员能力受限路径 ----------
+
+test('CP3-I1 非系统管理员：Ollama/小爱云状态接口零请求、能力说明态、无假刷新提示', async () => {
+  const f = await fixture({ isSystemAdmin: false })
+  try {
+    // 打开即触发 checkOllamaServiceStatus；非超管必须在 auth 闸早退，不发请求。
+    await nextTick()
+    await f.vm.checkOllamaServiceStatus()
+    await f.vm.checkWkcCredentialStatus()
+    await nextTick()
+
+    assert.equal(f.statusCalls.ollama, 0, '非超管不得请求 checkOllamaStatus')
+    assert.equal(f.statusCalls.wkc, 0, '非超管不得请求 getWeKnoraCloudStatus')
+    assert.equal(f.vm.ollamaAccessDenied, true, 'Ollama 置为能力受限态')
+    assert.equal(f.vm.wkcAccessDenied, true, '小爱云置为能力受限态')
+    assert.equal(f.vm.ollamaServiceStatus, null, '不得把「不可用」当成服务故障展示')
+
+    // 刷新列表在能力受限时早退：不发 listOllamaModels，也不弹「已刷新」假成功。
+    await f.vm.refreshOllamaModels()
+    assert.equal(f.statusCalls.list, 0, '能力受限时不得请求本地模型列表')
+    assert.equal(f.toasts.includes('model.editor.listRefreshed'), false, '不得出现假成功提示')
+  } finally { f.close() }
+})
+
+test('CP3-L1 编辑既有 local 模型：非超管仍隐藏选择器/刷新（模板闸 + 行为早退）', async () => {
+  const f = await fixture({ isSystemAdmin: false, edit: true, modelSource: 'local' })
+  try {
+    assert.equal(f.vm.formData.source, 'local', '编辑既有本地模型保留 source=local')
+    assert.equal(f.vm.ollamaAccessDenied, true, '编辑场景同样进入能力受限态')
+
+    // 组件真实模板：选择器与刷新按钮同一 v-if 容器，条件含 !ollamaAccessDenied。
+    const source = readFileSync(filename, 'utf8')
+    assert.ok(source.includes("v-if=\"formData.source === 'local' && !ollamaAccessDenied\""),
+      '模板必须用 !ollamaAccessDenied 隐藏本地选择器')
+    assert.equal(
+      /v-if="formData\.source === 'local"(?!\s*&&\s*!ollamaAccessDenied)/.test(source),
+      false,
+      '不得存在无能力闸的本地选择器',
+    )
+
+    await f.vm.refreshOllamaModels()
+    assert.equal(f.statusCalls.list, 0, '编辑场景刷新同样不得发请求')
+    assert.equal(f.toasts.includes('model.editor.listRefreshed'), false, '编辑场景不得弹假成功')
   } finally { f.close() }
 })

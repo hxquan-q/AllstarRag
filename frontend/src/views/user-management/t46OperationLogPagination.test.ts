@@ -17,6 +17,7 @@
 import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
 import { findByTag, mountRendered, settle, textOf } from './t46SfcMount.ts'
+import { OPERATION_LOG_AUDIT_ACTIONS } from '../../i18n/auditActionRegistry.ts'
 
 const OPERATIONS = new URL('./OperationLog.vue', import.meta.url)
 
@@ -69,7 +70,7 @@ function mountLog(t: TestContext, pages: AuditPage[]) {
         resolveUserManagementError: (error: unknown) => `resolved:${String(error)}`,
       },
       '@/i18n/auditActionLabel': { auditActionLabel: (_t: unknown, action: string) => action },
-      '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' } },
+      '@/i18n/auditActionRegistry': { AUDIT_ACTION_I18N_ROOTS: { tenantMember: '' }, OPERATION_LOG_AUDIT_ACTIONS },
     },
     props: { tenantId: 7 },
   })
