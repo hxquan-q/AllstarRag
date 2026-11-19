@@ -25,6 +25,7 @@ const LANDING_LESS = new URL('../integrations/integration-landing.less', import.
 const SETTINGS = new URL('./Settings.vue', import.meta.url)
 const SHELL = new URL('../../components/SettingsModalShell.vue', import.meta.url)
 const INTEGRATIONS = new URL('../../config/integrations.ts', import.meta.url)
+const PARSER_ENGINE = new URL('./ParserEngineSettings.vue', import.meta.url)
 
 const read = (url: URL) => readFileSync(url, 'utf8')
 
@@ -67,6 +68,18 @@ test('CP3-OQ3 SystemInfo 改用新键、无 weixin 外链；docsUrl 旧常量已
 
   const docsUrl = read(DOCS_URL)
   assert.equal(docsUrl.includes('troubleshootingMigrations'), false, 'docsUrl 旧常量已删除')
+})
+
+test('CP3-F4 ParserEngineSettings：非超管在请求凭证状态前早退（auth 闸）', () => {
+  const source = read(PARSER_ENGINE)
+  const start = source.indexOf('async function checkWkcStatus')
+  assert.ok(start >= 0, '能定位 checkWkcStatus')
+  const block = source.slice(start, source.indexOf('\n}', start))
+  const gate = block.indexOf('if (!authStore.isSystemAdmin)')
+  const request = block.indexOf('getWeKnoraCloudStatus(')
+  assert.ok(gate >= 0, 'checkWkcStatus 必须有 authStore.isSystemAdmin 闸')
+  assert.ok(request > gate, '闸必须在调用状态接口之前（非超管零请求）')
+  assert.ok(block.includes("wkcState.value = 'unconfigured'"), '非超管按未配置态渲染能力说明')
 })
 
 test('CP3-FS6 claw 死代码/死样式零残留（4 文件 + 壳层）', () => {
