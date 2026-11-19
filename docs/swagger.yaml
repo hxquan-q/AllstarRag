@@ -29287,6 +29287,10 @@ paths:
         in: query
         name: q
         type: string
+      - description: true 时返回含知识库行为的行（如文档上传/删除）；缺省 false 仅返回成员治理行为
+        in: query
+        name: include_scoped
+        type: boolean
       produces:
       - application/json
       responses:

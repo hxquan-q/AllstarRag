@@ -22808,6 +22808,12 @@
                         "description": "关键词：同时匹配 action、操作人/目标用户的用户名或邮箱（大小写不敏感，%/_ 按字面）",
                         "name": "q",
                         "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "description": "true 时返回含知识库行为的行（如文档上传/删除）；缺省 false 仅返回成员治理行为",
+                        "name": "include_scoped",
+                        "in": "query"
                     }
                 ],
                 "responses": {
