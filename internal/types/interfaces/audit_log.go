@@ -45,11 +45,11 @@ type AuditLogRepository interface {
 		requestPath string,
 		since time.Time,
 	) (int64, error)
-	// CountRecentByAction counts rows for one document-scoped action in the
-	// trailing window and returns the earliest matching created_at (zero when
-	// none). It is the reparse retry-quota primitive (T04): filter is
-	// (tenant_id, action, target_type, target_id, created_at > since) — the
-	// document ID lives in target_id, scope_id holds the knowledge base ID.
+	// CountRecentByAction 统计某个文档级行为在滚动窗口内的审计行数，并返回
+	// 最早一条的 created_at（没有匹配行时为零值）。它是 T04 重试限次闸的
+	// 计数原语：过滤条件为
+	// (tenant_id, action, target_type, target_id, created_at > since)，
+	// 文档 ID 存在 target_id，scope_id 放知识库 ID。
 	CountRecentByAction(
 		ctx context.Context,
 		tenantID uint64,

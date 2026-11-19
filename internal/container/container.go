@@ -734,7 +734,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	}))
 	must(container.Provide(handler.NewKnowledgeBaseHandler))
 	must(container.Provide(handler.NewGraphSearchHandler))
-	// T04 生产装配：重试限次闸经 wrapper 注入（UI/测试接线见 wireReparseQuotaGate）。
+	// T04 生产装配：重试限次闸经 wrapper 注入（测试接线见 wireReparseQuotaGate）。
 	must(container.Provide(func(
 		cfg *config.Config,
 		kgService interfaces.KnowledgeService,

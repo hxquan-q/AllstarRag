@@ -273,27 +273,25 @@ type SubmittedTaskResponse struct {
 	Data    SubmittedTaskData `json:"data"`
 }
 
-// BatchReparseSkipped is one document a batch reparse dropped at enqueue-time
-// precheck because its 24h retry budget was exhausted (T04). Reason is the
-// machine-readable code RETRY_LIMIT_EXHAUSTED; RecoverAt is RFC3339 — the
-// earliest counted retry plus 24h, when the budget starts recovering.
+// BatchReparseSkipped 是批量重解析在入队预检时因 24h 重试额度耗尽而剔除的
+// 一条文档（T04）。Reason 是机器可读错误码 RETRY_LIMIT_EXHAUSTED；RecoverAt
+// 是 RFC3339 时间，等于窗口内最早一次计数 + 24h，即额度开始恢复的时间。
 type BatchReparseSkipped struct {
 	KnowledgeID string `json:"knowledge_id" example:"doc-1"`
 	Reason      string `json:"reason" example:"RETRY_LIMIT_EXHAUSTED"`
 	RecoverAt   string `json:"recover_at,omitempty" example:"2026-11-20T09:00:00+08:00"`
 }
 
-// BatchReparseTaskData is the data object of POST /knowledge/batch-reparse:
-// the enqueued task, how many documents actually entered it, and the
-// documents the retry quota rejected (skipped is present only when any were
-// dropped; an all-rejected batch returns reparse_count=0 and no task_id).
+// BatchReparseTaskData 是 POST /knowledge/batch-reparse 响应的 data 对象：
+// 已入队的任务、实际进入任务的文档数，以及被限次剔除的文档（skipped 仅在
+// 有剔除时出现；全被剔除时 reparse_count=0 且没有 task_id）。
 type BatchReparseTaskData struct {
 	TaskID       string                `json:"task_id,omitempty"`
 	ReparseCount int                   `json:"reparse_count" extensions:"x-agent"`
 	Skipped      []BatchReparseSkipped `json:"skipped,omitempty"`
 }
 
-// BatchReparseSubmittedResponse is the batch-reparse success envelope.
+// BatchReparseSubmittedResponse 是批量重解析的成功响应信封。
 type BatchReparseSubmittedResponse struct {
 	Success bool                 `json:"success" example:"true"`
 	Message string               `json:"message"`

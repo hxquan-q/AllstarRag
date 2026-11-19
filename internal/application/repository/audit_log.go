@@ -164,17 +164,15 @@ func (r *auditLogRepository) CountSinceForDedup(
 	return count, err
 }
 
-// CountRecentByAction counts audit rows for one document-scoped action inside
-// the trailing window and returns the earliest matching created_at (zero when
-// the count is 0). It powers the reparse retry quota (T04): the count decides
-// allow/reject, the earliest row becomes the recover_at hint (earliest + 24h).
+// CountRecentByAction 统计某个文档级行为在滚动窗口内的审计行数，并返回窗口内
+// 最早一条的 created_at（没有匹配行时为零值）。它是 T04 重试限次闸的计数
+// 原语：计数决定放行还是拒绝，最早一条 + 24h 作为 recover_at 提示。
 //
-// Filter is (tenant_id, action, target_type, target_id, created_at > since) —
-// per the T04 write-point audit the document ID lives in target_id (scope_id
-// holds the knowledge base ID, scope_type is a hardcoded knowledge_base).
-// The (tenant_id, action) composite index covers the leading columns; the
-// rest is residual filtering, no new index needed. The earliest row is a
-// second, reject-path-only query so the happy path stays one indexed COUNT.
+// 过滤条件为 (tenant_id, action, target_type, target_id, created_at > since)——
+// 按 T04 写入点的审计口径，文档 ID 存在 target_id（scope_id 放知识库 ID，
+// scope_type 固定为 knowledge_base）。已有的 (tenant_id, action) 复合索引
+// 覆盖前导列，其余条件走残余过滤，无需新建索引。最早一条只在拒绝路径上
+// 二次查询，放行路径保持单次带索引 COUNT。
 func (r *auditLogRepository) CountRecentByAction(
 	ctx context.Context,
 	tenantID uint64,
