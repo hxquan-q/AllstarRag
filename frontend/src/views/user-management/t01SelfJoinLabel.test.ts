@@ -7,6 +7,9 @@
  * - c. 对照：其他动作（member_removed / knowledge.created / owner_transferred）
  *   不进特判，显示名不变；
  * - d. 六语言 memberSelfJoined 键齐备非空，且与既有 member_added 显示名区分。
+ * - e.（CP3 F1）空操作人 member_added（邀请链接注册/孤儿空间自愈）且 target
+ *   有值 → 同显「加入空间」；双空（actor 与 target 均为空串的脏数据）→ 不按
+ *   本人加入显示，维持「新增成员」。
  *
  * 挂载方式沿 t05OperationLogScoped 先例（t46SfcMount 完整编译模板 + 真实
  * auditActionLabel/registry 依赖）。结构 renderer 下 t-table 的作用域插槽
@@ -148,4 +151,24 @@ test('T01-D 六语言 memberSelfJoined 键齐备非空，既有 member_added 显
   }
   assert.equal(getLocaleValueAtPath(LOCALE_BUNDLES['zh-CN'], SELF_JOIN_KEY), '加入空间', 'zh-CN 新键逐字')
   assert.equal(getLocaleValueAtPath(LOCALE_BUNDLES['zh-CN'], MEMBER_ADDED_LABEL_PATH), '新增成员', 'zh-CN 既有键逐字')
+})
+
+test('T01-E CP3 F1：空操作人 member_added 且 target 有值（邀请链接注册/孤儿空间自愈）显示「加入空间」', async (t) => {
+  // 未鉴权注册路由与孤儿空间自愈路径的审计 actor 为空串，同属本人/系统自动加入。
+  const emptyActor = row(6, 'rbac.member_added', '', 'u-invite')
+  const { vm } = mountLog(t, [emptyActor])
+  await settle()
+
+  assert.equal(vm.isSelfJoin(emptyActor), true, '空操作人 member_added 进入新键分支（F1-a）')
+  assert.equal(zhTranslate(SELF_JOIN_KEY), '加入空间', '真实 zh-CN 词条 = 「加入空间」')
+})
+
+test('T01-F CP3 收紧：member_added 双空 actor/target 脏数据不按本人加入显示', async (t) => {
+  // 双空是异常脏数据，不得误显「加入空间」，应回落既有「新增成员」。
+  const bothEmpty = row(7, 'rbac.member_added', '', '')
+  const { vm } = mountLog(t, [bothEmpty])
+  await settle()
+
+  assert.equal(vm.isSelfJoin(bothEmpty), false, '双空行不进特判（target 非空守卫）')
+  assert.equal(vm.actionLabel('rbac.member_added'), '新增成员', '双空行维持「新增成员」')
 })
