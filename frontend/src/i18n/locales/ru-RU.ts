@@ -4376,7 +4376,7 @@ export default {
     versionLabel: 'Версия приложения',
     versionDescription: 'Версия сервиса приложения',
     frontendVersionLabel: 'Версия UI',
-    frontendVersionDescription: 'Версия сборки UI (weknora-ui)',
+    frontendVersionDescription: 'Версия сборки UI',
     versionMismatch: 'Не совпадает с версией приложения',
     buildTimeLabel: 'Время сборки',
     buildTimeDescription: 'Время, когда система была собрана',

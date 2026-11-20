@@ -4376,7 +4376,7 @@ export default {
     versionLabel: '앱 버전',
     versionDescription: '애플리케이션 서비스의 버전 번호',
     frontendVersionLabel: 'UI 버전',
-    frontendVersionDescription: 'UI(weknora-ui) 빌드 버전 번호',
+    frontendVersionDescription: 'UI 빌드 버전 번호',
     versionMismatch: '앱 버전과 일치하지 않음',
     buildTimeLabel: '빌드 시간',
     buildTimeDescription: '시스템이 빌드된 시간',

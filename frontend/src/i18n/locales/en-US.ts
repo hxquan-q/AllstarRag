@@ -4754,7 +4754,7 @@ export default {
     versionLabel: 'App Version',
     versionDescription: 'Version of the application service',
     frontendVersionLabel: 'UI Version',
-    frontendVersionDescription: 'Build version of the UI (weknora-ui)',
+    frontendVersionDescription: 'Build version of the UI',
     versionMismatch: 'Mismatch with app version',
     buildTimeLabel: 'Build Time',
     buildTimeDescription: 'Time when the system was built',

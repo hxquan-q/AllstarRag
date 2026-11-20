@@ -4378,7 +4378,7 @@ export default {
     versionLabel: '應用版本',
     versionDescription: '當前應用服務的版本號',
     frontendVersionLabel: 'UI 版本',
-    frontendVersionDescription: '當前 UI 界面（weknora-ui）的建構版本號',
+    frontendVersionDescription: '當前 UI 界面的建構版本號',
     versionMismatch: '與應用版本不一致',
     buildTimeLabel: '建構時間',
     buildTimeDescription: '系統建構的時間',
