@@ -108,9 +108,11 @@ const actionLabel = (action: string) =>
 // 2) 操作人为空串——邀请链接注册（未鉴权注册请求无操作人）与孤儿空间
 //    自愈（ctx 无 UserID）两条路径，同属本人/系统自动加入。
 // 管理员手动添加必带登录态，操作人非空且≠目标，不受影响。
+// 目标必须非空：双空（actor='' 且 target=''）是异常脏数据，不按本人加入显示。
 function isSelfJoin(row: AuditLog): boolean {
   return (
     row.action === 'rbac.member_added' &&
+    row.target_user_id !== '' &&
     (row.actor_user_id === row.target_user_id || row.actor_user_id === '')
   )
 }
