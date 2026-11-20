@@ -5,7 +5,7 @@
  * - 6 个 locale 的 system.versionDescription 去掉「（weknora-app）」；
  * - SystemInfo.vue 的 DB 迁移报障引导不再外链 github.com/Tencent/WeKnora/issues，
  *   文案改为人话指引（「如遇迁移问题请联系系统管理员」类）；
- * - 前端版本行（含 weknora-ui 描述）按正本不动——守卫用例（绿）。
+ * - 前端版本行描述同样去 weknora-ui（2026-11-20 用户 E2E 裁定，原「不动」口径作废）——守卫用例（绿）。
  *
  * 字样属用户可见文案（user_visible_copy），「应用服务版本」行本身保留；
  * 版本号值链当前无 weknora 字样（VERSION=0.9.0），无断言点。
@@ -34,18 +34,18 @@ test('T03 6 个 locale 的 system.versionDescription 不含 weknora-app（AC-8�
   }
 })
 
-// ---------- AC-8 守卫：前端版本行不动（weknora-ui 描述保留） ----------
+// ---------- AC-8 守卫：前端版本行描述同样去 weknora-ui（2026-11-20 用户 E2E 新口径） ----------
 
-test('T03 守卫：前端版本行不动——frontendVersionDescription 保留 weknora-ui（AC-8，绿组）', () => {
+test('T03 守卫：前端版本描述不含 weknora-ui（用户 E2E 口径，绿组）', () => {
   for (const name of LOCALE_NAMES) {
     const value = getLocaleValueAtPath(LOCALE_BUNDLES[name], 'system.frontendVersionDescription')
     assert.equal(typeof value, 'string', `${name} system.frontendVersionDescription 应为字符串`)
     assert.equal(
-      (value as string).includes('weknora-ui'), true,
-      `${name} 的前端版本描述应保持不动（仍含 weknora-ui）`,
+      (value as string).includes('weknora-ui'), false,
+      `${name} 的前端版本描述仍含 weknora-ui 字样（2026-11-20 用户裁定去除）`,
     )
   }
-  // 模板两行都保留（应用服务版本行只清字样、前端版本行零改动）。
+  // 模板两行都保留（应用服务版本行只清字样、前端版本行仅清描述字样）。
   assert.ok(SYSTEM_INFO_SOURCE.includes('system.versionLabel'), '应用版本 label 行保留')
   assert.ok(SYSTEM_INFO_SOURCE.includes('system.frontendVersionLabel'), '前端版本 label 行保留')
   assert.ok(SYSTEM_INFO_SOURCE.includes('system.versionDescription'), '应用版本描述行保留（只清字样不删行）')
