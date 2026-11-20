@@ -279,7 +279,7 @@ type SubmittedTaskResponse struct {
 type BatchReparseSkipped struct {
 	KnowledgeID string `json:"knowledge_id" example:"doc-1"`
 	Reason      string `json:"reason" example:"RETRY_LIMIT_EXHAUSTED"`
-	RecoverAt   string `json:"recover_at,omitempty" example:"2026-11-20T09:00:00+08:00"`
+	RecoverAt   string `json:"recover_at" example:"2026-11-20T09:00:00+08:00"`
 }
 
 // BatchReparseTaskData 是 POST /knowledge/batch-reparse 响应的 data 对象：

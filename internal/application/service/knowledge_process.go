@@ -4867,7 +4867,7 @@ func (s *knowledgeService) ProcessKnowledgeListReparse(ctx context.Context, t *a
 	outcome, err := runKnowledgeListReparseSubmissions(ids, func(id string) error {
 		if s.reparseQuota != nil && !payload.QuotaExempt {
 			release, ok, recoverAt, quotaErr := s.reparseQuota.AcquireBatch(
-				ctx, payload.TenantID, id, false)
+				ctx, payload.TenantID, id)
 			if quotaErr != nil {
 				return quotaErr
 			}

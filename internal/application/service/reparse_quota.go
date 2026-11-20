@@ -55,12 +55,11 @@ func NewReparseQuotaGate(db *gorm.DB) *ReparseQuotaGate {
 
 // Acquire 判定单文档重试额度并占住文档级锁：额度未尽返回 release（调用方
 // defer 释放，锁需覆盖服务提交与审计行写入全程）；已耗尽返回 429 AppError
-// （code=1006 + details{error_code, recover_at}）；系统管理员豁免，release 为
-// 无操作 no-op。返回的错误恒为 *apperrors.AppError：429=限次耗尽，5xx=计数/
-// 锁故障。
+// （code=1006 + details{error_code, recover_at}）；系统管理员在判定里豁免
+// （仍照常持锁，开销可忽略）。返回的错误恒为 *apperrors.AppError：429=限次
+// 耗尽，5xx=计数/锁故障。
 func (g *ReparseQuotaGate) Acquire(ctx context.Context, tenantID uint64, knowledgeID string) (func(), error) {
-	release, ok, recoverAt, err := g.AcquireBatch(
-		ctx, tenantID, knowledgeID, types.IsSystemAdminFromContext(ctx))
+	release, ok, recoverAt, err := g.AcquireBatch(ctx, tenantID, knowledgeID)
 	if err != nil {
 		return nil, err
 	}
@@ -71,16 +70,15 @@ func (g *ReparseQuotaGate) Acquire(ctx context.Context, tenantID uint64, knowled
 }
 
 // AcquireBatch 是批量/异步 worker 的逐文档复核（F2）：与单文档入口共用同一把
-// 文档级锁与计数。exempt=true（rebuild-index / 系统管理员来源）时不加锁直接
-// 放行，审计行由写点打 quota_exempt 标记。额度耗尽返回 ok=false 与恢复时间，
-// 由调用方在任务 outcome/日志里点名跳过（异步任务没有 429 响应）。额度未耗尽
-// 时返回的 release 需由调用方 defer，覆盖到 ReparseKnowledge 写完审计行。
+// 文档级锁与计数。豁免只在 verdict 一处判：系统管理员由 verdict 直接放行
+// （多拿一次锁的开销可忽略）；rebuild-index / 文件替换等不计额度的来源在
+// worker 侧就被 !payload.QuotaExempt 挡在外面，不进本复核，审计行由写点打
+// quota_exempt 标记。额度耗尽返回 ok=false 与恢复时间，由调用方在任务
+// outcome/日志里点名跳过（异步任务没有 429 响应）。额度未耗尽时返回的
+// release 需由调用方 defer，覆盖到 ReparseKnowledge 写完审计行。
 func (g *ReparseQuotaGate) AcquireBatch(
-	ctx context.Context, tenantID uint64, knowledgeID string, exempt bool,
+	ctx context.Context, tenantID uint64, knowledgeID string,
 ) (func(), bool, time.Time, error) {
-	if exempt {
-		return func() {}, true, time.Time{}, nil
-	}
 	release, err := g.lockDocument(ctx, tenantID, knowledgeID)
 	if err != nil {
 		return nil, false, time.Time{}, err
