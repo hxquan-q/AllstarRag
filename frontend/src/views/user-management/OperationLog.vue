@@ -131,6 +131,11 @@ function targetLabel(row: AuditLog): string {
   if ((MEMBER_ACTIONS as readonly string[]).includes(row.action)) {
     const details = typeof row.details === 'object' && row.details ? row.details : null
     const title = details?.title
+    // 批量删除行带 count>1：只显示首个标题会被看成只删了一份，带上总数。
+    const count = details?.count
+    if (typeof title === 'string' && title.trim() && typeof count === 'number' && count > 1) {
+      return t('userManagement.operations.batchTargetLabel', { title: title.trim(), count })
+    }
     if (typeof title === 'string' && title.trim()) return title.trim()
     const name = details?.name
     if (typeof name === 'string' && name.trim()) return name.trim()

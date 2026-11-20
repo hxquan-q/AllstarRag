@@ -1312,6 +1312,8 @@ const checkWkcCredentialStatus = async () => {
     wkcCredentialState.value = 'unconfigured'
     return
   }
+  // 身份经 /auth/me 校准后重开同一弹窗实例时，先清掉上一轮非超管置起的受限态。
+  wkcAccessDenied.value = false
   wkcCredentialState.value = 'loading'
   const status = await getWeKnoraCloudStatus()
   // 403 兜底：身份在打开后被收回时仍给「仅系统管理员可用」说明，不当成「未配置」。
@@ -1459,6 +1461,8 @@ const checkOllamaServiceStatus = async () => {
     ollamaServiceStatus.value = null
     return
   }
+  // 复位理由同上：受限标记要跟着当前身份走，不能沿用上一轮的 true。
+  ollamaAccessDenied.value = false
   console.log('开始检查Ollama服务状态...')
   checkingOllamaStatus.value = true
   try {
