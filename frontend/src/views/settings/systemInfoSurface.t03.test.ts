@@ -65,16 +65,16 @@ test('T03 SystemInfo.vue 无 github.com 外链（AC-9，现状 :257 issues 链�
 
 // ---------- AC-9：报障引导新文案六语言精确断言（票级复跑补，基准=T03-notes OQ3 定稿） ----------
 
-test('T03 dbMigrationFailedDesc 六语言逐字等于 OQ3 定稿文案（AC-9，票级复跑补断言）', () => {
-  // 基准=T03-notes OQ3：键名不变，六语言人话指引（「如遇迁移问题，请联系系统管理员处理」类）。
-  // 逐字断言锁用户可见文案（user_visible_copy），后续改动措辞须先改这里的基准。
+test('T03 dbMigrationFailedDesc 六语言逐字等于定稿文案（AC-9，票级复跑补断言；2026-11-20 终审 L3 去尾句后基准更新）', () => {
+  // 基准=终审 L3 定稿：描述句只保留现象说明，指引行（dbMigrationGuide）单独呈现，
+  // 两者不再重复「联系系统管理员」。逐字断言锁用户可见文案，改措辞须先改这里。
   const expected: Record<string, string> = {
-    'zh-CN': '启动时数据库迁移未成功完成，部分表或索引可能未创建，会导致 Wiki、知识图谱等功能异常。如遇迁移问题，请联系系统管理员处理。',
-    'zh-TW': '啟動時資料庫遷移未成功完成，部分表或索引可能未建立，會導致 Wiki、知識圖譜等功能例外。如遇遷移問題，請聯絡系統管理員處理。',
-    'en-US': 'The startup database migration did not complete successfully. Some tables or indexes may be missing, which can break Wiki ingest, the knowledge graph, and other features. If the migration keeps failing, contact your system administrator.',
-    'ja-JP': '起動時のデータベースマイグレーションが正常に完了しませんでした。一部のテーブルやインデックスが欠落し、Wikiの取り込みやナレッジグラフなどの機能が動作しない可能性があります。マイグレーション問題が解決しない場合は、システム管理者に連絡してください。',
-    'ko-KR': '시작 시 데이터베이스 마이그레이션이 정상적으로 완료되지 않았습니다. 일부 테이블이나 인덱스가 생성되지 않았을 수 있으며, Wiki와 지식 그래프 기능 등이 동작하지 않을 수 있습니다. 마이그레이션 문제가 해결되지 않으면 시스템 관리자에게 문의해 주세요.',
-    'ru-RU': 'Миграция базы данных при запуске не завершилась успешно. Часть таблиц или индексов могла не создаться, из-за чего Wiki, граф знаний и другие функции могут не работать. Если проблема с миграцией не решается, обратитесь к системному администратору.',
+    'zh-CN': '启动时数据库迁移未成功完成，部分表或索引可能未创建，会导致 Wiki、知识图谱等功能异常。',
+    'zh-TW': '啟動時資料庫遷移未成功完成，部分表或索引可能未建立，會導致 Wiki、知識圖譜等功能例外。',
+    'en-US': 'The startup database migration did not complete successfully. Some tables or indexes may be missing, which can break Wiki ingest, the knowledge graph, and other features.',
+    'ja-JP': '起動時のデータベースマイグレーションが正常に完了しませんでした。一部のテーブルやインデックスが欠落し、Wikiの取り込みやナレッジグラフなどの機能が動作しない可能性があります。',
+    'ko-KR': '시작 시 데이터베이스 마이그레이션이 정상적으로 완료되지 않았습니다. 일부 테이블이나 인덱스가 생성되지 않았을 수 있으며, Wiki와 지식 그래프 기능 등이 동작하지 않을 수 있습니다.',
+    'ru-RU': 'Миграция базы данных при запуске не завершилась успешно. Часть таблиц или индексов могла не создаться, из-за чего Wiki, граф знаний и другие функции могут не работать.',
   }
   for (const name of LOCALE_NAMES) {
     const value = getLocaleValueAtPath(LOCALE_BUNDLES[name], 'system.dbMigrationFailedDesc')
