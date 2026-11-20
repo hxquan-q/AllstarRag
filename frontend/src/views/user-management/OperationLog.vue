@@ -103,9 +103,16 @@ const userNames = ref<Record<string, string>>({})
 const actionLabel = (action: string) =>
   auditActionLabel({ tm }, AUDIT_ACTION_I18N_ROOTS.tenantMember, action)
 
-// 本人执行的加入（自邀请/注册即入）：操作人=目标，与手动添加区分。
+// 本人/系统自动加入，与管理员手动添加区分：
+// 1) 操作人=目标（自邀请、接受邀请自助加入等）；
+// 2) 操作人为空串——邀请链接注册（未鉴权注册请求无操作人）与孤儿空间
+//    自愈（ctx 无 UserID）两条路径，同属本人/系统自动加入。
+// 管理员手动添加必带登录态，操作人非空且≠目标，不受影响。
 function isSelfJoin(row: AuditLog): boolean {
-  return row.action === 'rbac.member_added' && row.actor_user_id === row.target_user_id
+  return (
+    row.action === 'rbac.member_added' &&
+    (row.actor_user_id === row.target_user_id || row.actor_user_id === '')
+  )
 }
 
 const actionOptions = computed(() =>
