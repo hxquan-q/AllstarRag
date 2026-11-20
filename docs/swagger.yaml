@@ -10889,6 +10889,10 @@ definitions:
       recover_at:
         example: "2026-11-20T09:00:00+08:00"
         type: string
+    required:
+    - knowledge_id
+    - reason
+    - recover_at
     type: object
   internal_handler.BatchReparseSubmittedResponse:
     properties:

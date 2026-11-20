@@ -39015,6 +39015,11 @@ const docTemplate = `{
         },
         "internal_handler.BatchReparseSkipped": {
             "type": "object",
+            "required": [
+                "knowledge_id",
+                "reason",
+                "recover_at"
+            ],
             "properties": {
                 "knowledge_id": {
                     "type": "string",
