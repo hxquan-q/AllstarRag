@@ -9614,6 +9614,7 @@ export default {
       allActions: '全部操作',
       searchPlaceholder: '搜索用户名或邮箱',
       batchTargetLabel: '{title} 等 {count} 个文档',
+      memberSelfJoined: '加入空间',
       empty: '暂无操作记录',
       loadMore: '加载更多',
       refresh: '刷新',

@@ -9621,6 +9621,7 @@ export default {
       allActions: 'All actions',
       searchPlaceholder: 'Search by username or email',
       batchTargetLabel: '{title} ({count} documents in total)',
+      memberSelfJoined: 'Joined the workspace',
       empty: 'No activity yet',
       loadMore: 'Load more',
       refresh: 'Refresh',

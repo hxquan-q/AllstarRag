@@ -9615,6 +9615,7 @@ export default {
       allActions: 'すべての操作',
       searchPlaceholder: 'ユーザー名またはメールアドレスで検索',
       batchTargetLabel: '{title} など {count} 件の文書',
+      memberSelfJoined: 'ワークスペースに参加',
       empty: '操作履歴はありません',
       loadMore: 'さらに読み込む',
       refresh: '更新',

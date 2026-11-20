@@ -9615,6 +9615,7 @@ export default {
       allActions: 'Все действия',
       searchPlaceholder: 'Поиск по имени пользователя или email',
       batchTargetLabel: '{title} — всего документов: {count}',
+      memberSelfJoined: 'Присоединился к рабочему пространству',
       empty: 'Действий пока нет',
       loadMore: 'Загрузить ещё',
       refresh: 'Обновить',

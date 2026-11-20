@@ -44,7 +44,10 @@
         <template #created_at="{ row }">{{ formatTime(row.created_at) }}</template>
         <template #actor="{ row }">{{ displayUser(row.actor_user_id) }}</template>
         <template #action="{ row }">
-          <t-tag size="small" variant="light">{{ actionLabel(row.action) }}</t-tag>
+          <t-tag v-if="isSelfJoin(row)" size="small" variant="light">
+            {{ t('userManagement.operations.memberSelfJoined') }}
+          </t-tag>
+          <t-tag v-else size="small" variant="light">{{ actionLabel(row.action) }}</t-tag>
         </template>
         <template #target="{ row }">
           <div class="operation-log__target">
@@ -99,6 +102,11 @@ const userNames = ref<Record<string, string>>({})
 
 const actionLabel = (action: string) =>
   auditActionLabel({ tm }, AUDIT_ACTION_I18N_ROOTS.tenantMember, action)
+
+// 本人执行的加入（自邀请/注册即入）：操作人=目标，与手动添加区分。
+function isSelfJoin(row: AuditLog): boolean {
+  return row.action === 'rbac.member_added' && row.actor_user_id === row.target_user_id
+}
 
 const actionOptions = computed(() =>
   MEMBER_ACTIONS.map((value) => ({ value, label: actionLabel(value) })),

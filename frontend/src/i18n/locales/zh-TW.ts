@@ -9611,6 +9611,7 @@ export default {
       allActions: '全部操作',
       searchPlaceholder: '搜尋使用者名稱或郵箱',
       batchTargetLabel: '{title} 等 {count} 個文件',
+      memberSelfJoined: '加入空間',
       empty: '暫無操作記錄',
       loadMore: '載入更多',
       refresh: '重新整理',

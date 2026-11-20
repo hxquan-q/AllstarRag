@@ -9615,6 +9615,7 @@ export default {
       allActions: '모든 작업',
       searchPlaceholder: '사용자 이름 또는 이메일로 검색',
       batchTargetLabel: '{title} 등 문서 {count}개',
+      memberSelfJoined: '워크스페이스 참여',
       empty: '작업 기록이 없습니다',
       loadMore: '더 보기',
       refresh: '새로 고침',
