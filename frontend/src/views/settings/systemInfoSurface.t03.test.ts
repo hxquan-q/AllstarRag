@@ -70,7 +70,7 @@ test('T03 dbMigrationFailedDesc 六语言逐字等于定稿文案（AC-9，票�
   // 两者不再重复「联系系统管理员」。逐字断言锁用户可见文案，改措辞须先改这里。
   const expected: Record<string, string> = {
     'zh-CN': '启动时数据库迁移未成功完成，部分表或索引可能未创建，会导致 Wiki、知识图谱等功能异常。',
-    'zh-TW': '啟動時資料庫遷移未成功完成，部分表或索引可能未建立，會導致 Wiki、知識圖譜等功能例外。',
+    'zh-TW': '啟動時資料庫遷移未成功完成，部分表或索引可能未建立，會導致 Wiki、知識圖譜等功能異常。',
     'en-US': 'The startup database migration did not complete successfully. Some tables or indexes may be missing, which can break Wiki ingest, the knowledge graph, and other features.',
     'ja-JP': '起動時のデータベースマイグレーションが正常に完了しませんでした。一部のテーブルやインデックスが欠落し、Wikiの取り込みやナレッジグラフなどの機能が動作しない可能性があります。',
     'ko-KR': '시작 시 데이터베이스 마이그레이션이 정상적으로 완료되지 않았습니다. 일부 테이블이나 인덱스가 생성되지 않았을 수 있으며, Wiki와 지식 그래프 기능 등이 동작하지 않을 수 있습니다.',
