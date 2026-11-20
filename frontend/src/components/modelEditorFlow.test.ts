@@ -33,6 +33,7 @@ async function fixture(options: {
   draft?: Record<string, unknown>
   edit?: boolean
   modelSource?: string
+  modelProvider?: string
   isSystemAdmin?: boolean
   ollamaStatus?: Record<string, unknown>
   wkcStatus?: Record<string, unknown>
@@ -76,7 +77,7 @@ async function fixture(options: {
     modelType: options.initialType || options.type || 'chat',
     modelData: options.edit ? {
       id: 'saved-model', modelName: 'old-model', name: '', source: options.modelSource ?? 'remote',
-      baseUrl: 'https://example.com/v1', provider: 'generic', isDefault: false,
+      baseUrl: 'https://example.com/v1', provider: options.modelProvider ?? 'generic', isDefault: false,
     } : null,
   })
   const check = async (payload: any) => {
@@ -92,7 +93,11 @@ async function fixture(options: {
       if (name === 'vue') return require('vue')
       if (name === 'vue-i18n') return { useI18n: () => ({ t: (key: string) => key, te: () => false, locale: { value: 'en-US' } }) }
       if (name === '@/stores/ui') return { useUIStore: () => ({}) }
-      if (name === '@/stores/auth') return { useAuthStore: () => ({ isSystemAdmin: options.isSystemAdmin ?? true }) }
+      if (name === '@/stores/auth') return {
+        // 身份可被 /auth/me 校准：isSystemAdmin 按读取时取值，测试可在挂载后翻转
+        // （final-M1：非超管打开过一次后身份校准为超管）。既有用例不翻转，行为不变。
+        useAuthStore: () => ({ get isSystemAdmin() { return options.isSystemAdmin ?? true } }),
+      }
       if (name === 'tdesign-vue-next') return {
         MessagePlugin: Object.fromEntries(['success', 'error', 'warning', 'info'].map(key => [key, (text: string) => toasts.push(text)])),
       }
@@ -1338,5 +1343,53 @@ test('CP3-L1 编辑既有 local 模型：非超管仍隐藏选择器/刷新（�
     await f.vm.refreshOllamaModels()
     assert.equal(f.statusCalls.list, 0, '编辑场景刷新同样不得发请求')
     assert.equal(f.toasts.includes('model.editor.listRefreshed'), false, '编辑场景不得弹假成功')
+  } finally { f.close() }
+})
+
+// ---------- 终审轮 3（M1）：身份校准后重开弹窗，受限标记复位 ----------
+
+test('final-M1 非超管打开过一次后身份校准为超管：重开弹窗受限态复位、本地来源与小爱云保存恢复', async () => {
+  // 弹窗实例常驻复用（ModelSettings 不用 v-if 卸载）：上一轮非超管置起的受限标记
+  // 必须在重开时按当前身份重算，不得沿用。编辑既有小爱云模型（provider=weknoracloud）
+  // 覆盖两条检查路径：checkOllamaServiceStatus（每次打开）与 checkWkcCredentialStatus
+  // （provider=weknoracloud 时打开即查）。
+  const options = { isSystemAdmin: false, edit: true, modelProvider: 'weknoracloud' }
+  const f = await fixture(options)
+  try {
+    // 第一次以非超管打开：两处受限态置位、零状态请求（I1 口径）。
+    assert.equal(f.vm.ollamaAccessDenied, true, '首开（非超管）Ollama 受限态置位')
+    assert.equal(f.vm.wkcAccessDenied, true, '首开（非超管）小爱云受限态置位')
+    assert.equal(f.vm.wkcCredentialState, 'unconfigured', '非超管凭证态=unconfigured（保存被禁）')
+    assert.equal(f.statusCalls.ollama, 0, '首开零状态请求（I1）')
+    assert.equal(f.statusCalls.wkc, 0, '首开零凭证请求（I1）')
+
+    // 身份经 /auth/me 校准为超管，重开同一弹窗实例（只切 visible，不重建实例）。
+    options.isSystemAdmin = true
+    f.props.visible = false
+    await nextTick()
+    f.props.visible = true
+    await nextTick()
+    // 状态/凭证检查是异步链，让重开触发的两批请求跑完再断言终态。
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    assert.equal(f.vm.ollamaAccessDenied, false, '重开后 ollamaAccessDenied 复位 false')
+    assert.equal(f.vm.wkcAccessDenied, false, '重开后 wkcAccessDenied 复位 false')
+    assert.equal(f.statusCalls.ollama, 1, '重开后按超管身份真实请求 Ollama 状态')
+    assert.equal(f.statusCalls.wkc, 1, '重开后真实请求小爱云凭证')
+    assert.equal(f.vm.ollamaServiceStatus, false, '状态结果照常落地（默认桩 available=false）')
+
+    // 本地来源恢复可用：刷新真实拉本地模型列表（受限时该路径早退零请求）。
+    f.vm.formData.source = 'local'
+    await f.vm.refreshOllamaModels()
+    assert.equal(f.statusCalls.list, 1, '复位后本地模型列表可请求')
+    assert.equal(f.toasts.includes('model.editor.listRefreshed'), true, '拉到列表后的成功提示恢复')
+
+    // 小爱云保存恢复：provider=weknoracloud 且凭证态=configured 时 confirm-disabled 为 false。
+    assert.equal(f.vm.formData.provider, 'weknoracloud', '编辑既有小爱云模型 provider 保持')
+    assert.equal(f.vm.wkcCredentialState, 'configured', '凭证态=configured（默认桩 has_models=true）')
+    assert.equal(
+      f.vm.formData.provider === 'weknoracloud' && f.vm.wkcCredentialState !== 'configured', false,
+      'confirm-disabled 表达式为 false（保存可用）',
+    )
   } finally { f.close() }
 })

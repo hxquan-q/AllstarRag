@@ -16,17 +16,29 @@ import {
   OPERATION_LOG_AUDIT_ACTIONS,
   OPERATION_LOG_SCOPED_AUDIT_ACTIONS,
 } from '../../i18n/auditActionRegistry.ts'
+import { LOCALE_BUNDLES, getLocaleValueAtPath } from '../../i18n/localeKeyAudit.ts'
 
 const OPERATIONS = new URL('./OperationLog.vue', import.meta.url)
 const AUDIT_LOG_API = new URL('../../api/tenant/audit-log.ts', import.meta.url)
 
 const i18n = { useI18n: () => ({ t: (key: string) => key, tm: () => ({}), locale: { value: 'zh-CN' } }) }
 
-function mountLog(t: TestContext) {
+// final-L1：按真实 zh-CN bundle 的词条模板做 {name} 插值（vue-i18n 语义的最小
+// 等价投影），断言的是真实词条而不是测试里复制的第二份文案。
+function zhTranslate(key: string, params?: Record<string, unknown>): string {
+  const template = getLocaleValueAtPath(LOCALE_BUNDLES['zh-CN'], key)
+  if (typeof template !== 'string') return key
+  if (!params) return template
+  return template.replace(/\{(\w+)\}/g, (_, name) => String(params[name] ?? `{${name}}`))
+}
+
+function mountLog(t: TestContext, translate?: (key: string, params?: Record<string, unknown>) => string) {
   const calls: any[][] = []
   const f = fixture(t)
   const { vm } = f.component(OPERATIONS, {
-    'vue-i18n': i18n,
+    'vue-i18n': translate
+      ? { useI18n: () => ({ t: translate, tm: () => ({}), locale: { value: 'zh-CN' } }) }
+      : i18n,
     '@/api/tenant/audit-log': {
       listAuditLog: async (...args: any[]) => {
         calls.push(args)
@@ -143,4 +155,40 @@ test('CP3-FS3 api 层：actions 数组序列化为逗号分隔 CSV', async (t) =
     '/api/v1/tenants/7/audit-log?action=kb.created&actions=knowledge.created%2Ckb.created',
     '单值 action 与 actions 并存（后端叠加生效）',
   )
+})
+
+// ---------- 终审轮 3（L1）：批量删除目标列「{title} 等 {count} 个文档」 ----------
+
+test('final-L1 批量删除行 count>1 显示「{title} 等 {count} 个文档」，count=1/缺失原样', async (t) => {
+  const { vm } = mountLog(t, zhTranslate)
+  await flush()
+
+  const batch = vm.targetLabel({
+    action: 'knowledge.batch_deleted', target_user_id: 'u-1',
+    details: { title: '季度报告.pdf', count: 3 },
+  })
+  assert.equal(
+    batch, '季度报告.pdf 等 3 个文档',
+    'count>1 且 title → 用 batchTargetLabel 词条插值（逐字锁 zh-CN 定稿文案，改措辞须先改这里）',
+  )
+
+  const single = vm.targetLabel({
+    action: 'knowledge.batch_deleted', target_user_id: 'u-1',
+    details: { title: '季度报告.pdf', count: 1 },
+  })
+  assert.equal(single, '季度报告.pdf', 'count=1 不进批量分支，原样显示标题')
+
+  const missing = vm.targetLabel({
+    action: 'knowledge.batch_deleted', target_user_id: 'u-1',
+    details: { title: '季度报告.pdf' },
+  })
+  assert.equal(missing, '季度报告.pdf', 'count 缺失同样原样')
+
+  // 六语言词条守卫：键齐备且保留 {title}/{count} 占位（插值契约）。
+  for (const name of Object.keys(LOCALE_BUNDLES) as Array<keyof typeof LOCALE_BUNDLES>) {
+    const value = getLocaleValueAtPath(LOCALE_BUNDLES[name], 'userManagement.operations.batchTargetLabel')
+    assert.equal(typeof value, 'string', `${name} batchTargetLabel 应为字符串`)
+    assert.match(value as string, /\{title\}/, `${name} 须含 {title} 占位`)
+    assert.match(value as string, /\{count\}/, `${name} 须含 {count} 占位`)
+  }
 })

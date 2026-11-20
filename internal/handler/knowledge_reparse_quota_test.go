@@ -424,6 +424,11 @@ func TestT04_BatchReparseSkipsQuotaExhaustedDocuments(t *testing.T) {
 	if fmt.Sprint(payload.KnowledgeIDs) != fmt.Sprint([]string{docB}) {
 		t.Fatalf("任务文档列表=%v, want [%s]（超限文档不得入队）", payload.KnowledgeIDs, docB)
 	}
+	// 终审轮3 L1 对照组：普通成员批量必须 QuotaExempt=false（照常计入共享额度），
+	// 与超管批量/重建路径的 true 形成双向守卫。
+	if payload.QuotaExempt {
+		t.Fatalf("普通成员批量任务 payload.QuotaExempt=true, want false（照常计入额度）")
+	}
 }
 
 // TestT04_BatchReparseAllExhaustedReturnsClearInfo：全超限时返回明确信息
@@ -513,6 +518,25 @@ func TestT04_SystemAdminExemptFromReparseQuota(t *testing.T) {
 	if got := env.svc.reparseCalls(doc); got != 2 {
 		t.Fatalf("超管服务调用=%d, want 2", got)
 	}
+
+	// 终审轮3 L1：超管批量的豁免完全靠 handler 往任务 payload 写 QuotaExempt=true
+	// （worker ctx 不带超管身份，verdict 兜不住异步路径）。锁住入队 payload 的豁免
+	// 标记，防止有人改掉 types.IsSystemAdminFromContext 传参而测试全绿。
+	batchW := env.post(t, "/knowledge/batch-reparse",
+		fmt.Sprintf(`{"kb_id":%q,"ids":[%q]}`, reparseQuotaKBID, doc))
+	if batchW.Code != http.StatusOK {
+		t.Fatalf("超管批量 status=%d, want 200 (body=%s)", batchW.Code, batchW.Body.String())
+	}
+	if env.queue.task == nil {
+		t.Fatalf("超管批量应正常入队")
+	}
+	var payload types.KnowledgeListReparsePayload
+	if err := json.Unmarshal(env.queue.task.Payload(), &payload); err != nil {
+		t.Fatalf("decode task payload: %v", err)
+	}
+	if !payload.QuotaExempt {
+		t.Fatalf("超管批量任务 payload.QuotaExempt=false, want true（worker 侧豁免只认此标记）")
+	}
 }
 
 // TestT04_RebuildIndexIgnoresReparseQuota：KB 级 rebuild-index 行为零变化
@@ -537,6 +561,11 @@ func TestT04_RebuildIndexIgnoresReparseQuota(t *testing.T) {
 	}
 	if fmt.Sprint(payload.KnowledgeIDs) != fmt.Sprint([]string{doc}) {
 		t.Fatalf("rebuild-index 任务文档列表=%v, want 全量 [%s]", payload.KnowledgeIDs, doc)
+	}
+	// 终审轮3 L1：rebuild 的豁免同样只靠 payload.QuotaExempt=true（R3 口径：
+	// 整批不占 24h 重试额度），锁住标记防回归。
+	if !payload.QuotaExempt {
+		t.Fatalf("rebuild-index 任务 payload.QuotaExempt=false, want true（R3：整批不占重试额度）")
 	}
 }
 
