@@ -9619,7 +9619,7 @@ export default {
     operations: {
       tab: 'Activity',
       allActions: 'All actions',
-      searchPlaceholder: 'Search action type or actor',
+      searchPlaceholder: 'Search by username or email',
       batchTargetLabel: '{title} ({count} documents in total)',
       empty: 'No activity yet',
       loadMore: 'Load more',

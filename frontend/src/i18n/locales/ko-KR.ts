@@ -9613,7 +9613,7 @@ export default {
     operations: {
       tab: '작업 기록',
       allActions: '모든 작업',
-      searchPlaceholder: '작업 유형 또는 작업자 검색',
+      searchPlaceholder: '사용자 이름 또는 이메일로 검색',
       batchTargetLabel: '{title} 등 문서 {count}개',
       empty: '작업 기록이 없습니다',
       loadMore: '더 보기',

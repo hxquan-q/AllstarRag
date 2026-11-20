@@ -236,8 +236,8 @@ function formatUptime(totalSeconds: number): string {
 }
 
 // T03（admin-feature-surface）：原「提交 Issue」外链（WeKnora GitHub）已按
-// 裁定清单移除，改为人话指引——文案见 system.dbMigrationFailedDesc
-// （如遇迁移问题，请联系系统管理员处理）。
+// 裁定清单移除；迁移失败的现象说明见 system.dbMigrationFailedDesc
+// （终审 L3 后仅保留现象描述，联系管理员的指引不在此键）。
 // CP3 OQ3：原「查看排查文档」外链（weknora.weixin.qq.com）一并移除，
 // 同一位置改为保留错误详情、联系管理员的排查指引（system.dbMigrationGuide）。
 

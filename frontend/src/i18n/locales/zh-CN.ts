@@ -9612,7 +9612,7 @@ export default {
     operations: {
       tab: '操作记录',
       allActions: '全部操作',
-      searchPlaceholder: '搜索操作类型或操作人',
+      searchPlaceholder: '搜索用户名或邮箱',
       batchTargetLabel: '{title} 等 {count} 个文档',
       empty: '暂无操作记录',
       loadMore: '加载更多',

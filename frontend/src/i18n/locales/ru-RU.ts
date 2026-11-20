@@ -9613,7 +9613,7 @@ export default {
     operations: {
       tab: 'Журнал действий',
       allActions: 'Все действия',
-      searchPlaceholder: 'Поиск по типу действия или исполнителю',
+      searchPlaceholder: 'Поиск по имени пользователя или email',
       batchTargetLabel: '{title} — всего документов: {count}',
       empty: 'Действий пока нет',
       loadMore: 'Загрузить ещё',

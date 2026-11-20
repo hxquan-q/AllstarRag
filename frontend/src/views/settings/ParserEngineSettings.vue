@@ -734,20 +734,17 @@ const wkcState = ref<'loading' | 'unconfigured' | 'configured' | 'expired'>('loa
 async function checkWkcStatus() {
   // 小爱云凭证接口仅系统管理员可调；非超管不请求，状态由模板的能力说明替代。
   if (!authStore.isSystemAdmin) {
-    wkcState.value = 'unconfigured'
     return
   }
   wkcState.value = 'loading'
-  try {
-    const status = await getWeKnoraCloudStatus()
-    if (status.needs_reinit) {
-      wkcState.value = 'expired'
-    } else if (status.has_models) {
-      wkcState.value = 'configured'
-    } else {
-      wkcState.value = 'unconfigured'
-    }
-  } catch {
+  // getWeKnoraCloudStatus 永不 reject（403/异常都在内部 resolve 成默认态），
+  // 无需 try/catch（与 ModelEditorDialog 的 L2 同款清理）。
+  const status = await getWeKnoraCloudStatus()
+  if (status.needs_reinit) {
+    wkcState.value = 'expired'
+  } else if (status.has_models) {
+    wkcState.value = 'configured'
+  } else {
     wkcState.value = 'unconfigured'
   }
 }

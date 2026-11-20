@@ -9613,7 +9613,7 @@ export default {
     operations: {
       tab: '操作履歴',
       allActions: 'すべての操作',
-      searchPlaceholder: '操作種別または操作者を検索',
+      searchPlaceholder: 'ユーザー名またはメールアドレスで検索',
       batchTargetLabel: '{title} など {count} 件の文書',
       empty: '操作履歴はありません',
       loadMore: 'さらに読み込む',

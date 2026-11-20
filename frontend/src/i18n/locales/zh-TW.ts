@@ -4390,7 +4390,7 @@ export default {
     dbVersionDescription: '當前資料庫遷移版本號',
     dbMigrationFailedTag: '遷移失敗',
     dbMigrationFailedTitle: '資料庫遷移失敗',
-    dbMigrationFailedDesc: '啟動時資料庫遷移未成功完成，部分表或索引可能未建立，會導致 Wiki、知識圖譜等功能例外。',
+    dbMigrationFailedDesc: '啟動時資料庫遷移未成功完成，部分表或索引可能未建立，會導致 Wiki、知識圖譜等功能異常。',
     dbMigrationGuide: '資料庫遷移排查：請保留上方錯誤詳情並聯絡系統管理員；問題處理後重新啟動服務，遷移會自動重試。',
     keywordIndexEngineLabel: '關鍵字索引引擎',
     keywordIndexEngineDescription: '當前使用的關鍵字索引引擎',
@@ -9609,7 +9609,7 @@ export default {
     operations: {
       tab: '操作記錄',
       allActions: '全部操作',
-      searchPlaceholder: '搜尋操作類型或操作人',
+      searchPlaceholder: '搜尋使用者名稱或郵箱',
       batchTargetLabel: '{title} 等 {count} 個文件',
       empty: '暫無操作記錄',
       loadMore: '載入更多',
