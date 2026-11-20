@@ -48,6 +48,12 @@ const (
 	reparseQuotaTarget = "knowledge"
 )
 
+// reparseQuotaDisplayTZ 是 429 人话文案里恢复时间的展示时区（北京时间）：
+// 容器时区不保证（UTC 容器会让提示时间比北京早 8 小时），固定 UTC+8（等价
+// Asia/Shanghai，无夏令时；FixedZone 不依赖系统 tzdata，与 feishu 连接器的
+// 固定时区先例同型）。details.recover_at 仍是原始时间戳，不受此影响。
+var reparseQuotaDisplayTZ = time.FixedZone("UTC+8", 8*60*60)
+
 // NewReparseQuotaGate 基于共享 GORM 连接构造限次闸。
 func NewReparseQuotaGate(db *gorm.DB) *ReparseQuotaGate {
 	return &ReparseQuotaGate{db: db, audit: repository.NewAuditLogRepository(db)}
@@ -71,9 +77,11 @@ func (g *ReparseQuotaGate) Acquire(ctx context.Context, tenantID uint64, knowled
 
 // AcquireBatch 是批量/异步 worker 的逐文档复核（F2）：与单文档入口共用同一把
 // 文档级锁与计数。豁免只在 verdict 一处判：系统管理员由 verdict 直接放行
-// （多拿一次锁的开销可忽略）；rebuild-index / 文件替换等不计额度的来源在
-// worker 侧就被 !payload.QuotaExempt 挡在外面，不进本复核，审计行由写点打
-// quota_exempt 标记。额度耗尽返回 ok=false 与恢复时间，由调用方在任务
+// （多拿一次锁的开销可忽略）。不进本复核的豁免来源有两类：rebuild-index /
+// 超管批量在入队时写 payload.QuotaExempt，worker 侧据此跳过；文件替换走
+// 同步路径（knowledge_replace.go 以 WithReparseQuotaExempt 上下文直调
+// reparseKnowledge），不经本闸。两者的审计行都由写点打 quota_exempt 标记
+// （计数排除）。额度耗尽返回 ok=false 与恢复时间，由调用方在任务
 // outcome/日志里点名跳过（异步任务没有 429 响应）。额度未耗尽时返回的
 // release 需由调用方 defer，覆盖到 ReparseKnowledge 写完审计行。
 func (g *ReparseQuotaGate) AcquireBatch(
@@ -161,7 +169,7 @@ func (g *ReparseQuotaGate) countWindow(ctx context.Context, tenantID uint64, kno
 func reparseQuotaExhaustedError(recoverAt time.Time) error {
 	return apperrors.NewTooManyRequestsError(fmt.Sprintf(
 		"该文档 24 小时内重试次数已达上限（%d 次），请于 %s 后再试或联系系统管理员",
-		reparseQuotaLimit, recoverAt.Local().Format("2006-01-02 15:04"))).
+		reparseQuotaLimit, recoverAt.In(reparseQuotaDisplayTZ).Format("2006-01-02 15:04"))).
 		WithDetails(map[string]any{
 			"error_code": ReparseQuotaErrorCode,
 			"recover_at": recoverAt,
