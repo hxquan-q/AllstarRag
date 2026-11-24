@@ -180,6 +180,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewUserRepository))
 	must(container.Provide(repository.NewAuthTokenRepository))
 	must(container.Provide(repository.NewYunzhijiaEmployeeRepository))
+	must(container.Provide(repository.NewYunzhijiaSyncRunRepository))
 	must(container.Provide(repository.NewSystemSettingRepository))
 	must(container.Provide(repository.NewModelCatalogRepository))
 	must(container.Provide(neo4jRepo.NewNeo4jRepository))
@@ -367,6 +368,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewYunzhijiaUserRemover))
 	must(container.Provide(service.NewYunzhijiaProvisioner))
 	must(container.Provide(service.NewYunzhijiaLifecycle))
+	must(container.Provide(service.NewYunzhijiaSyncService))
+	must(container.Provide(initYunzhijiaScheduler))
 	must(container.Provide(
 		service.NewYunzhijiaLoginService,
 		dig.As(new(interfaces.YunzhijiaLoginService)),

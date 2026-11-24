@@ -82,6 +82,7 @@ func main() {
 		resourceCleaner interfaces.ResourceCleaner,
 		systemSettingSvc interfaces.SystemSettingService,
 		modelCatalogSvc *service.ModelCatalogService,
+		yunzhijiaScheduler *service.YunzhijiaScheduler,
 	) error {
 		// Create HTTP server
 		server := &http.Server{
@@ -96,6 +97,9 @@ func main() {
 
 		ctx, done := context.WithCancel(context.Background())
 		modelCatalogSvc.Start(ctx)
+		// 云之家同步调度只在 enabled=true 时注册；启动补跑在后台执行，
+		// 不阻塞服务启动，ctx 取消时自动停止。
+		yunzhijiaScheduler.Start(ctx)
 
 		// Start the system_settings pubsub subscriber. Runs in its own
 		// goroutine and exits when ctx is cancelled at shutdown. Best-
@@ -139,6 +143,8 @@ func main() {
 			// two slices must still add up to one supervisor grace period.
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cleanupBudget)
 			defer cleanupCancel()
+			// 停止调度并等待在途同步退出；上限受清理预算约束。
+			yunzhijiaScheduler.Stop(cleanupCtx)
 			errs := resourceCleaner.Cleanup(cleanupCtx)
 			if len(errs) > 0 {
 				logger.Errorf(context.Background(), "Errors occurred during resource cleanup: %v", errs)
