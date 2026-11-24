@@ -55,6 +55,11 @@ func (s *userManagementService) PurgeUser(
 	if s.purgeRepo == nil {
 		return apperrors.NewInternalServerError("user purge is not available")
 	}
+	// 授权已通过：先让员工目录进入禁止重建状态，再执行墓碑化。标记失败
+	// 直接返回，不留下「账号已删但下一轮同步会重建」的窗口。
+	if err := s.markYunzhijiaBlockedBeforePurge(ctx, target.user.ID, auditActor(ctx)); err != nil {
+		return err
+	}
 	audit := purgeAuditEntry(ctx, tenantID, target, reason)
 	// expectedTargetRole 让墓碑化事务复核目标角色未被并发提升，堵住
 	// 「校验后被提为同级管理员仍被注销」的窗口（N17 / N20）。

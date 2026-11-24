@@ -80,6 +80,19 @@ type YunzhijiaAccountLifecycle interface {
 	ApplyInactive(ctx context.Context, employee *types.YunzhijiaEmployee) error
 }
 
+// YunzhijiaEmployeeState 由管理端账号动作反向标记员工目录（T06）。
+//
+// 封禁 / 人工停用后必须把 disabled_by_sync 置 false，避免下一轮同步把
+// 账号当成「同步停用」自动恢复；删除授权通过后必须先标 blocked，再执行
+// 墓碑化，防止同步重建账号。实现为空依赖时调用方保持旧行为。
+type YunzhijiaEmployeeState interface {
+	// MarkAdminDisabled 清除员工的 disabled_by_sync 标记；员工目录没有
+	// 对应用户时视为无需处理。
+	MarkAdminDisabled(ctx context.Context, userID string) error
+	// MarkBlockedAfterPurge 在墓碑化之前把员工置为禁止重建。
+	MarkBlockedAfterPurge(ctx context.Context, userID, actorID string) error
+}
+
 // YunzhijiaLoginService 处理云之家 ticket 免登录。
 //
 // 业务拒绝（无效 ticket、同名、离职/封禁、配置不可用等）通过返回

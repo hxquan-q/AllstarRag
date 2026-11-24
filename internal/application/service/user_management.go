@@ -47,6 +47,9 @@ type userManagementService struct {
 	memberService     interfaces.TenantMemberService
 	invitationService interfaces.TenantInvitationService
 	userService       interfaces.UserService
+
+	// yunzhijiaState 可选：封禁/删除后反向标记员工目录。nil 时保持旧行为。
+	yunzhijiaState interfaces.YunzhijiaEmployeeState
 }
 
 // NewUserManagementService 构造用户管理服务。三个依赖都是既有仓储/服务；
@@ -157,6 +160,9 @@ func (s *userManagementService) BanUser(
 		if err != nil {
 			return nil, mapUserStatusError(err)
 		}
+		if err := s.notifyYunzhijiaAdminDisabled(ctx, target.user.ID); err != nil {
+			return nil, err
+		}
 		return user, nil
 	}
 
@@ -172,6 +178,9 @@ func (s *userManagementService) BanUser(
 	if wasActive {
 		s.emitStatusAudit(ctx, tenantID, target,
 			types.AuditActionMemberBanned, reason)
+	}
+	if err := s.notifyYunzhijiaAdminDisabled(ctx, target.user.ID); err != nil {
+		return nil, err
 	}
 	return user, nil
 }

@@ -128,6 +128,8 @@ type userService struct {
 	sandboxReleaser  SandboxOwnerReleaser
 	// yunzhijiaEmployeeLookup 可选：未注入时为 nil，密码路径保持旧行为。
 	yunzhijiaEmployeeLookup interfaces.YunzhijiaEmployeeLookup
+	// yunzhijiaState 可选：人工停用后反向标记员工目录。nil 时保持旧行为。
+	yunzhijiaState interfaces.YunzhijiaEmployeeState
 }
 
 // NewUserService creates a new user service instance
@@ -684,7 +686,21 @@ var (
 // SetUserActive changes status and revokes sessions atomically with the
 // repository's self-disable and last-active-admin guards.
 func (s *userService) SetUserActive(ctx context.Context, userID, actorID string, active bool) (*types.User, error) {
-	return s.userRepo.SetUserActive(ctx, userID, actorID, active)
+	user, err := s.userRepo.SetUserActive(ctx, userID, actorID, active)
+	if err != nil {
+		return nil, err
+	}
+	// 人工停用（system.go 用户状态入口）必须清 disabled_by_sync，否则同步
+	// 再入职会把它当成「同步停用」自动恢复。同步侧直接调仓储，不走这里。
+	if !active && s.yunzhijiaState != nil {
+		if markErr := s.yunzhijiaState.MarkAdminDisabled(ctx, userID); markErr != nil {
+			logger.Warnf(ctx,
+				"yunzhijia: 人工停用后标记 disabled_by_sync 失败（停用已生效）: user=%s err=%v",
+				userID, markErr)
+			return nil, fmt.Errorf("yunzhijia: 标记员工管理员停用失败: %w", markErr)
+		}
+	}
+	return user, nil
 }
 
 // ListAllUsers lists every platform user newest-first for the system-admin

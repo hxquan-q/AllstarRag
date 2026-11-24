@@ -271,6 +271,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		memberService interfaces.TenantMemberService,
 		invitationService interfaces.TenantInvitationService,
 		userService interfaces.UserService,
+		yzjLifecycle *service.YunzhijiaLifecycle,
 	) interfaces.UserManagementService {
 		svc := service.NewUserManagementService(userRepo, memberRepo, audit)
 		if lookup, ok := audit.(interfaces.LatestBanAuditLookup); ok {
@@ -291,6 +292,13 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			)
 		}); ok {
 			aware.SetOwnerManagementDeps(tenantService, memberService, invitationService, userService)
+		}
+		// T06 管理端封禁/删除反向标记云之家员工目录；未启用同步时也生效，
+		// 否则下一轮同步会把人工封禁/删除的账号自动恢复或重建。
+		if aware, ok := svc.(interface {
+			WithYunzhijiaEmployeeState(interfaces.YunzhijiaEmployeeState)
+		}); ok {
+			aware.WithYunzhijiaEmployeeState(yzjLifecycle)
 		}
 		return svc
 	}))
@@ -358,6 +366,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(provideUserService))
 	must(container.Provide(service.NewYunzhijiaUserRemover))
 	must(container.Provide(service.NewYunzhijiaProvisioner))
+	must(container.Provide(service.NewYunzhijiaLifecycle))
 	must(container.Provide(
 		service.NewYunzhijiaLoginService,
 		dig.As(new(interfaces.YunzhijiaLoginService)),

@@ -74,6 +74,9 @@ func (s *userManagementService) PlatformBanUser(
 		if err != nil {
 			return nil, mapUserStatusError(err)
 		}
+		if err := s.notifyYunzhijiaAdminDisabled(ctx, target.ID); err != nil {
+			return nil, err
+		}
 		return user, nil
 	}
 
@@ -87,6 +90,9 @@ func (s *userManagementService) PlatformBanUser(
 	// 反复改写「全平台最近一次 ban」的归属。
 	if wasActive {
 		s.emitPlatformAudit(ctx, target.ID, types.AuditActionMemberBanned, reason)
+	}
+	if err := s.notifyYunzhijiaAdminDisabled(ctx, target.ID); err != nil {
+		return nil, err
 	}
 	return user, nil
 }
@@ -162,6 +168,9 @@ func (s *userManagementService) PlatformPurgeUser(
 	}
 	if s.purgeRepo == nil {
 		return apperrors.NewInternalServerError("user purge is not available")
+	}
+	if err := s.markYunzhijiaBlockedBeforePurge(ctx, target.ID, auditActor(ctx)); err != nil {
+		return err
 	}
 	audit := platformAuditEntry(ctx, target.ID, types.AuditActionMemberPurged, reason)
 	// 平台级注销不依赖成员关系，传空角色跳过事务内成员快照复核。

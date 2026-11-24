@@ -20,11 +20,18 @@ func provideUserService(
 	memberService interfaces.TenantMemberService,
 	systemSettingSvc interfaces.SystemSettingService,
 	employeeRepo interfaces.YunzhijiaEmployeeRepository,
+	yzjLifecycle *service.YunzhijiaLifecycle,
 ) interfaces.UserService {
-	return service.NewUserService(
+	svc := service.NewUserService(
 		configInfo, userRepo, tokenRepo, tenantService, memberService, systemSettingSvc,
 		service.NewYunzhijiaEmployeeLookup(employeeRepo),
 	)
+	if aware, ok := svc.(interface {
+		WithYunzhijiaEmployeeState(interfaces.YunzhijiaEmployeeState)
+	}); ok {
+		aware.WithYunzhijiaEmployeeState(yzjLifecycle)
+	}
+	return svc
 }
 
 // initYunzhijiaSSOConfig 暴露 config.Config 里的云之家配置段。
