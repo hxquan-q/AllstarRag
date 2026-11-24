@@ -49,60 +49,79 @@ func NewYunzhijiaLifecycle(
 // ApplyEmployee 处理在职员工：开号、再入职恢复或调岗。
 func (l *YunzhijiaLifecycle) ApplyEmployee(
 	ctx context.Context, employee *types.YunzhijiaEmployee,
-) error {
+) (types.YunzhijiaAccountResult, error) {
 	if employee.Blocked {
-		return nil
+		return types.YunzhijiaAccountResultNone, nil
 	}
 	if employee.UserID == nil {
-		_, err := l.provisioner.EnsureAccount(ctx, employee)
-		return err
+		if _, err := l.provisioner.EnsureAccount(ctx, employee); err != nil {
+			return types.YunzhijiaAccountResultNone, err
+		}
+		return types.YunzhijiaAccountResultCreated, nil
 	}
 
 	user, err := l.loadEmployeeUser(ctx, *employee.UserID)
 	if err != nil {
-		return err
+		return types.YunzhijiaAccountResultNone, err
 	}
 	// 先看同步停用标记：再入职、管理员先手动解封等场景会留下「在职但
 	// 标记仍为 true」，登录侧会因此永久拒绝。标记为 true 一律走恢复。
 	if employee.DisabledBySync {
 		if _, err := l.userRepo.SetUserActive(ctx, user.ID, "", true); err != nil {
-			return err
+			return types.YunzhijiaAccountResultNone, err
 		}
 		// 复用调岗逻辑清理其他空间的残留成员关系，并补上目标空间。
-		if err := l.applyActiveUser(ctx, user, employee); err != nil {
-			return err
+		if _, err := l.applyActiveUser(ctx, user, employee); err != nil {
+			return types.YunzhijiaAccountResultNone, err
 		}
-		return l.employeeRepo.SetDisabledBySync(ctx, employee.OpenID, false)
+		if err := l.employeeRepo.SetDisabledBySync(
+			ctx, employee.OpenID, false,
+		); err != nil {
+			return types.YunzhijiaAccountResultNone, err
+		}
+		return types.YunzhijiaAccountResultUpdated, nil
 	}
 	if !user.IsActive {
-		return ErrYunzhijiaAccountBanned
+		return types.YunzhijiaAccountResultNone, ErrYunzhijiaAccountBanned
 	}
-	return l.applyActiveUser(ctx, user, employee)
+	migrated, err := l.applyActiveUser(ctx, user, employee)
+	if err != nil {
+		return types.YunzhijiaAccountResultNone, err
+	}
+	if migrated {
+		return types.YunzhijiaAccountResultMigrated, nil
+	}
+	return types.YunzhijiaAccountResultUpdated, nil
 }
 
 // ApplyInactive 处理离职员工：停用账号、移除成员关系并写同步停用标记。
 func (l *YunzhijiaLifecycle) ApplyInactive(
 	ctx context.Context, employee *types.YunzhijiaEmployee,
-) error {
+) (types.YunzhijiaAccountResult, error) {
 	if employee.Blocked || employee.UserID == nil {
-		return nil
+		return types.YunzhijiaAccountResultNone, nil
 	}
 
 	user, err := l.loadEmployeeUser(ctx, *employee.UserID)
 	if err != nil {
-		return err
+		return types.YunzhijiaAccountResultNone, err
 	}
 	// 管理员封禁或已停用：同步不复用、不改写任何状态。
 	if !user.IsActive {
-		return nil
+		return types.YunzhijiaAccountResultNone, nil
 	}
 	if _, err := l.userRepo.SetUserActive(ctx, user.ID, "", false); err != nil {
-		return err
+		return types.YunzhijiaAccountResultNone, err
 	}
 	if err := l.removeAllMemberships(ctx, user.ID); err != nil {
-		return err
+		return types.YunzhijiaAccountResultNone, err
 	}
-	return l.employeeRepo.SetDisabledBySync(ctx, employee.OpenID, true)
+	if err := l.employeeRepo.SetDisabledBySync(
+		ctx, employee.OpenID, true,
+	); err != nil {
+		return types.YunzhijiaAccountResultNone, err
+	}
+	return types.YunzhijiaAccountResultDisabled, nil
 }
 
 // MarkAdminDisabled 清除员工的 disabled_by_sync 标记。员工目录没有该
@@ -151,22 +170,28 @@ func (l *YunzhijiaLifecycle) loadEmployeeUser(
 // applyActiveUser 处理在职账号：同空间确保 viewer；跨空间先移旧再加新。
 // 真实 RemoveMember 会清 tenant_id / LastActiveTenantID 并吊销 token，
 // AddMember 再设新家空间，因此这里不再整行写回旧快照。
+// 返回 true 表示发生了跨空间迁移（移除了其他空间的成员关系）。
 func (l *YunzhijiaLifecycle) applyActiveUser(
 	ctx context.Context, user *types.User, employee *types.YunzhijiaEmployee,
-) error {
+) (bool, error) {
 	memberships, err := l.memberService.ListByUser(ctx, user.ID)
 	if err != nil {
-		return err
+		return false, err
 	}
+	migrated := false
 	for _, member := range memberships {
 		if member.TenantID == employee.TenantID {
 			continue
 		}
 		if err := l.memberService.RemoveMember(ctx, user.ID, member.TenantID); err != nil {
-			return err
+			return false, err
 		}
+		migrated = true
 	}
-	return l.ensureViewerMembership(ctx, user.ID, employee.TenantID)
+	if err := l.ensureViewerMembership(ctx, user.ID, employee.TenantID); err != nil {
+		return false, err
+	}
+	return migrated, nil
 }
 
 // ensureViewerMembership 仅在目标空间缺少成员关系时加入 viewer。

@@ -77,6 +77,23 @@ const (
 	YunzhijiaSyncStatusFailed  YunzhijiaSyncStatus = "failed"
 )
 
+// YunzhijiaAccountResult 描述一轮同步对单个员工账号实际执行的动作，
+// 供 Run 累计 AC-14 的开号/更新/停用/迁移计数。
+type YunzhijiaAccountResult string
+
+const (
+	// YunzhijiaAccountResultNone 表示本次没有改动账号（blocked、已停用等）。
+	YunzhijiaAccountResultNone YunzhijiaAccountResult = "none"
+	// YunzhijiaAccountResultCreated 表示本轮新建了本地账号。
+	YunzhijiaAccountResultCreated YunzhijiaAccountResult = "created"
+	// YunzhijiaAccountResultUpdated 表示已有账号被更新、再入职恢复或补成员关系。
+	YunzhijiaAccountResultUpdated YunzhijiaAccountResult = "updated"
+	// YunzhijiaAccountResultDisabled 表示离职员工账号被停用。
+	YunzhijiaAccountResultDisabled YunzhijiaAccountResult = "disabled"
+	// YunzhijiaAccountResultMigrated 表示在职员工被迁移到另一个空间。
+	YunzhijiaAccountResultMigrated YunzhijiaAccountResult = "migrated"
+)
+
 // YunzhijiaSyncRun 记录一次同步运行的结果，供管理端状态页读取。
 // Anomalies 用 JSON 数组保存逐条异常，失败时 ErrorSummary 存脱敏摘要。
 type YunzhijiaSyncRun struct {

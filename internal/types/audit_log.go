@@ -126,6 +126,16 @@ const (
 	// tenant_id=0 because the change is system-scope, not workspace-scoped.
 	AuditActionSystemSettingChanged AuditAction = "system.setting_changed"
 
+	// AuditActionSystemYunzhijiaSyncTriggered fires when a SystemAdmin
+	// manually triggers a Yunzhijia employee sync. Details carry the run id,
+	// status and counters; never tickets, names or phone numbers.
+	// TenantID=0 because the action is system-scope.
+	AuditActionSystemYunzhijiaSyncTriggered AuditAction = "system.yunzhijia_sync_triggered"
+	// AuditActionSystemYunzhijiaUnblocked fires when a SystemAdmin clears a
+	// blocked Yunzhijia employee so the next sync may recreate the account.
+	// Details carry only open_id.
+	AuditActionSystemYunzhijiaUnblocked AuditAction = "system.yunzhijia_unblocked"
+
 	// AuditActionSystemAdminPromoted fires when a SystemAdmin grants
 	// system-administrator privileges to another user via
 	// POST /api/v1/system/admin/promote. ActorUserID is the promoter,

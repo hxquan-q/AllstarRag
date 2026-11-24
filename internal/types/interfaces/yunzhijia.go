@@ -41,7 +41,8 @@ type YunzhijiaEmployeeRepository interface {
 	ListBlocked(ctx context.Context) ([]*types.YunzhijiaEmployee, error)
 
 	// MarkBlocked 把指定 open_id 置为禁止重建：blocked=true、
-	// 写入 blocked_at/blocked_by，并清空 user_id（账号已不存在）。
+	// 写入 blocked_at/blocked_by，保留 user_id 供审计；解除
+	// 禁止重建（Unblock）时再清空 user_id。
 	MarkBlocked(ctx context.Context, openID, blockedBy string) error
 
 	// Unblock 解除禁止重建：blocked=false、清空 blocked_at/blocked_by/user_id，
@@ -73,11 +74,17 @@ type YunzhijiaEmployeeLookup interface {
 // 字段不能被上游入参覆盖。
 type YunzhijiaAccountLifecycle interface {
 	// ApplyEmployee 处理上游在职员工：首次开号、再入职恢复或调岗。
+	// 返回本轮实际动作（created/updated/migrated/none），供 Run 计数。
 	// 账号被封禁时返回哨兵 ErrYunzhijiaAccountBanned；
 	// 关联本地用户缺失时返回 ErrYunzhijiaLocalUserMissing。
-	ApplyEmployee(ctx context.Context, employee *types.YunzhijiaEmployee) error
+	ApplyEmployee(
+		ctx context.Context, employee *types.YunzhijiaEmployee,
+	) (types.YunzhijiaAccountResult, error)
 	// ApplyInactive 处理上游离职员工：停用账号并作废会话。
-	ApplyInactive(ctx context.Context, employee *types.YunzhijiaEmployee) error
+	// 只有真正停用账号时返回 disabled，其余情况返回 none。
+	ApplyInactive(
+		ctx context.Context, employee *types.YunzhijiaEmployee,
+	) (types.YunzhijiaAccountResult, error)
 }
 
 // YunzhijiaEmployeeState 由管理端账号动作反向标记员工目录（T06）。

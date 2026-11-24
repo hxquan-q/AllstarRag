@@ -38,6 +38,28 @@ type YunzhijiaPreviewResult struct {
 	Anomalies          []types.YunzhijiaSyncAnomaly `json:"anomalies"`
 }
 
+// yzjRunCounters 累计一轮同步的账号动作计数（AC-14）。
+type yzjRunCounters struct {
+	created  int
+	updated  int
+	disabled int
+	migrated int
+}
+
+// add 按生命周期结果累加对应计数，none 不计。
+func (c *yzjRunCounters) add(result types.YunzhijiaAccountResult) {
+	switch result {
+	case types.YunzhijiaAccountResultCreated:
+		c.created++
+	case types.YunzhijiaAccountResultUpdated:
+		c.updated++
+	case types.YunzhijiaAccountResultDisabled:
+		c.disabled++
+	case types.YunzhijiaAccountResultMigrated:
+		c.migrated++
+	}
+}
+
 // YunzhijiaSyncService 编排一轮员工同步或预检。
 type YunzhijiaSyncService struct {
 	cfg          *config.YunzhijiaSSOConfig
@@ -88,14 +110,15 @@ func (s *YunzhijiaSyncService) Run(
 	run.ActiveCount = len(fetched.active)
 	run.InactiveCount = len(fetched.inactive)
 
+	counters := &yzjRunCounters{}
 	anomalies := append([]types.YunzhijiaSyncAnomaly(nil), plan.anomalies...)
 	for _, employee := range plan.active {
-		anomalies = append(anomalies, s.applyActive(ctx, employee, now)...)
+		anomalies = append(anomalies, s.applyActive(ctx, employee, now, counters)...)
 	}
 	for _, employee := range plan.inactive {
-		anomalies = append(anomalies, s.applyInactive(ctx, employee, now)...)
+		anomalies = append(anomalies, s.applyInactive(ctx, employee, now, counters)...)
 	}
-	missingAnomalies, err := s.applyMissingActive(ctx, fetched, now)
+	missingAnomalies, err := s.applyMissingActive(ctx, fetched, now, counters)
 	if err != nil {
 		return s.failRun(ctx, run, err)
 	}
@@ -106,6 +129,10 @@ func (s *YunzhijiaSyncService) Run(
 		return s.failRun(ctx, run, err)
 	}
 	run.Status = types.YunzhijiaSyncStatusSuccess
+	run.CreatedCount = counters.created
+	run.UpdatedCount = counters.updated
+	run.DisabledCount = counters.disabled
+	run.MigratedCount = counters.migrated
 	run.Anomalies = encoded
 	run.AnomalyCount = len(anomalies)
 	if err := s.finishRun(ctx, run); err != nil {
@@ -168,6 +195,7 @@ func (s *YunzhijiaSyncService) Preview(
 // 单条失败只记异常，不影响其他人。
 func (s *YunzhijiaSyncService) applyActive(
 	ctx context.Context, employee yunzhijia.Employee, now time.Time,
+	counters *yzjRunCounters,
 ) []types.YunzhijiaSyncAnomaly {
 	row := s.employeeRow(employee, types.YunzhijiaEmployeeStatusActive, now)
 	persisted, anomaly := s.persistAndReload(ctx, row)
@@ -177,15 +205,18 @@ func (s *YunzhijiaSyncService) applyActive(
 	if persisted.Blocked {
 		return []types.YunzhijiaSyncAnomaly{blockedSkippedAnomaly(persisted)}
 	}
-	if err := s.lifecycle.ApplyEmployee(ctx, persisted); err != nil {
+	result, err := s.lifecycle.ApplyEmployee(ctx, persisted)
+	if err != nil {
 		return []types.YunzhijiaSyncAnomaly{lifecycleAnomaly(persisted, err)}
 	}
+	counters.add(result)
 	return nil
 }
 
 // applyInactive 同样先 upsert 再读库内行，然后交给生命周期的离职处理。
 func (s *YunzhijiaSyncService) applyInactive(
 	ctx context.Context, employee yunzhijia.Employee, now time.Time,
+	counters *yzjRunCounters,
 ) []types.YunzhijiaSyncAnomaly {
 	row := s.employeeRow(employee, types.YunzhijiaEmployeeStatusInactive, now)
 	persisted, anomaly := s.persistAndReload(ctx, row)
@@ -195,9 +226,11 @@ func (s *YunzhijiaSyncService) applyInactive(
 	if persisted.Blocked {
 		return []types.YunzhijiaSyncAnomaly{blockedSkippedAnomaly(persisted)}
 	}
-	if err := s.lifecycle.ApplyInactive(ctx, persisted); err != nil {
+	result, err := s.lifecycle.ApplyInactive(ctx, persisted)
+	if err != nil {
 		return []types.YunzhijiaSyncAnomaly{lifecycleAnomaly(persisted, err)}
 	}
+	counters.add(result)
 	return nil
 }
 
@@ -209,6 +242,7 @@ func (s *YunzhijiaSyncService) applyInactive(
 // 整轮拒绝，不会误判全员。
 func (s *YunzhijiaSyncService) applyMissingActive(
 	ctx context.Context, fetched *yzjFetched, now time.Time,
+	counters *yzjRunCounters,
 ) ([]types.YunzhijiaSyncAnomaly, error) {
 	activeSeen := make(map[string]struct{}, len(fetched.active))
 	for _, employee := range fetched.active {
@@ -241,7 +275,9 @@ func (s *YunzhijiaSyncService) applyMissingActive(
 			Name:   row.Name,
 			Detail: "本地在职员工不在本轮上游名单，按离职处理",
 		})
-		anomalies = append(anomalies, s.applyInactive(ctx, yzjEmployeeFromRow(row), now)...)
+		anomalies = append(
+			anomalies, s.applyInactive(ctx, yzjEmployeeFromRow(row), now, counters)...,
+		)
 	}
 	return anomalies, nil
 }
