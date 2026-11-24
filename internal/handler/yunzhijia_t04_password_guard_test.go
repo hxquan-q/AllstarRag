@@ -7,14 +7,19 @@ package handler
 // 这里用真实 userService + 员工 lookup 替身，验证两条 HTTP 入口都不会写密码。
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/Tencent/WeKnora/internal/application/service"
+	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"github.com/gin-gonic/gin"
 )
 
 const (
@@ -71,6 +76,12 @@ func (r *yzjT04HandlerUserRepo) ResetPasswordTx(
 type yzjT04HandlerTokenRepo struct {
 	interfaces.AuthTokenRepository
 	revoked []string
+	created int
+}
+
+func (r *yzjT04HandlerTokenRepo) CreateToken(context.Context, *types.AuthToken) error {
+	r.created++
+	return nil
 }
 
 func (r *yzjT04HandlerTokenRepo) RevokeTokensByUserID(_ context.Context, userID string) error {
@@ -116,8 +127,8 @@ func TestYunzhijiaT04OwnerResetMemberPasswordRejectsEmployee(t *testing.T) {
 		map[string]any{"new_password": "FreshPass9"},
 		accountCtxOpts{userID: "u-owner", role: types.TenantRoleOwner})
 
-	if w.Code == http.StatusOK {
-		t.Fatalf("owner reset of employee must be rejected, got 200 body=%s", w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("owner reset of employee must return 403, got %d body=%s", w.Code, w.Body.String())
 	}
 	if repo.updates != 0 || repo.resets != 0 {
 		t.Fatalf("owner reset of employee must not write a password, updates=%d resets=%d",
@@ -141,8 +152,8 @@ func TestYunzhijiaT04SystemAdminResetPasswordRejectsEmployee(t *testing.T) {
 		"new_password": "FreshPass9",
 	})
 
-	if w.Code == http.StatusOK {
-		t.Fatalf("system admin reset of employee must be rejected, got 200 body=%s", w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("system admin reset of employee must return 403, got %d body=%s", w.Code, w.Body.String())
 	}
 	if repo.updates != 0 || repo.resets != 0 {
 		t.Fatalf("system admin reset of employee must not write a password, updates=%d resets=%d",
@@ -150,5 +161,59 @@ func TestYunzhijiaT04SystemAdminResetPasswordRejectsEmployee(t *testing.T) {
 	}
 	if len(tokenRepo.revoked) != 0 {
 		t.Fatalf("system admin reset of employee must not revoke tokens, revoked=%v", tokenRepo.revoked)
+	}
+}
+
+// T04 票级复跑补充：员工账号即使知道合成邮箱与密码，HTTP 登录也必须
+// 返回统一的 401 文案且不下发任何 token。
+func TestYunzhijiaT04HandlerLoginEmployeeRejectedWithUnifiedMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := yzjT04HandlerRepo()
+	tokenRepo := &yzjT04HandlerTokenRepo{}
+	userSvc := service.NewUserService(
+		nil, repo, tokenRepo, nil, nil, nil, &yzjT04HandlerLookup{employee: true},
+	)
+	h := NewAuthHandler(&config.Config{Auth: &config.AuthConfig{}},
+		userSvc, nil, nil, nil, nil, nil, nil)
+
+	r := gin.New()
+	r.POST("/auth/login", h.Login)
+
+	body, err := json.Marshal(map[string]string{
+		"email":    yzjT04HandlerEmail,
+		"password": "OldPass123!",
+	})
+	if err != nil {
+		t.Fatalf("marshal login body: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("employee password login must return 401, got %d body=%s", w.Code, w.Body.String())
+	}
+	var resp struct {
+		Success      bool   `json:"success"`
+		Message      string `json:"message"`
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode login response: %v body=%s", err, w.Body.String())
+	}
+	if resp.Success {
+		t.Fatalf("employee password login must not succeed, body=%s", w.Body.String())
+	}
+	if resp.Message != "Invalid email or password" {
+		t.Fatalf("employee rejection must use the unified message, got %q", resp.Message)
+	}
+	if resp.Token != "" || resp.RefreshToken != "" {
+		t.Fatalf("employee rejection must not return tokens, body=%s", w.Body.String())
+	}
+	if tokenRepo.created != 0 || len(tokenRepo.revoked) != 0 {
+		t.Fatalf("employee rejection must not touch tokens, created=%d revoked=%v",
+			tokenRepo.created, tokenRepo.revoked)
 	}
 }

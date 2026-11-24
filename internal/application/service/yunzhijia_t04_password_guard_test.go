@@ -275,6 +275,9 @@ func TestYunzhijiaT04EmployeeChangePasswordRejected(t *testing.T) {
 	if err == nil {
 		t.Fatal("employee ChangePassword must be rejected")
 	}
+	if !errors.Is(err, ErrYunzhijiaEmployeePasswordDisabled) {
+		t.Fatalf("employee ChangePassword must return the employee sentinel, got %v", err)
+	}
 	if errors.Is(err, ErrInvalidOldPassword) || errors.Is(err, ErrSamePassword) {
 		t.Fatalf("employee guard must reject before password checks, got %v", err)
 	}
@@ -313,6 +316,9 @@ func TestYunzhijiaT04EmployeeAdminResetPasswordRejected(t *testing.T) {
 	err := svc.AdminResetPassword(context.Background(), yzjT04EmployeeID, yzjT04ResetPass)
 	if err == nil {
 		t.Fatal("employee AdminResetPassword must be rejected")
+	}
+	if !errors.Is(err, ErrYunzhijiaEmployeePasswordDisabled) {
+		t.Fatalf("employee AdminResetPassword must return the employee sentinel, got %v", err)
 	}
 	if repo.updateCalls != 0 {
 		t.Fatalf("employee AdminResetPassword must not write the user, updates=%d", repo.updateCalls)
@@ -354,5 +360,71 @@ func TestYunzhijiaT04NoLookupKeepsLegacyBehavior(t *testing.T) {
 	}
 	if resp == nil || !resp.Success {
 		t.Fatalf("without lookup the legacy password login must keep working, got %+v", resp)
+	}
+}
+
+// T04 票级复跑补充：lookup 查询失败必须 fail-closed，不能因为查不到员工
+// 状态就放行密码路径。
+
+func TestYunzhijiaT04EmployeeLoginRejectedWhenLookupErrors(t *testing.T) {
+	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
+	tokens := &yzjT04TokenRepo{}
+	lookup := &yzjT04Lookup{err: errors.New("lookup unavailable")}
+	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+
+	resp, err := svc.Login(context.Background(), &types.LoginRequest{
+		Email:    yzjT04Email,
+		Password: yzjT04OldPass,
+	})
+	if err != nil {
+		t.Fatalf("Login returned unexpected error: %v", err)
+	}
+	if resp == nil || resp.Success {
+		t.Fatalf("lookup error must fail closed for login, got %+v", resp)
+	}
+	if resp.Message != "Invalid email or password" {
+		t.Fatalf("lookup error must use the unified message, got %q", resp.Message)
+	}
+	if tokens.createCalls != 0 {
+		t.Fatalf("lookup error must not issue tokens, createToken calls=%d", tokens.createCalls)
+	}
+	if len(lookup.calls) == 0 || lookup.calls[0] != yzjT04EmployeeID {
+		t.Fatalf("expected employee lookup for %s, calls=%v", yzjT04EmployeeID, lookup.calls)
+	}
+}
+
+func TestYunzhijiaT04EmployeeChangePasswordRejectedWhenLookupErrors(t *testing.T) {
+	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
+	tokens := &yzjT04TokenRepo{}
+	lookup := &yzjT04Lookup{err: errors.New("lookup unavailable")}
+	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+
+	err := svc.ChangePassword(context.Background(), yzjT04EmployeeID, yzjT04OldPass, yzjT04NewPass)
+	if !errors.Is(err, ErrYunzhijiaEmployeePasswordDisabled) {
+		t.Fatalf("lookup error must fail closed for ChangePassword, got %v", err)
+	}
+	if repo.updateCalls != 0 {
+		t.Fatalf("lookup error must not write the user, updates=%d", repo.updateCalls)
+	}
+	if len(tokens.revoked) != 0 {
+		t.Fatalf("lookup error must not revoke tokens, revoked=%v", tokens.revoked)
+	}
+}
+
+func TestYunzhijiaT04EmployeeAdminResetPasswordRejectedWhenLookupErrors(t *testing.T) {
+	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
+	tokens := &yzjT04TokenRepo{}
+	lookup := &yzjT04Lookup{err: errors.New("lookup unavailable")}
+	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+
+	err := svc.AdminResetPassword(context.Background(), yzjT04EmployeeID, yzjT04ResetPass)
+	if !errors.Is(err, ErrYunzhijiaEmployeePasswordDisabled) {
+		t.Fatalf("lookup error must fail closed for AdminResetPassword, got %v", err)
+	}
+	if repo.updateCalls != 0 {
+		t.Fatalf("lookup error must not write the user, updates=%d", repo.updateCalls)
+	}
+	if len(tokens.revoked) != 0 {
+		t.Fatalf("lookup error must not revoke tokens, revoked=%v", tokens.revoked)
 	}
 }
