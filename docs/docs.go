@@ -1973,6 +1973,70 @@ const docTemplate = `{
                 }
             }
         },
+        "/auth/yunzhijia/login": {
+            "post": {
+                "description": "用云之家 ticket 换取员工姓名并登录；ticket 只接受 POST body。",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证"
+                ],
+                "summary": "云之家 ticket 免登录",
+                "parameters": [
+                    {
+                        "description": "云之家 ticket",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.YunzhijiaLoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "ticket 为空、超长或 JSON 非法",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "401": {
+                        "description": "业务拒绝",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "too many requests",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError"
+                        }
+                    },
+                    "503": {
+                        "description": "配置缺失或未启用",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/automation-runs/{id}": {
             "get": {
                 "security": [
@@ -26009,6 +26073,38 @@ const docTemplate = `{
                 "ErrModelInUse"
             ]
         },
+        "github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse": {
+            "type": "object",
+            "properties": {
+                "active_tenant": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.TenantResponse"
+                },
+                "capabilities": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.LoginCapabilities"
+                },
+                "memberships": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.Membership"
+                    }
+                },
+                "message": {
+                    "type": "string"
+                },
+                "refresh_token": {
+                    "type": "string"
+                },
+                "success": {
+                    "type": "boolean"
+                },
+                "token": {
+                    "type": "string"
+                },
+                "user": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.User"
+                }
+            }
+        },
         "github_com_Tencent_WeKnora_internal_handler_dto.CredentialFieldMetadata": {
             "type": "object",
             "properties": {
@@ -26553,6 +26649,17 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_handler_dto.YunzhijiaLoginRequest": {
+            "type": "object",
+            "required": [
+                "ticket"
+            ],
+            "properties": {
+                "ticket": {
                     "type": "string"
                 }
             }

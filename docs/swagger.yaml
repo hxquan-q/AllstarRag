@@ -540,6 +540,27 @@ definitions:
     - ErrVectorStoreBindingInvalid
     - ErrVectorStoreUnavailable
     - ErrModelInUse
+  github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse:
+    properties:
+      active_tenant:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.TenantResponse'
+      capabilities:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.LoginCapabilities'
+      memberships:
+        items:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.Membership'
+        type: array
+      message:
+        type: string
+      refresh_token:
+        type: string
+      success:
+        type: boolean
+      token:
+        type: string
+      user:
+        $ref: '#/definitions/github_com_Tencent_WeKnora_internal_types.User'
+    type: object
   github_com_Tencent_WeKnora_internal_handler_dto.CredentialFieldMetadata:
     properties:
       configured:
@@ -918,6 +939,13 @@ definitions:
         type: integer
       updated_at:
         type: string
+    type: object
+  github_com_Tencent_WeKnora_internal_handler_dto.YunzhijiaLoginRequest:
+    properties:
+      ticket:
+        type: string
+    required:
+    - ticket
     type: object
   github_com_Tencent_WeKnora_internal_im.IMChannel:
     properties:
@@ -16105,6 +16133,48 @@ paths:
       security:
       - Bearer: []
       summary: 验证令牌
+      tags:
+      - 认证
+  /auth/yunzhijia/login:
+    post:
+      consumes:
+      - application/json
+      description: 用云之家 ticket 换取员工姓名并登录；ticket 只接受 POST body。
+      parameters:
+      - description: 云之家 ticket
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.YunzhijiaLoginRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse'
+        "400":
+          description: ticket 为空、超长或 JSON 非法
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "401":
+          description: 业务拒绝
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse'
+        "429":
+          description: too many requests
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "500":
+          description: 内部错误
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_errors.AppError'
+        "503":
+          description: 配置缺失或未启用
+          schema:
+            $ref: '#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse'
+      summary: 云之家 ticket 免登录
       tags:
       - 认证
   /automation-runs/{id}:
