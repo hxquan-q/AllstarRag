@@ -20,18 +20,16 @@ const SOURCE_FILES = [
   new URL('../views/auth/Login.vue', import.meta.url),
 ]
 
+// 2026-11-25 审查清理：错误页不再用后端文案做逻辑键，删除
+// errorProvisioning/errorDuplicateName/errorAccountBlocked/errorUpstream。
 const EXPECTED_KEYS = [
   'auth.yunzhijia.backToLogin',
   'auth.yunzhijia.employeeHint',
-  'auth.yunzhijia.errorAccountBlocked',
-  'auth.yunzhijia.errorDuplicateName',
   'auth.yunzhijia.errorGeneric',
   'auth.yunzhijia.errorInvalidTicket',
-  'auth.yunzhijia.errorProvisioning',
   'auth.yunzhijia.errorRateLimited',
   'auth.yunzhijia.errorTitle',
   'auth.yunzhijia.errorUnavailable',
-  'auth.yunzhijia.errorUpstream',
 ]
 
 function collectReferencedYunzhijiaKeys(): string[] {
@@ -72,6 +70,17 @@ test('all expected Yunzhijia login keys exist in all six locales with non-empty 
       assert.equal(typeof value, 'string', `${localeName}:${key} must be a string`)
       assert.ok((value as string).trim().length > 0, `${localeName}:${key} must not be empty`)
     }
+  }
+})
+
+test('all six locales expose the same auth.yunzhijia.* key set', () => {
+  const yunzhijiaKeys = (bundle: unknown) =>
+    [...collectLocaleKeys(bundle)].filter((key) => key.startsWith(GUARDED_PREFIX)).sort()
+  const reference = yunzhijiaKeys(LOCALE_BUNDLES['zh-CN'])
+  assert.deepEqual(reference, [...EXPECTED_KEYS].sort())
+
+  for (const [localeName, bundle] of Object.entries(LOCALE_BUNDLES) as Array<[LocaleName, unknown]>) {
+    assert.deepEqual(yunzhijiaKeys(bundle), reference, `${localeName} key set differs from zh-CN`)
   }
 })
 

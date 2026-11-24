@@ -512,6 +512,15 @@ async function loginFixture(t: TestContext, options: LoginOptions = {}) {
     },
     userInfoFromApi: (user: any) => user,
   }
+  // T09 清理后 Login.vue 从 `@/stores/auth` 引用会话写入函数（re-export 自
+  // stores/authPersistence.ts）。这里求值同一份真实实现，避免测试里再维护
+  // 一份字段白名单；找不到实现时用例会直接失败，而不是静默跳过写会话。
+  const { persistLoginResponseToStore } = f.evaluate(
+    readFileSync(new URL('../../stores/authPersistence.ts', import.meta.url), 'utf8'),
+    { '@/api/auth': api },
+  )
+  assert.equal(typeof persistLoginResponseToStore, 'function')
+
   const { vm } = f.component(new URL('./Login.vue', import.meta.url), {
     'vue-router': {
       useRoute: () => route,
@@ -530,7 +539,7 @@ async function loginFixture(t: TestContext, options: LoginOptions = {}) {
     },
     '@/utils/loginNotify': { notifyLoginSuccess() {} },
     '@/api/auth': api,
-    '@/stores/auth': { useAuthStore: () => auth },
+    '@/stores/auth': { useAuthStore: () => auth, persistLoginResponseToStore },
     'vue-i18n': {
       useI18n: () => ({
         t: (key: string, params?: Record<string, unknown>) => translate(zhCN, key, params),

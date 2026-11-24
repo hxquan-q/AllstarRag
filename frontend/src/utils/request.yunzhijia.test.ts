@@ -16,7 +16,7 @@ const YUNZHIJIA_URL = '/api/v1/auth/yunzhijia/login'
 
 type ErrorHandler = (error: unknown) => Promise<unknown>
 
-function loadRequest(t: Parameters<typeof fixture>[0]) {
+function loadRequest(t: Parameters<typeof fixture>[0], options: { timeout?: boolean } = {}) {
   const f = fixture(t)
   const retriedRequests: Array<{ url?: string; headers: Record<string, string> }> = []
   const refreshCalls: unknown[] = []
@@ -53,7 +53,7 @@ function loadRequest(t: Parameters<typeof fixture>[0]) {
     },
     './api-base': { getApiBaseUrl: () => '' },
     './uploadLimit': { isSkillBundleUploadUrl: () => false },
-    './requestTimeouts': { isTimeoutError: () => false, uploadTimeoutMs: 1000 },
+    './requestTimeouts': { isTimeoutError: () => options.timeout === true, uploadTimeoutMs: 1000 },
     './authRefresh': {
       forceReloginRedirect: () => {},
       isEmbedPage: () => false,
@@ -113,6 +113,39 @@ test('a 401 from a protected endpoint still attempts the normal refresh', async 
   assert.equal(originalRequest._retry, true)
   assert.equal(retriedRequests.length, 1)
   assert.equal(originalRequest.headers.Authorization, 'Bearer refreshed-token')
+})
+
+test('a network failure without a response rejects with the localized message and no status', async (t) => {
+  const { handle, refreshCalls, retriedRequests } = loadRequest(t)
+
+  await assert.rejects(
+    () => handle({ config: { url: YUNZHIJIA_URL, headers: {} } }),
+    (error: unknown) => {
+      // request.ts 在 fixture 的 VM 里求值，跨 realm 对象不能用 deepEqual；
+      // i18n 在 fixture 里被替身为返回 key，故断言 i18n key 本身。
+      const err = error as { status?: number; message?: string }
+      assert.equal(err.message, 'error.networkError')
+      assert.equal(err.status, undefined)
+      return true
+    },
+  )
+
+  assert.equal(refreshCalls.length, 0, 'network failure must not attempt refresh')
+  assert.equal(retriedRequests.length, 0, 'network failure must not be retried')
+})
+
+test('a timeout without a response rejects with the localized timeout message', async (t) => {
+  const { handle } = loadRequest(t, { timeout: true })
+
+  await assert.rejects(
+    () => handle({ config: { url: YUNZHIJIA_URL, headers: {} } }),
+    (error: unknown) => {
+      const err = error as { status?: number; message?: string }
+      assert.equal(err.message, 'error.requestTimeout')
+      assert.equal(err.status, undefined)
+      return true
+    },
+  )
 })
 
 test('503 from the Yunzhijia endpoint keeps the server message for the error page', async (t) => {
