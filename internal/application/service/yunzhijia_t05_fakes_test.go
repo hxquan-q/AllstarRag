@@ -388,6 +388,29 @@ func (r *yzjT05EmployeeRepo) snapshot(openID string) *types.YunzhijiaEmployee {
 	return yzjT05CloneEmployee(r.byOpenID[openID])
 }
 
+// snapshotAll 返回员工表全部行的深拷贝，用于验证预检/整轮失败前后无变化。
+func (r *yzjT05EmployeeRepo) snapshotAll() map[string]*types.YunzhijiaEmployee {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(map[string]*types.YunzhijiaEmployee, len(r.byOpenID))
+	for openID, row := range r.byOpenID {
+		out[openID] = yzjT05CloneEmployee(row)
+	}
+	return out
+}
+
+// lastUpserted 返回最后一次传给 UpsertByOpenID 的入参，用于区分入参与库内行。
+func (r *yzjT05EmployeeRepo) lastUpserted(openID string) *types.YunzhijiaEmployee {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for i := len(r.upserted) - 1; i >= 0; i-- {
+		if r.upserted[i].OpenID == openID {
+			return yzjT05CloneEmployee(r.upserted[i])
+		}
+	}
+	return nil
+}
+
 func (r *yzjT05EmployeeRepo) upsertCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -407,6 +430,83 @@ func (r *yzjT05EmployeeRepo) upsertCountFor(openID string) int {
 }
 
 // ---------------------------------------------------------------------------
+// 账号存储替身：模拟生命周期对「本地用户 + 成员关系」的写入。
+// 预检与整轮失败时必须保持前后完全一致。
+// ---------------------------------------------------------------------------
+
+type yzjT05User struct {
+	OpenID   string
+	UserID   string
+	TenantID uint64
+	Active   bool
+}
+
+type yzjT05AccountStore struct {
+	mu           sync.Mutex
+	users        map[string]*yzjT05User
+	members      map[string]uint64 // openID -> tenant_id
+	userWrites   int
+	memberWrites int
+}
+
+func newYZJT05AccountStore() *yzjT05AccountStore {
+	return &yzjT05AccountStore{
+		users:   map[string]*yzjT05User{},
+		members: map[string]uint64{},
+	}
+}
+
+func (s *yzjT05AccountStore) seed(openID, userID string, tenantID uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.users[openID] = &yzjT05User{
+		OpenID: openID, UserID: userID, TenantID: tenantID, Active: true,
+	}
+	s.members[openID] = tenantID
+}
+
+func (s *yzjT05AccountStore) applyEmployee(openID string, tenantID uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.userWrites++
+	s.memberWrites++
+	s.users[openID] = &yzjT05User{
+		OpenID: openID, UserID: "user-" + openID, TenantID: tenantID, Active: true,
+	}
+	s.members[openID] = tenantID
+}
+
+func (s *yzjT05AccountStore) applyInactive(openID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.userWrites++
+	s.memberWrites++
+	if user, ok := s.users[openID]; ok {
+		user.Active = false
+	}
+}
+
+func (s *yzjT05AccountStore) snapshot() (map[string]yzjT05User, map[string]uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	users := make(map[string]yzjT05User, len(s.users))
+	for openID, user := range s.users {
+		users[openID] = *user
+	}
+	members := make(map[string]uint64, len(s.members))
+	for openID, tenantID := range s.members {
+		members[openID] = tenantID
+	}
+	return users, members
+}
+
+func (s *yzjT05AccountStore) writes() (int, int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.userWrites, s.memberWrites
+}
+
+// ---------------------------------------------------------------------------
 // 账号生命周期窄接口替身（T06 才实现真实逻辑）。
 // ---------------------------------------------------------------------------
 
@@ -414,6 +514,7 @@ type yzjT05Lifecycle struct {
 	interfaces.YunzhijiaAccountLifecycle
 
 	mu            sync.Mutex
+	accounts      *yzjT05AccountStore
 	employeeCalls []*types.YunzhijiaEmployee
 	inactiveCalls []*types.YunzhijiaEmployee
 	employeeErrs  map[string]error
@@ -433,6 +534,9 @@ func (l *yzjT05Lifecycle) ApplyEmployee(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.employeeCalls = append(l.employeeCalls, yzjT05CloneEmployee(employee))
+	if l.accounts != nil {
+		l.accounts.applyEmployee(employee.OpenID, employee.TenantID)
+	}
 	return l.employeeErrs[employee.OpenID]
 }
 
@@ -442,6 +546,9 @@ func (l *yzjT05Lifecycle) ApplyInactive(
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.inactiveCalls = append(l.inactiveCalls, yzjT05CloneEmployee(employee))
+	if l.accounts != nil {
+		l.accounts.applyInactive(employee.OpenID)
+	}
 	return l.inactiveErrs[employee.OpenID]
 }
 
@@ -544,7 +651,7 @@ func (r *yzjT05RunRepo) Latest(_ context.Context) (*types.YunzhijiaSyncRun, erro
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for i := len(r.runs) - 1; i >= 0; i-- {
-		if r.runs[i].Trigger == types.YunzhijiaSyncTrigger("preview") {
+		if r.runs[i].Trigger == types.YunzhijiaSyncTriggerPreview {
 			continue
 		}
 		return yzjT05CloneRun(r.runs[i]), nil
@@ -571,11 +678,22 @@ func (r *yzjT05RunRepo) latestPreview() *types.YunzhijiaSyncRun {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for i := len(r.runs) - 1; i >= 0; i-- {
-		if r.runs[i].Trigger == types.YunzhijiaSyncTrigger("preview") {
+		if r.runs[i].Trigger == types.YunzhijiaSyncTriggerPreview {
 			return yzjT05CloneRun(r.runs[i])
 		}
 	}
 	return nil
+}
+
+// allRuns 返回全部运行记录深拷贝，用于确认预检只写 preview 记录。
+func (r *yzjT05RunRepo) allRuns() []*types.YunzhijiaSyncRun {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*types.YunzhijiaSyncRun, 0, len(r.runs))
+	for _, run := range r.runs {
+		out = append(out, yzjT05CloneRun(run))
+	}
+	return out
 }
 
 func (r *yzjT05RunRepo) createCount() int {

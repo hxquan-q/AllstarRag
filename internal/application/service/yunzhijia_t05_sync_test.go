@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -56,6 +57,48 @@ func yzjT05AnomalyCount(
 		}
 	}
 	return n
+}
+
+// yzjT05SeedRepoWithAccount 预置一条员工行与对应本地账号，用于验证
+// 预检/整轮失败前后「员工表 + 用户 + 成员关系」均无变化。
+func yzjT05SeedRepoWithAccount() (*yzjT05EmployeeRepo, *yzjT05AccountStore) {
+	uid := "user-existing"
+	repo := newYZJT05EmployeeRepo(&types.YunzhijiaEmployee{
+		OpenID:     "open-existing",
+		Name:       "既有员工",
+		Department: "金蝶社区",
+		TenantID:   yzjT05TenantDefault,
+		UserID:     &uid,
+		Status:     types.YunzhijiaEmployeeStatusActive,
+	})
+	accounts := newYZJT05AccountStore()
+	accounts.seed("open-existing", uid, yzjT05TenantDefault)
+	return repo, accounts
+}
+
+func yzjT05AssertAccountsUnchanged(
+	t *testing.T,
+	repo *yzjT05EmployeeRepo,
+	accounts *yzjT05AccountStore,
+	rowsBefore map[string]*types.YunzhijiaEmployee,
+	usersBefore map[string]yzjT05User,
+	membersBefore map[string]uint64,
+	label string,
+) {
+	t.Helper()
+	if rowsAfter := repo.snapshotAll(); !reflect.DeepEqual(rowsBefore, rowsAfter) {
+		t.Fatalf("%s前后员工表发生变化\n前: %+v\n后: %+v", label, rowsBefore, rowsAfter)
+	}
+	usersAfter, membersAfter := accounts.snapshot()
+	if !reflect.DeepEqual(usersBefore, usersAfter) {
+		t.Fatalf("%s前后用户表发生变化\n前: %+v\n后: %+v", label, usersBefore, usersAfter)
+	}
+	if !reflect.DeepEqual(membersBefore, membersAfter) {
+		t.Fatalf("%s前后成员关系发生变化\n前: %+v\n后: %+v", label, membersBefore, membersAfter)
+	}
+	if uw, mw := accounts.writes(); uw != 0 || mw != 0 {
+		t.Fatalf("%s不得写用户/成员关系，实际 user=%d member=%d", label, uw, mw)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -157,9 +200,12 @@ func TestYunzhijiaT05RunFailsOnTotalMismatch(t *testing.T) {
 	))
 	client.setPage(yunzhijia.StatusActive, 2, yzjT05Page(2, 2, 3)) // 累计 1 != total 3
 	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 2, 0))
-	repo := newYZJT05EmployeeRepo()
+	repo, accounts := yzjT05SeedRepoWithAccount()
+	rowsBefore := repo.snapshotAll()
+	usersBefore, membersBefore := accounts.snapshot()
 	runs := &yzjT05RunRepo{}
 	life := newYZJT05Lifecycle()
+	life.accounts = accounts
 	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
 
 	if _, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual); err == nil {
@@ -181,6 +227,7 @@ func TestYunzhijiaT05RunFailsOnTotalMismatch(t *testing.T) {
 	if len(life.employeeSnapshot()) != 0 || len(life.inactiveSnapshot()) != 0 {
 		t.Fatal("抓取不完整时不得调用账号生命周期")
 	}
+	yzjT05AssertAccountsUnchanged(t, repo, accounts, rowsBefore, usersBefore, membersBefore, "总数不一致")
 	if got := len(client.callsFor(yunzhijia.StatusActive)); got > 2 {
 		t.Fatalf("active 抓取 %d 次，疑似未按 total/pageSize 收敛", got)
 	}
@@ -194,9 +241,12 @@ func TestYunzhijiaT05RunFailsOnPageError(t *testing.T) {
 		yzjT05Employee("open-a", "员工甲", "金蝶社区"),
 	))
 	client.setErr(yunzhijia.StatusInactive, 1, yunzhijia.ErrUpstream)
-	repo := newYZJT05EmployeeRepo()
+	repo, accounts := yzjT05SeedRepoWithAccount()
+	rowsBefore := repo.snapshotAll()
+	usersBefore, membersBefore := accounts.snapshot()
 	runs := &yzjT05RunRepo{}
 	life := newYZJT05Lifecycle()
+	life.accounts = accounts
 	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
 
 	if _, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual); err == nil {
@@ -209,6 +259,7 @@ func TestYunzhijiaT05RunFailsOnPageError(t *testing.T) {
 	if repo.upsertCount() != 0 || len(life.employeeSnapshot()) != 0 || len(life.inactiveSnapshot()) != 0 {
 		t.Fatal("某页失败时不得改任何账号")
 	}
+	yzjT05AssertAccountsUnchanged(t, repo, accounts, rowsBefore, usersBefore, membersBefore, "某页失败")
 }
 
 func TestYunzhijiaT05RunFailsOnMissingOpenID(t *testing.T) {
@@ -219,9 +270,12 @@ func TestYunzhijiaT05RunFailsOnMissingOpenID(t *testing.T) {
 		yzjT05Employee("", "员工无号", "金蝶社区"),
 	))
 	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 0))
-	repo := newYZJT05EmployeeRepo()
+	repo, accounts := yzjT05SeedRepoWithAccount()
+	rowsBefore := repo.snapshotAll()
+	usersBefore, membersBefore := accounts.snapshot()
 	runs := &yzjT05RunRepo{}
 	life := newYZJT05Lifecycle()
+	life.accounts = accounts
 	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
 
 	if _, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual); err == nil {
@@ -234,6 +288,7 @@ func TestYunzhijiaT05RunFailsOnMissingOpenID(t *testing.T) {
 	if repo.upsertCount() != 0 || len(life.employeeSnapshot()) != 0 {
 		t.Fatal("缺 open_id 时不得改任何账号")
 	}
+	yzjT05AssertAccountsUnchanged(t, repo, accounts, rowsBefore, usersBefore, membersBefore, "缺 open_id")
 }
 
 func TestYunzhijiaT05RunSkipsDuplicateOpenID(t *testing.T) {
@@ -278,9 +333,22 @@ func TestYunzhijiaT05RunFailsWhenActiveTotalZero(t *testing.T) {
 	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 1,
 		yzjT05Employee("open-d", "员工丁", "金蝶社区"),
 	))
-	repo := newYZJT05EmployeeRepo()
+	existingUID := "user-existing"
+	repo := newYZJT05EmployeeRepo(&types.YunzhijiaEmployee{
+		OpenID:     "open-existing",
+		Name:       "既有员工",
+		Department: "金蝶社区",
+		TenantID:   yzjT05TenantDefault,
+		UserID:     &existingUID,
+		Status:     types.YunzhijiaEmployeeStatusActive,
+	})
+	accounts := newYZJT05AccountStore()
+	accounts.seed("open-existing", existingUID, yzjT05TenantDefault)
+	rowsBefore := repo.snapshotAll()
+	usersBefore, membersBefore := accounts.snapshot()
 	runs := &yzjT05RunRepo{}
 	life := newYZJT05Lifecycle()
+	life.accounts = accounts
 	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
 
 	if _, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual); err == nil {
@@ -295,6 +363,18 @@ func TestYunzhijiaT05RunFailsWhenActiveTotalZero(t *testing.T) {
 	}
 	if len(life.employeeSnapshot()) != 0 || len(life.inactiveSnapshot()) != 0 {
 		t.Fatal("active total=0 时不得调用账号生命周期（尤其不得停用离职）")
+	}
+	if rowsAfter := repo.snapshotAll(); !reflect.DeepEqual(rowsBefore, rowsAfter) {
+		t.Fatalf("active total=0 前后员工表发生变化\n前: %+v\n后: %+v", rowsBefore, rowsAfter)
+	}
+	usersAfter, membersAfter := accounts.snapshot()
+	if !reflect.DeepEqual(usersBefore, usersAfter) ||
+		!reflect.DeepEqual(membersBefore, membersAfter) {
+		t.Fatalf("active total=0 不得写用户/成员关系\n前用户: %+v 后用户: %+v\n前成员: %+v 后成员: %+v",
+			usersBefore, usersAfter, membersBefore, membersAfter)
+	}
+	if uw, mw := accounts.writes(); uw != 0 || mw != 0 {
+		t.Fatalf("active total=0 不得写用户/成员关系，实际 user=%d member=%d", uw, mw)
 	}
 }
 
@@ -314,10 +394,25 @@ func TestYunzhijiaT05PreviewDoesNotWriteAndReportsDistribution(t *testing.T) {
 	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 1,
 		yzjT05Employee("open-d", "员工丁", "金蝶社区"),
 	))
-	repo := newYZJT05EmployeeRepo()
+	// 预检前预置员工行与本地账号，断言前后完全不变化。
+	existingUID := "user-existing"
+	repo := newYZJT05EmployeeRepo(&types.YunzhijiaEmployee{
+		OpenID:     "open-existing",
+		Name:       "既有员工",
+		Department: "金蝶社区",
+		TenantID:   yzjT05TenantDefault,
+		UserID:     &existingUID,
+		Status:     types.YunzhijiaEmployeeStatusActive,
+	})
+	accounts := newYZJT05AccountStore()
+	accounts.seed("open-existing", existingUID, yzjT05TenantDefault)
 	runs := &yzjT05RunRepo{}
 	life := newYZJT05Lifecycle()
+	life.accounts = accounts
 	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
+
+	rowsBefore := repo.snapshotAll()
+	usersBefore, membersBefore := accounts.snapshot()
 
 	res, err := svc.Preview(ctx)
 	if err != nil {
@@ -343,9 +438,29 @@ func TestYunzhijiaT05PreviewDoesNotWriteAndReportsDistribution(t *testing.T) {
 	if len(life.employeeSnapshot()) != 0 || len(life.inactiveSnapshot()) != 0 {
 		t.Fatal("预检不得调用账号生命周期")
 	}
+	if rowsAfter := repo.snapshotAll(); !reflect.DeepEqual(rowsBefore, rowsAfter) {
+		t.Fatalf("预检前后员工表发生变化\n前: %+v\n后: %+v", rowsBefore, rowsAfter)
+	}
+	usersAfter, membersAfter := accounts.snapshot()
+	if !reflect.DeepEqual(usersBefore, usersAfter) {
+		t.Fatalf("预检前后用户表发生变化\n前: %+v\n后: %+v", usersBefore, usersAfter)
+	}
+	if !reflect.DeepEqual(membersBefore, membersAfter) {
+		t.Fatalf("预检前后成员关系发生变化\n前: %+v\n后: %+v", membersBefore, membersAfter)
+	}
+	if uw, mw := accounts.writes(); uw != 0 || mw != 0 {
+		t.Fatalf("预检不得写用户/成员关系，实际 user=%d member=%d", uw, mw)
+	}
 
 	if runs.createCount() != 1 {
 		t.Fatalf("预检应写 1 条运行记录，实际 %d", runs.createCount())
+	}
+	allRuns := runs.allRuns()
+	if len(allRuns) != 1 {
+		t.Fatalf("预检只应写 1 条运行记录，实际 %d", len(allRuns))
+	}
+	if allRuns[0].Trigger != types.YunzhijiaSyncTriggerPreview {
+		t.Fatalf("预检写入的运行记录 trigger=%q，期望 preview", allRuns[0].Trigger)
 	}
 	preview := runs.latestPreview()
 	if preview == nil {
@@ -488,6 +603,14 @@ func TestYunzhijiaT05RunUsesPersistedRowForBlockedSkip(t *testing.T) {
 	}
 	if row.Name != "新名" {
 		t.Fatalf("upsert 应更新同步字段 name，实际 %q", row.Name)
+	}
+	// 入参不得带本地状态；若实现用入参判断 blocked，本用例会误调生命周期。
+	input := repo.lastUpserted("open-a")
+	if input == nil {
+		t.Fatal("未记录 UpsertByOpenID 入参")
+	}
+	if input.Blocked || input.UserID != nil {
+		t.Fatalf("upsert 入参不应携带库内 blocked/user_id，实际 %+v", input)
 	}
 }
 
@@ -792,5 +915,57 @@ func TestYunzhijiaT05PreviewBlocksConcurrentRun(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("首个 Preview 未结束")
+	}
+}
+
+func TestYunzhijiaT05RunBlocksConcurrentRun(t *testing.T) {
+	ctx := context.Background()
+	cfg := yzjT05Config(10, true)
+	client := newYZJT05Client()
+	client.setPage(yunzhijia.StatusActive, 1, yzjT05Page(1, 10, 1,
+		yzjT05Employee("open-a", "员工甲", "金蝶社区"),
+	))
+	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 0))
+	client.block = make(chan struct{})
+	client.entered = make(chan struct{})
+	repo := newYZJT05EmployeeRepo()
+	runs := &yzjT05RunRepo{}
+	life := newYZJT05Lifecycle()
+	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual)
+		done <- err
+	}()
+	select {
+	case <-client.entered:
+	case <-time.After(3 * time.Second):
+		t.Fatal("首个 Run 未进入抓取阶段（可能未获取单运行锁）")
+	}
+
+	second := make(chan error, 1)
+	go func() {
+		_, err := svc.Run(ctx, types.YunzhijiaSyncTriggerCron)
+		second <- err
+	}()
+	select {
+	case err := <-second:
+		if !errors.Is(err, ErrSyncRunning) {
+			t.Fatalf("并发 Run 应返回 ErrSyncRunning，实际 %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		close(client.block)
+		t.Fatal("并发 Run 阻塞未返回，单运行互斥未生效")
+	}
+
+	close(client.block)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("首个 Run 失败: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("首个 Run 未结束")
 	}
 }

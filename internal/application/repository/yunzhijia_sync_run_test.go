@@ -55,8 +55,7 @@ func TestYunzhijiaT05SyncRunLatestExcludesPreview(t *testing.T) {
 	manualAt := time.Now().Add(-time.Hour)
 	yzjT05FinishRun(t, repo, types.YunzhijiaSyncTriggerManual, manualAt,
 		types.YunzhijiaSyncStatusSuccess)
-	// 预检的触发器常量由 T05 新增；此处用存储值字面量，避免与 service 包一起编译红。
-	yzjT05FinishRun(t, repo, types.YunzhijiaSyncTrigger("preview"), time.Now(),
+	yzjT05FinishRun(t, repo, types.YunzhijiaSyncTriggerPreview, time.Now(),
 		types.YunzhijiaSyncStatusSuccess)
 
 	latest, err := repo.Latest(ctx)
@@ -75,7 +74,7 @@ func TestYunzhijiaT05SyncRunLatestNilWhenOnlyPreview(t *testing.T) {
 	ctx := context.Background()
 	repo := newYZJT05SyncRunRepo(t)
 
-	yzjT05FinishRun(t, repo, types.YunzhijiaSyncTrigger("preview"), time.Now(),
+	yzjT05FinishRun(t, repo, types.YunzhijiaSyncTriggerPreview, time.Now(),
 		types.YunzhijiaSyncStatusSuccess)
 
 	latest, err := repo.Latest(ctx)
@@ -84,5 +83,32 @@ func TestYunzhijiaT05SyncRunLatestNilWhenOnlyPreview(t *testing.T) {
 	}
 	if latest != nil {
 		t.Fatalf("只有预检记录时 Latest 应返回 nil，实际 trigger=%q", latest.Trigger)
+	}
+}
+
+func TestYunzhijiaT05SyncRunLatestReturnsMostRecentRealRun(t *testing.T) {
+	ctx := context.Background()
+	repo := newYZJT05SyncRunRepo(t)
+
+	base := time.Now().Add(-3 * time.Hour)
+	yzjT05FinishRun(t, repo, types.YunzhijiaSyncTriggerManual, base,
+		types.YunzhijiaSyncStatusSuccess)
+	yzjT05FinishRun(t, repo, types.YunzhijiaSyncTriggerCron, base.Add(time.Hour),
+		types.YunzhijiaSyncStatusFailed)
+	// 预检时间最新，但 Latest 必须跳过它，返回最近一次真实同步。
+	yzjT05FinishRun(t, repo, types.YunzhijiaSyncTriggerPreview, base.Add(2*time.Hour),
+		types.YunzhijiaSyncStatusSuccess)
+
+	latest, err := repo.Latest(ctx)
+	if err != nil {
+		t.Fatalf("Latest: %v", err)
+	}
+	if latest == nil {
+		t.Fatal("Latest 返回 nil：已有真实同步记录")
+	}
+	if latest.Trigger != types.YunzhijiaSyncTriggerCron ||
+		latest.Status != types.YunzhijiaSyncStatusFailed {
+		t.Fatalf("Latest 应返回最近一次真实同步 cron/failed，实际 trigger=%q status=%s",
+			latest.Trigger, latest.Status)
 	}
 }
