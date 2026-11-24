@@ -56,6 +56,14 @@ type YunzhijiaEmployeeRepository interface {
 	UpdateSyncedFields(ctx context.Context, employee *types.YunzhijiaEmployee) error
 }
 
+// NewlyCreatedUserRemover 回滚开号过程中刚创建的本地用户。
+//
+// 真实实现通过 users 仓储的可选 HardDeleteUser 能力物理删除；
+// 测试替身直接移除内存行。不可用时返回错误，由调用方记录。
+type NewlyCreatedUserRemover interface {
+	RemoveNewlyCreatedUser(ctx context.Context, userID string) error
+}
+
 // YunzhijiaLoginService 处理云之家 ticket 免登录。
 //
 // 业务拒绝（无效 ticket、同名、离职/封禁、配置不可用等）通过返回

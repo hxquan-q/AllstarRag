@@ -27,14 +27,6 @@ const (
 	yunzhijiaCreateAttempts = 3
 )
 
-// NewlyCreatedUserRemover 回滚开号过程中刚创建的本地用户。
-//
-// 真实实现通过 users 仓储的可选 HardDeleteUser 能力物理删除；
-// 测试替身直接移除内存行。不可用时返回错误，由调用方记录。
-type NewlyCreatedUserRemover interface {
-	RemoveNewlyCreatedUser(ctx context.Context, userID string) error
-}
-
 // YunzhijiaProvisioner 负责“员工目录行 → 本地 viewer 账号”的开号与修复。
 //
 // 它只创建 users 行与目标空间的 viewer 成员关系，不建租户、不调
@@ -44,7 +36,7 @@ type YunzhijiaProvisioner struct {
 	userRepo      interfaces.UserRepository
 	memberService interfaces.TenantMemberService
 	employeeRepo  interfaces.YunzhijiaEmployeeRepository
-	remover       NewlyCreatedUserRemover
+	remover       interfaces.NewlyCreatedUserRemover
 	// mu 串行化本进程内的开号。open_id 唯一索引仍负责跨实例冲突回读。
 	mu sync.Mutex
 }
@@ -55,7 +47,7 @@ func NewYunzhijiaProvisioner(
 	userRepo interfaces.UserRepository,
 	memberService interfaces.TenantMemberService,
 	employeeRepo interfaces.YunzhijiaEmployeeRepository,
-	remover NewlyCreatedUserRemover,
+	remover interfaces.NewlyCreatedUserRemover,
 ) *YunzhijiaProvisioner {
 	return &YunzhijiaProvisioner{
 		cfg:           cfg,
@@ -220,7 +212,9 @@ func (p *YunzhijiaProvisioner) rollbackNewUser(ctx context.Context, userID strin
 }
 
 // NewYunzhijiaUserRemover 返回基于 users 仓储的工作实现。
-func NewYunzhijiaUserRemover(userRepo interfaces.UserRepository) NewlyCreatedUserRemover {
+func NewYunzhijiaUserRemover(
+	userRepo interfaces.UserRepository,
+) interfaces.NewlyCreatedUserRemover {
 	return &yunzhijiaUserRemover{userRepo: userRepo}
 }
 
