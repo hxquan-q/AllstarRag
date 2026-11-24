@@ -235,6 +235,15 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
 }
 
 /**
+ * 云之家 ticket 免登录。请求体字段名固定为 `ticket`（后端 logger
+ * sanitizeBody 依赖该字段名）。失败时抛出 request 层的错误对象，
+ * 由启动入口按 400/401/503 状态展示对应提示，不在这里吞掉状态码。
+ */
+export function loginWithYunzhijia(ticket: string): Promise<LoginResponse> {
+  return post<LoginResponse>('/api/v1/auth/yunzhijia/login', { ticket })
+}
+
+/**
  * 获取 OIDC 登录跳转地址
  */
 export async function getOIDCAuthorizationURL(redirectURI: string): Promise<OIDCAuthURLResponse> {

@@ -6596,6 +6596,19 @@ export default {
     }
   },
   auth: {
+    yunzhijia: {
+      employeeHint: 'Сотрудникам следует открывать систему из Yunzhijia',
+      errorTitle: 'Не удалось войти',
+      errorInvalidTicket: 'Срок действия ссылки входа истёк. Откройте её снова из Yunzhijia.',
+      errorProvisioning: 'Учётная запись создаётся. Попробуйте снова завтра.',
+      errorDuplicateName: 'Несколько активных сотрудников имеют такое же имя. Обратитесь к администратору.',
+      errorAccountBlocked: 'Учётная запись недоступна. Обратитесь к администратору.',
+      errorUnavailable: 'Система временно недоступна. Обратитесь к администратору.',
+      errorUpstream: 'Сервис Yunzhijia временно недоступен. Повторите попытку позже.',
+      errorRateLimited: 'Слишком много попыток. Повторите попытку позже.',
+      errorGeneric: 'Не удалось войти. Откройте ссылку снова из Yunzhijia.',
+      backToLogin: 'Вернуться к входу'
+    },
     login: 'Вход',
     logout: 'Выход',
     oidcLogin: 'Войти через OIDC',

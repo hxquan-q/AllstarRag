@@ -6597,6 +6597,19 @@ export default {
     }
   },
   auth: {
+    yunzhijia: {
+      employeeHint: '员工请从云之家进入',
+      errorTitle: '无法登录',
+      errorInvalidTicket: '登录凭证已失效，请从云之家重新打开',
+      errorProvisioning: '账号开通中，请明天再试',
+      errorDuplicateName: '在职员工存在同名，请联系管理员',
+      errorAccountBlocked: '账号不可用，请联系管理员',
+      errorUnavailable: '系统暂不可用，请联系管理员',
+      errorUpstream: '云之家服务暂时不可用，请稍后再试',
+      errorRateLimited: '操作过于频繁，请稍后再试',
+      errorGeneric: '登录失败，请从云之家重新打开',
+      backToLogin: '返回登录页'
+    },
     login: '登录',
     logout: '退出',
     oidcLogin: '使用 OIDC 登录',

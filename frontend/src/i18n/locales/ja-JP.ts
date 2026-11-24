@@ -3013,6 +3013,19 @@ export default {
     passwordMismatch: 'パスワードが一致しません'
   },
   auth: {
+    yunzhijia: {
+      employeeHint: '従業員の方は Yunzhijia からアクセスしてください',
+      errorTitle: 'ログインできません',
+      errorInvalidTicket: 'ログイン情報の有効期限が切れました。Yunzhijia から再度開いてください。',
+      errorProvisioning: 'アカウントを準備中です。明日もう一度お試しください。',
+      errorDuplicateName: '同名の在職従業員がいます。管理者に連絡してください。',
+      errorAccountBlocked: 'このアカウントは利用できません。管理者に連絡してください。',
+      errorUnavailable: 'システムは一時的に利用できません。管理者に連絡してください。',
+      errorUpstream: 'Yunzhijia サービスは一時的に利用できません。しばらくしてから再試行してください。',
+      errorRateLimited: '試行回数が多すぎます。しばらくしてから再試行してください。',
+      errorGeneric: 'ログインに失敗しました。Yunzhijia から再度開いてください。',
+      backToLogin: 'ログインページへ戻る'
+    },
     login: 'ログイン',
     logout: 'ログアウト',
     oidcLogin: 'OIDCでログイン',
