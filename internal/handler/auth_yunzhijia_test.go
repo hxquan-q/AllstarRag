@@ -70,8 +70,23 @@ func yzjT03HandlerSuccessResponse() *types.LoginResponse {
 	}
 }
 
+// yzjT03EnabledConfig 返回一份能通过 Validate 的完整配置。
+// handler 在入口对配置做全量校验（配置非法即 503），夹具必须给齐必填项；
+// BaseURL 由客户端解析，不在 Validate 校验范围内，这里不填。
 func yzjT03EnabledConfig() *config.YunzhijiaSSOConfig {
-	return &config.YunzhijiaSSOConfig{Enabled: true}
+	return &config.YunzhijiaSSOConfig{
+		Enabled:             true,
+		EmployeePath:        "/@asd_rd/api/public/employees",
+		TicketUserPath:      "/@asd_rd/api/public/ticket/user",
+		AppID:               "placeholder-app-id",
+		TenantDefault:       10024,
+		TenantHR:            10022,
+		HRDepartmentKeyword: "人力资源部",
+		SyncCron:            "0 3 * * *",
+		Timezone:            "Asia/Shanghai",
+		PageSize:            100,
+		HTTPTimeoutSeconds:  10,
+	}
 }
 
 func newYZJT03HandlerEngine(

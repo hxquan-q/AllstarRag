@@ -4,7 +4,7 @@ package router
 //
 // 红阶段契约：router.RegisterYunzhijiaAuthRoutes(*gin.RouterGroup, *handler.YunzhijiaAuthHandler)
 // 注册 POST /api/v1/auth/yunzhijia/login，公开（不挂 Auth 中间件），
-// 并复用 middleware.PublicAuthRateLimit()（默认 30 次/分/IP）。
+// 并复用 middleware.PublicAuthRateLimitWith()（300 次/分/IP）。
 
 import (
 	"bytes"
@@ -47,7 +47,20 @@ func newYZJT03RoutesEngine(t *testing.T) *gin.Engine {
 	}}
 	r := gin.New()
 	r.Use(middleware.ErrorHandler())
-	cfg := &config.YunzhijiaSSOConfig{Enabled: true}
+	// handler 入口会全量校验配置，夹具需给齐必填项，否则路由用例只会拿到 503。
+	cfg := &config.YunzhijiaSSOConfig{
+		Enabled:             true,
+		EmployeePath:        "/@asd_rd/api/public/employees",
+		TicketUserPath:      "/@asd_rd/api/public/ticket/user",
+		AppID:               "placeholder-app-id",
+		TenantDefault:       10024,
+		TenantHR:            10022,
+		HRDepartmentKeyword: "人力资源部",
+		SyncCron:            "0 3 * * *",
+		Timezone:            "Asia/Shanghai",
+		PageSize:            100,
+		HTTPTimeoutSeconds:  10,
+	}
 	RegisterYunzhijiaAuthRoutes(r.Group("/api/v1"), handler.NewYunzhijiaAuthHandler(cfg, stub))
 	return r
 }
@@ -75,11 +88,12 @@ func TestYunzhijiaT03LoginRouteRateLimited(t *testing.T) {
 	r := newYZJT03RoutesEngine(t)
 	const remoteAddr = "203.0.113.21:42000"
 
-	// 默认 IP 预算 30 次/分钟：前 30 次放行，第 31 次 429。
-	for i := 0; i < 30; i++ {
+	// 登录路由 IP 预算 300 次/分钟（PublicAuthRateLimitWith(60s, 300, ...)）：
+	// 前 300 次放行，第 301 次 429。
+	for i := 0; i < 300; i++ {
 		w := yzjT03PostRoute(t, r, remoteAddr)
 		require.Equal(t, http.StatusOK, w.Code, "第 %d 次请求应放行，resp=%s", i+1, w.Body.String())
 	}
 	w := yzjT03PostRoute(t, r, remoteAddr)
-	assert.Equal(t, http.StatusTooManyRequests, w.Code, "第 31 次应触发限速，resp=%s", w.Body.String())
+	assert.Equal(t, http.StatusTooManyRequests, w.Code, "第 301 次应触发限速，resp=%s", w.Body.String())
 }
