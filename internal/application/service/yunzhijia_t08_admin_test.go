@@ -270,15 +270,16 @@ func TestYunzhijiaT08UnblockClearsStateAndAudits(t *testing.T) {
 	blockedAt := time.Now().Add(-time.Hour)
 	blockedBy := "actor-prior"
 	repo := newYZJT05EmployeeRepo(&types.YunzhijiaEmployee{
-		OpenID:     "open-unblock-placeholder",
-		Name:       "禁建占位员工戊",
-		Department: "金蝶社区",
-		Status:     types.YunzhijiaEmployeeStatusActive,
-		TenantID:   yzjT05TenantDefault,
-		UserID:     &userID,
-		Blocked:    true,
-		BlockedAt:  &blockedAt,
-		BlockedBy:  &blockedBy,
+		OpenID:         "open-unblock-placeholder",
+		Name:           "禁建占位员工戊",
+		Department:     "金蝶社区",
+		Status:         types.YunzhijiaEmployeeStatusActive,
+		TenantID:       yzjT05TenantDefault,
+		UserID:         &userID,
+		DisabledBySync: true, // 离职停用遗留标记：解除时必须一并清掉
+		Blocked:        true,
+		BlockedAt:      &blockedAt,
+		BlockedBy:      &blockedBy,
 	})
 	audit := &yzjT08Audit{}
 	svc := yzjT08NewAdmin(
@@ -298,6 +299,9 @@ func TestYunzhijiaT08UnblockClearsStateAndAudits(t *testing.T) {
 	if row.Blocked || row.UserID != nil || row.BlockedAt != nil || row.BlockedBy != nil {
 		t.Fatalf("解除后状态未清空: %+v", row)
 	}
+	if row.DisabledBySync {
+		t.Fatalf("解除后必须清 disabled_by_sync，否则登录仍拒绝: %+v", row)
+	}
 	if len(audit.entries) != 1 {
 		t.Fatalf("解除 blocked 应写 1 条审计，实际 %d", len(audit.entries))
 	}
@@ -316,5 +320,67 @@ func TestYunzhijiaT08UnblockClearsStateAndAudits(t *testing.T) {
 	}
 	if len(audit.entries) != 1 {
 		t.Fatalf("重复解除不应再写审计，实际 %d 条", len(audit.entries))
+	}
+}
+
+// yzjT08CancelAwareClient 在每次抓取前检查 ctx 是否已取消。
+// 只有 ManualSync/Preview 用 context.WithoutCancel 脱离请求取消才能通过；
+// 若实现回退为直接透传请求 ctx，本替身会让抓取失败。
+type yzjT08CancelAwareClient struct {
+	*yzjT05Client
+}
+
+func (c *yzjT08CancelAwareClient) ListEmployees(
+	ctx context.Context, status yunzhijia.Status, page, pageSize int,
+) (*yunzhijia.EmployeePage, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return c.yzjT05Client.ListEmployees(ctx, status, page, pageSize)
+}
+
+// TestYunzhijiaT08ManualSyncSurvivesRequestCancel 验证浏览器断开（请求 ctx
+// 已取消）后手动同步仍跑完整轮：运行记录落 success、审计照写。
+// 对应 H2 的 context.WithoutCancel。
+func TestYunzhijiaT08ManualSyncSurvivesRequestCancel(t *testing.T) {
+	base := context.WithValue(context.Background(), types.UserIDContextKey, "actor-t08-cancel")
+	ctx, cancel := context.WithCancel(base)
+	cancel() // 模拟请求链路已断开
+
+	baseClient := newYZJT05Client()
+	yzjT08SetPage(baseClient, yunzhijia.StatusActive, yzjT05Page(1, 10, 1,
+		yzjT05Employee("open-cancel-0001", "占位员工己", "金蝶社区"),
+	))
+	client := &yzjT08CancelAwareClient{yzjT05Client: baseClient}
+	repo := newYZJT05EmployeeRepo()
+	life := newYZJT05Lifecycle()
+	life.setEmployeeResult("open-cancel-0001", types.YunzhijiaAccountResultCreated)
+	runs := &yzjT05RunRepo{}
+	audit := &yzjT08Audit{}
+	svc := yzjT08NewAdmin(true, client, repo, runs, life, audit)
+
+	run, err := svc.ManualSync(ctx)
+	if err != nil {
+		t.Fatalf("请求取消后手动同步仍应完成，实际错误: %v", err)
+	}
+	if run == nil || run.Status != types.YunzhijiaSyncStatusSuccess {
+		t.Fatalf("运行记录应为 success，实际 %+v", run)
+	}
+	latest, err := runs.Latest(context.Background())
+	if err != nil {
+		t.Fatalf("读取运行记录失败: %v", err)
+	}
+	if latest == nil || latest.Status != types.YunzhijiaSyncStatusSuccess {
+		t.Fatalf("运行记录未落 success，实际 %+v", latest)
+	}
+	if len(audit.entries) != 1 {
+		t.Fatalf("手动同步应写 1 条审计，实际 %d 条", len(audit.entries))
+	}
+	if audit.entries[0].Action != types.AuditActionSystemYunzhijiaSyncTriggered {
+		t.Fatalf("审计动作=%s，期望 %s", audit.entries[0].Action,
+			types.AuditActionSystemYunzhijiaSyncTriggered)
+	}
+	if audit.entries[0].ActorUserID != "actor-t08-cancel" {
+		t.Fatalf("审计操作人=%q，期望保留 ctx 里的 actor", audit.entries[0].ActorUserID)
 	}
 }

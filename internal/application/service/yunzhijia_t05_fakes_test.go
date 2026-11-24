@@ -329,6 +329,9 @@ func (r *yzjT05EmployeeRepo) Unblock(_ context.Context, openID string) error {
 	row.BlockedAt = nil
 	row.BlockedBy = nil
 	row.UserID = nil
+	// 与真实仓储一致（H1）：离职同步停用标记必须一并清掉，
+	// 否则下一轮同步/登录仍会拒绝重建。
+	row.DisabledBySync = false
 	return nil
 }
 

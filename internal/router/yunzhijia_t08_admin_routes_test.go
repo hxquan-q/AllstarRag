@@ -23,6 +23,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// yzjT08RouteAudit 捕获路由链路写入的审计条目。
+// M1 之后生产必注入审计服务，测试也不得再传 nil（nil 会 panic）。
+type yzjT08RouteAudit struct {
+	interfaces.AuditLogService
+	entries []*types.AuditLog
+}
+
+func (a *yzjT08RouteAudit) Log(_ context.Context, entry *types.AuditLog) error {
+	a.entries = append(a.entries, entry)
+	return nil
+}
+
 type yzjT08RouteRunRepo struct {
 	interfaces.YunzhijiaSyncRunRepository
 }
@@ -129,7 +141,9 @@ type yzjT08RouteActor struct {
 	systemAdmin bool
 }
 
-func yzjT08RouteEngine(t *testing.T, actor yzjT08RouteActor) *gin.Engine {
+func yzjT08RouteEngine(
+	t *testing.T, actor yzjT08RouteActor,
+) (*gin.Engine, *yzjT08RouteAudit) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	rbacOn := true
@@ -179,10 +193,11 @@ func yzjT08RouteEngine(t *testing.T, actor yzjT08RouteActor) *gin.Engine {
 	syncSvc := service.NewYunzhijiaSyncService(
 		ycfg, &yzjT08RouteClient{}, employees, runs, &yzjT08RouteLifecycle{},
 	)
-	adminSvc := service.NewYunzhijiaAdminService(ycfg, syncSvc, runs, employees, nil)
+	audit := &yzjT08RouteAudit{}
+	adminSvc := service.NewYunzhijiaAdminService(ycfg, syncSvc, runs, employees, audit)
 	h := handler.NewYunzhijiaAdminHandler(adminSvc)
 	RegisterYunzhijiaAdminRoutes(engine.Group("/api/v1"), h, g)
-	return engine
+	return engine, audit
 }
 
 func yzjT08RouteDo(t *testing.T, engine *gin.Engine, method, path string) int {
@@ -209,7 +224,7 @@ func yzjT08AdminRoutes() []struct {
 }
 
 func TestYunzhijiaT08SystemAdminGets200(t *testing.T) {
-	engine := yzjT08RouteEngine(t, yzjT08RouteActor{
+	engine, audit := yzjT08RouteEngine(t, yzjT08RouteActor{
 		userID:      "sys-admin-placeholder",
 		role:        types.TenantRoleOwner,
 		systemAdmin: true,
@@ -218,6 +233,17 @@ func TestYunzhijiaT08SystemAdminGets200(t *testing.T) {
 		if code := yzjT08RouteDo(t, engine, route.method, route.path); code != http.StatusOK {
 			t.Fatalf("%s %s 系统管理员应 200，实际 %d", route.method, route.path, code)
 		}
+	}
+	// 真实路由链路里手动同步与解除各写一条审计。
+	got := map[types.AuditAction]bool{}
+	for _, entry := range audit.entries {
+		got[entry.Action] = true
+	}
+	if !got[types.AuditActionSystemYunzhijiaSyncTriggered] {
+		t.Fatalf("手动同步未写审计，entries=%+v", audit.entries)
+	}
+	if !got[types.AuditActionSystemYunzhijiaUnblocked] {
+		t.Fatalf("解除 blocked 未写审计，entries=%+v", audit.entries)
 	}
 }
 
@@ -232,7 +258,7 @@ func TestYunzhijiaT08NonAdminsGet403(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			engine := yzjT08RouteEngine(t, tc.actor)
+			engine, _ := yzjT08RouteEngine(t, tc.actor)
 			for _, route := range yzjT08AdminRoutes() {
 				code := yzjT08RouteDo(t, engine, route.method, route.path)
 				// 未登录在生产链路会先被 Auth 中间件挡成 401；本例只验证

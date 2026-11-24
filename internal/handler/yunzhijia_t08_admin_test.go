@@ -35,6 +35,18 @@ type yzjT08HandlerEmployeeRepo struct {
 	unblocked  []string
 }
 
+// yzjT08HandlerAudit 捕获 handler 链路写入的审计条目。
+// M1 之后生产必注入审计服务，测试也不得再传 nil（nil 会 panic）。
+type yzjT08HandlerAudit struct {
+	interfaces.AuditLogService
+	entries []*types.AuditLog
+}
+
+func (a *yzjT08HandlerAudit) Log(_ context.Context, entry *types.AuditLog) error {
+	a.entries = append(a.entries, entry)
+	return nil
+}
+
 func (r *yzjT08HandlerEmployeeRepo) Unblock(_ context.Context, openID string) error {
 	if r.unblockErr != nil {
 		return r.unblockErr
@@ -95,13 +107,16 @@ func TestYunzhijiaT08HandlerRejectsNonSystemAdmin(t *testing.T) {
 	}
 }
 
-func yzjT08UnblockHandler(unblockErr error) (*YunzhijiaAdminHandler, *yzjT08HandlerEmployeeRepo) {
+func yzjT08UnblockHandler(unblockErr error) (
+	*YunzhijiaAdminHandler, *yzjT08HandlerEmployeeRepo, *yzjT08HandlerAudit,
+) {
 	repo := &yzjT08HandlerEmployeeRepo{unblockErr: unblockErr}
 	cfg := &config.YunzhijiaSSOConfig{Enabled: true}
+	audit := &yzjT08HandlerAudit{}
 	svc := service.NewYunzhijiaAdminService(
-		cfg, nil, &yzjT08HandlerRunRepo{}, repo, nil,
+		cfg, nil, &yzjT08HandlerRunRepo{}, repo, audit,
 	)
-	return NewYunzhijiaAdminHandler(svc), repo
+	return NewYunzhijiaAdminHandler(svc), repo, audit
 }
 
 func TestYunzhijiaT08UnblockStatusMapping(t *testing.T) {
@@ -116,18 +131,38 @@ func TestYunzhijiaT08UnblockStatusMapping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			h, _ := yzjT08UnblockHandler(tc.unblockErr)
+			h, _, audit := yzjT08UnblockHandler(tc.unblockErr)
 			engine := yzjT08HandlerEngine(t, h, true)
 			w := yzjT08HandlerDo(t, engine, http.MethodPost, "/unblock")
 			if w.Code != tc.wantCode {
 				t.Fatalf("状态码=%d，期望 %d，body=%s", w.Code, tc.wantCode, w.Body.String())
+			}
+			if tc.wantCode != http.StatusOK {
+				if len(audit.entries) != 0 {
+					t.Fatalf("失败路径不得写审计，实际 %d 条", len(audit.entries))
+				}
+				return
+			}
+			if len(audit.entries) != 1 {
+				t.Fatalf("成功解除应写 1 条审计，实际 %d 条", len(audit.entries))
+			}
+			entry := audit.entries[0]
+			if entry.Action != types.AuditActionSystemYunzhijiaUnblocked {
+				t.Fatalf("审计动作=%s，期望 %s", entry.Action,
+					types.AuditActionSystemYunzhijiaUnblocked)
+			}
+			if entry.TargetID != "open-placeholder" {
+				t.Fatalf("审计目标=%s，期望 open-placeholder", entry.TargetID)
+			}
+			if entry.ActorUserID != "actor-t08" {
+				t.Fatalf("审计操作人=%s，期望 actor-t08", entry.ActorUserID)
 			}
 		})
 	}
 }
 
 func TestYunzhijiaT08UnblockRejectsInvalidOpenID(t *testing.T) {
-	h, _ := yzjT08UnblockHandler(nil)
+	h, _, _ := yzjT08UnblockHandler(nil)
 	engine := yzjT08HandlerEngine(t, h, true)
 	engine.POST("/blank", func(c *gin.Context) {
 		c.Params = gin.Params{{Key: "open_id", Value: "  "}}

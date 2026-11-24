@@ -89,3 +89,76 @@ func TestYunzhijiaT06MarkBlockedKeepsUserIDUnblockClearsIt(t *testing.T) {
 		t.Fatalf("重复 Unblock 应返回 ErrYunzhijiaEmployeeNotFound，实际 %v", err)
 	}
 }
+
+// TestYunzhijiaT08UnblockClearsDisabledBySyncAndAllowsRebuild 对应审查 H1。
+// 场景：员工离职被同步停用（disabled_by_sync=true）后账号被删除并置 blocked，
+// 管理员点「解除」。Unblock 必须同时清 disabled_by_sync，否则下一轮同步与
+// 登录仍因该标记拒绝重建。用真实 SQLite 验证，不用替身。
+func TestYunzhijiaT08UnblockClearsDisabledBySyncAndAllowsRebuild(t *testing.T) {
+	ctx := context.Background()
+	repo := newYZJT06EmployeeRepo(t)
+
+	userID := "user-t08-purged-placeholder"
+	employee := &types.YunzhijiaEmployee{
+		OpenID:         "open-t08-unblock-0001",
+		Name:           "占位员工庚",
+		Department:     "占位部门",
+		TenantID:       10024,
+		UserID:         &userID,
+		DisabledBySync: true,
+		Status:         types.YunzhijiaEmployeeStatusInactive,
+	}
+	if err := repo.Create(ctx, employee); err != nil {
+		t.Fatalf("创建员工: %v", err)
+	}
+
+	// 账号被删除：MarkBlocked 保留 user_id 供审计，disabled_by_sync 仍为 true。
+	if err := repo.MarkBlocked(ctx, employee.OpenID, "actor-t08"); err != nil {
+		t.Fatalf("MarkBlocked: %v", err)
+	}
+	before, err := repo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		t.Fatalf("GetByOpenID(blocked): %v", err)
+	}
+	if before == nil || !before.Blocked || !before.DisabledBySync {
+		t.Fatalf("前置状态应为 blocked 且 disabled_by_sync=true: %+v", before)
+	}
+
+	if err := repo.Unblock(ctx, employee.OpenID); err != nil {
+		t.Fatalf("Unblock: %v", err)
+	}
+	row, err := repo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		t.Fatalf("GetByOpenID(unblocked): %v", err)
+	}
+	if row == nil {
+		t.Fatal("员工记录不应消失")
+	}
+	if row.Blocked || row.UserID != nil || row.BlockedAt != nil || row.BlockedBy != nil {
+		t.Fatalf("Unblock 后状态未清空: %+v", row)
+	}
+	if row.DisabledBySync {
+		t.Fatalf("Unblock 必须清 disabled_by_sync，否则登录仍拒绝: %+v", row)
+	}
+
+	// 下一轮同步只更新上游字段，不应回填本地状态。
+	if err := repo.UpsertByOpenID(ctx, &types.YunzhijiaEmployee{
+		OpenID:     employee.OpenID,
+		Name:       "占位员工庚",
+		Department: "占位部门",
+		TenantID:   10024,
+		Status:     types.YunzhijiaEmployeeStatusActive,
+	}); err != nil {
+		t.Fatalf("UpsertByOpenID: %v", err)
+	}
+	next, err := repo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		t.Fatalf("GetByOpenID(next): %v", err)
+	}
+	if next == nil {
+		t.Fatal("下一轮同步后员工记录不应消失")
+	}
+	if next.Blocked || next.DisabledBySync || next.UserID != nil {
+		t.Fatalf("下一轮同步应可重建（ApplyEmployee 创建分支 + 登录门禁）: %+v", next)
+	}
+}
