@@ -67,6 +67,7 @@ type RouterParams struct {
 	MeEnvVarHandler              *handler.MeEnvVarHandler
 	EvaluationHandler            *handler.EvaluationHandler
 	AuthHandler                  *handler.AuthHandler
+	YunzhijiaAuthHandler         *handler.YunzhijiaAuthHandler
 	InitializationHandler        *handler.InitializationHandler
 	SystemHandler                *handler.SystemHandler
 	MCPServiceHandler            *handler.MCPServiceHandler
@@ -263,6 +264,7 @@ func NewRouter(params RouterParams) *gin.Engine {
 		v1.Use(rbacGuards.apiKeyAuthorizer.Middleware())
 
 		RegisterAuthRoutes(v1, params.AuthHandler, rbacGuards)
+		RegisterYunzhijiaAuthRoutes(v1, params.YunzhijiaAuthHandler)
 		RegisterTenantRoutes(v1, params.TenantHandler, params.TenantMemberHandler, params.TenantInvitationHandler, params.AuditLogHandler, rbacGuards)
 		RegisterUserManagementRoutes(v1, params.UserManagementHandler, rbacGuards)
 		RegisterPlatformUserManagementRoutes(v1, params.UserManagementHandler, rbacGuards)

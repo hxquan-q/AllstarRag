@@ -26,6 +26,10 @@ type YunzhijiaEmployeeRepository interface {
 	// GetByUserID 按本地 users.id 查询；不存在返回 (nil, nil)。
 	GetByUserID(ctx context.Context, userID string) (*types.YunzhijiaEmployee, error)
 
+	// SetUserID 在本地账号创建成功后回填 employee.user_id。
+	// 目标行不存在时返回 repository.ErrYunzhijiaEmployeeNotFound。
+	SetUserID(ctx context.Context, openID, userID string) error
+
 	// FindActiveByName 返回所有 status=active 的同名记录（含 blocked），
 	// 供登录时区分 0 条 / 1 条 / 多条 / blocked。按 id 升序。
 	FindActiveByName(ctx context.Context, name string) ([]*types.YunzhijiaEmployee, error)
@@ -50,6 +54,15 @@ type YunzhijiaEmployeeRepository interface {
 	// UpdateSyncedFields 更新来自上游的同步字段（name、department、mobile、
 	// tenant_id、status、last_synced_at）；不碰 user_id/disabled_by_sync/blocked。
 	UpdateSyncedFields(ctx context.Context, employee *types.YunzhijiaEmployee) error
+}
+
+// YunzhijiaLoginService 处理云之家 ticket 免登录。
+//
+// 业务拒绝（无效 ticket、同名、离职/封禁、配置不可用等）通过返回
+// Success=false 的 LoginResponse 表达，error 为 nil；只有未预期的
+// 内部错误才返回 error。
+type YunzhijiaLoginService interface {
+	Login(ctx context.Context, ticket string) (*types.LoginResponse, error)
 }
 
 // YunzhijiaSyncRunRepository 持久化同步运行记录，供管理端状态页读取。

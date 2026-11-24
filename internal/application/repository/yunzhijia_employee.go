@@ -118,6 +118,24 @@ func (r *yunzhijiaEmployeeRepository) GetByUserID(
 	return &employee, nil
 }
 
+// SetUserID 在本地账号创建成功后回填 employee.user_id。
+// 目标行不存在时返回 ErrYunzhijiaEmployeeNotFound。
+func (r *yunzhijiaEmployeeRepository) SetUserID(
+	ctx context.Context, openID, userID string,
+) error {
+	result := r.db.WithContext(ctx).
+		Model(&types.YunzhijiaEmployee{}).
+		Where("open_id = ?", openID).
+		Update("user_id", userID)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrYunzhijiaEmployeeNotFound
+	}
+	return nil
+}
+
 // FindActiveByName 返回所有 status=active 的同名记录（含 blocked）。
 // 服务层用返回条数与 blocked 字段区分不同登录错误。
 func (r *yunzhijiaEmployeeRepository) FindActiveByName(

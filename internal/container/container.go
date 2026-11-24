@@ -154,6 +154,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(docparser.NewImageResolver))
 	must(container.Provide(initOllamaService))
 	must(container.Provide(initNeo4jClient))
+	must(container.Provide(initYunzhijiaSSOConfig))
+	must(container.Provide(initYunzhijiaClient))
 	must(container.Provide(stream.NewStreamManager))
 	logger.Debugf(ctx, "[Container] Initializing DuckDB...")
 	must(container.Provide(NewDuckDB))
@@ -177,6 +179,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewModelRepository))
 	must(container.Provide(repository.NewUserRepository))
 	must(container.Provide(repository.NewAuthTokenRepository))
+	must(container.Provide(repository.NewYunzhijiaEmployeeRepository))
 	must(container.Provide(repository.NewSystemSettingRepository))
 	must(container.Provide(repository.NewModelCatalogRepository))
 	must(container.Provide(neo4jRepo.NewNeo4jRepository))
@@ -353,6 +356,12 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
 	must(container.Provide(service.NewUserService))
+	must(container.Provide(service.NewYunzhijiaUserRemover))
+	must(container.Provide(service.NewYunzhijiaProvisioner))
+	must(container.Provide(
+		service.NewYunzhijiaLoginService,
+		dig.As(new(interfaces.YunzhijiaLoginService)),
+	))
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewModelCatalogService))
 	must(container.Provide(func(
@@ -814,6 +823,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewEvaluationHandler))
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))
+	must(container.Provide(handler.NewYunzhijiaAuthHandler))
 	must(container.Provide(handler.NewSystemHandler))
 	// Dig resolves exact types; adapt the registered service to the handler's
 	// narrower SharedAgentLookup interface at the composition boundary.
