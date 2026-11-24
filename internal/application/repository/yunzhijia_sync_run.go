@@ -69,11 +69,14 @@ func (r *yunzhijiaSyncRunRepository) Finish(
 }
 
 // Latest 返回最近一条运行记录；没有记录时返回 (nil, nil)。
+// 预检（trigger=preview）只读，不覆盖管理端看到的真实同步状态。
 func (r *yunzhijiaSyncRunRepository) Latest(
 	ctx context.Context,
 ) (*types.YunzhijiaSyncRun, error) {
 	var run types.YunzhijiaSyncRun
-	err := r.db.WithContext(ctx).Order("started_at DESC, id DESC").First(&run).Error
+	err := r.db.WithContext(ctx).
+		Where("trigger <> ?", types.YunzhijiaSyncTriggerPreview).
+		Order("started_at DESC, id DESC").First(&run).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil
 	}

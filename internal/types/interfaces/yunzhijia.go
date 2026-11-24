@@ -65,6 +65,21 @@ type YunzhijiaEmployeeLookup interface {
 	IsYunzhijiaEmployee(ctx context.Context, userID string) (bool, error)
 }
 
+// YunzhijiaAccountLifecycle 承接一轮同步后的账号动作。
+//
+// T05 只定义窄接口并用测试替身驱动同步编排；真实的开号/停用/恢复/
+// 调岗实现由 T06 提供。实现方拿到的 employee 必须是 upsert 之后从
+// 仓储重新读出的行，其中 user_id / disabled_by_sync / blocked 等本地
+// 字段不能被上游入参覆盖。
+type YunzhijiaAccountLifecycle interface {
+	// ApplyEmployee 处理上游在职员工：首次开号、再入职恢复或调岗。
+	// 账号被封禁时返回哨兵 ErrYunzhijiaAccountBanned；
+	// 关联本地用户缺失时返回 ErrYunzhijiaLocalUserMissing。
+	ApplyEmployee(ctx context.Context, employee *types.YunzhijiaEmployee) error
+	// ApplyInactive 处理上游离职员工：停用账号并作废会话。
+	ApplyInactive(ctx context.Context, employee *types.YunzhijiaEmployee) error
+}
+
 // YunzhijiaLoginService 处理云之家 ticket 免登录。
 //
 // 业务拒绝（无效 ticket、同名、离职/封禁、配置不可用等）通过返回

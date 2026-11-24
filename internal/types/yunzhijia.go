@@ -63,6 +63,9 @@ const (
 	YunzhijiaSyncTriggerStartup YunzhijiaSyncTrigger = "startup"
 	YunzhijiaSyncTriggerCron    YunzhijiaSyncTrigger = "cron"
 	YunzhijiaSyncTriggerManual  YunzhijiaSyncTrigger = "manual"
+	// YunzhijiaSyncTriggerPreview 是管理员预检：只抓取/校验/计数，
+	// 不写员工记录与账号。Latest 查询会排除这类记录。
+	YunzhijiaSyncTriggerPreview YunzhijiaSyncTrigger = "preview"
 )
 
 // YunzhijiaSyncStatus 是一次同步运行的最终状态。
