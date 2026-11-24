@@ -57,6 +57,14 @@ type YunzhijiaEmployeeRepository interface {
 	UpdateSyncedFields(ctx context.Context, employee *types.YunzhijiaEmployee) error
 }
 
+// YunzhijiaEmployeeLookup 判断本地用户是否由云之家开通。
+//
+// 员工账号只能走云之家免登录，密码登录、自行改密、管理员重置都要拒绝。
+// 查询失败时调用方必须按员工处理（fail-closed），不能放行密码路径。
+type YunzhijiaEmployeeLookup interface {
+	IsYunzhijiaEmployee(ctx context.Context, userID string) (bool, error)
+}
+
 // YunzhijiaLoginService 处理云之家 ticket 免登录。
 //
 // 业务拒绝（无效 ticket、同名、离职/封禁、配置不可用等）通过返回

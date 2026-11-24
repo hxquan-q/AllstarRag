@@ -1693,6 +1693,13 @@ func (h *SystemHandler) ResetUserPassword(c *gin.Context) {
 	}
 
 	if err := h.userSvc.AdminResetPassword(ctx, user.ID, req.NewPassword); err != nil {
+		if errors.Is(err, service.ErrYunzhijiaEmployeePasswordDisabled) {
+			logger.Warnf(ctx, "ResetUserPassword denied: yunzhijia employee user=%s", user.ID)
+			c.JSON(http.StatusForbidden, gin.H{
+				"error": "yunzhijia employee accounts cannot use passwords",
+			})
+			return
+		}
 		if service.IsPasswordPolicyError(err) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return

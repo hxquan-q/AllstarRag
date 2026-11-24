@@ -126,6 +126,8 @@ type userService struct {
 	config           *config.Config
 	systemSettingSvc interfaces.SystemSettingService
 	sandboxReleaser  SandboxOwnerReleaser
+	// yunzhijiaEmployeeLookup 可选：未注入时为 nil，密码路径保持旧行为。
+	yunzhijiaEmployeeLookup interfaces.YunzhijiaEmployeeLookup
 }
 
 // NewUserService creates a new user service instance
@@ -136,14 +138,20 @@ func NewUserService(
 	tenantService interfaces.TenantService,
 	memberService interfaces.TenantMemberService,
 	systemSettingSvc interfaces.SystemSettingService,
+	lookup ...interfaces.YunzhijiaEmployeeLookup,
 ) interfaces.UserService {
+	var employeeLookup interfaces.YunzhijiaEmployeeLookup
+	if len(lookup) > 0 {
+		employeeLookup = lookup[0]
+	}
 	return &userService{
-		userRepo:         userRepo,
-		tokenRepo:        tokenRepo,
-		tenantService:    tenantService,
-		memberService:    memberService,
-		config:           configInfo,
-		systemSettingSvc: systemSettingSvc,
+		userRepo:                userRepo,
+		tokenRepo:               tokenRepo,
+		tenantService:           tenantService,
+		memberService:           memberService,
+		config:                  configInfo,
+		systemSettingSvc:        systemSettingSvc,
+		yunzhijiaEmployeeLookup: employeeLookup,
 	}
 }
 
@@ -287,6 +295,16 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 	}
 	if user == nil {
 		logger.Warn(ctx, "User not found for email")
+		return &types.LoginResponse{
+			Success: false,
+			Message: "Invalid email or password",
+		}, nil
+	}
+
+	// 云之家员工账号只能免登录，密码入口统一按凭证错误处理。
+	// 放在启停检查之前，避免员工账号从 "Account is disabled" 泄漏状态。
+	if s.isYunzhijiaEmployee(ctx, user.ID) {
+		logger.Warn(ctx, "Password login rejected for yunzhijia employee")
 		return &types.LoginResponse{
 			Success: false,
 			Message: "Invalid email or password",
@@ -863,6 +881,12 @@ func (s *userService) RemoveNewlyCreatedUser(ctx context.Context, id string) err
 // registration / admin reset allow. On success every outstanding session
 // is revoked so a stolen token cannot survive the rotation.
 func (s *userService) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
+	// 员工账号没有可用密码，连旧密码校验都不做，避免任何写入或 token 吊销。
+	if s.isYunzhijiaEmployee(ctx, userID) {
+		logger.Warnf(ctx, "ChangePassword denied for yunzhijia employee user=%s", userID)
+		return ErrYunzhijiaEmployeePasswordDisabled
+	}
+
 	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return err
@@ -912,6 +936,12 @@ func (s *userService) ChangePassword(ctx context.Context, userID, oldPassword, n
 // 生产仓储实现 passwordResetTx 时，「特权目标 / 跨空间 owner 复核 + 写密码」
 // 在同一事务内完成（用户行锁 + 事务内复核），消除 T30 与 R4b 发现的 TOCTOU。
 func (s *userService) AdminResetPassword(ctx context.Context, userID, newPassword string) error {
+	// 员工账号禁止任何管理员设置密码；先于策略/事务路径拒绝，保证零写入。
+	if s.isYunzhijiaEmployee(ctx, userID) {
+		logger.Warnf(ctx, "AdminResetPassword denied for yunzhijia employee user=%s", userID)
+		return ErrYunzhijiaEmployeePasswordDisabled
+	}
+
 	if err := ValidatePasswordPolicy(newPassword, s.complexPasswordEnabled(ctx)); err != nil {
 		return err
 	}

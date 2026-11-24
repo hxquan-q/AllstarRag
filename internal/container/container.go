@@ -355,7 +355,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewModelService))
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
-	must(container.Provide(service.NewUserService))
+	must(container.Provide(provideUserService))
 	must(container.Provide(service.NewYunzhijiaUserRemover))
 	must(container.Provide(service.NewYunzhijiaProvisioner))
 	must(container.Provide(

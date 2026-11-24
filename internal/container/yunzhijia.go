@@ -3,10 +3,29 @@ package container
 import (
 	"context"
 
+	"github.com/Tencent/WeKnora/internal/application/service"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/logger"
 	ssoyunzhijia "github.com/Tencent/WeKnora/internal/sso/yunzhijia"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
+
+// provideUserService 构造 UserService，并把云之家员工判定注入密码路径。
+// lookup 是可选依赖的显式接线，interfaces.UserService 公共契约不变。
+func provideUserService(
+	configInfo *config.Config,
+	userRepo interfaces.UserRepository,
+	tokenRepo interfaces.AuthTokenRepository,
+	tenantService interfaces.TenantService,
+	memberService interfaces.TenantMemberService,
+	systemSettingSvc interfaces.SystemSettingService,
+	employeeRepo interfaces.YunzhijiaEmployeeRepository,
+) interfaces.UserService {
+	return service.NewUserService(
+		configInfo, userRepo, tokenRepo, tenantService, memberService, systemSettingSvc,
+		service.NewYunzhijiaEmployeeLookup(employeeRepo),
+	)
+}
 
 // initYunzhijiaSSOConfig 暴露 config.Config 里的云之家配置段。
 // 配置段缺失时返回 nil，登录入口按未启用 fail-closed。
