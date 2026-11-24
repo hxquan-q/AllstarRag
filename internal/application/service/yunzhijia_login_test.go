@@ -119,9 +119,12 @@ func TestYunzhijiaT03LoginRejectsBlockedInactiveAndDisabledBySync(t *testing.T) 
 		employee := yzjT03Employee("openid-blocked-001", "测试员工己", yzjT03TenantDefault)
 		employee.Blocked = true
 		env := newYZJT03Env(yzjT03Config(), employee)
+		env.client.name = employee.Name
 		resp, err := env.login.Login(ctx, "ticket-placeholder-003")
 		yzjT03RequireRejected(t, resp, err, yzjT03MsgAccountBlocked)
 		assert.Equal(t, 0, env.users.created(), "blocked 员工不得开号")
+		assert.Equal(t, 0, env.members.addCallCount(), "blocked 员工登录拒绝时不得调用 AddMember")
+		assert.Equal(t, 0, env.employees.setUserIDCallCount(), "blocked 员工登录拒绝时不得回填 user_id")
 	})
 
 	t.Run("associated user inactive", func(t *testing.T) {
@@ -138,10 +141,13 @@ func TestYunzhijiaT03LoginRejectsBlockedInactiveAndDisabledBySync(t *testing.T) 
 			env.cfg, env.users, env.members, env.employees, env.remover)
 		env.login = NewYunzhijiaLoginService(
 			env.cfg, env.client, env.employees, env.provisioner, env.userService, env.tenants)
+		env.client.name = employee.Name
 
 		resp, err := env.login.Login(ctx, "ticket-placeholder-004")
 		yzjT03RequireRejected(t, resp, err, yzjT03MsgAccountBlocked)
 		assert.Equal(t, 0, env.tokens.createCalls, "停用账号不得签发 token")
+		assert.Equal(t, 0, env.members.addCallCount(), "停用账号登录拒绝时不得调用 AddMember")
+		assert.Equal(t, 0, env.employees.setUserIDCallCount(), "停用账号登录拒绝时不得回填 user_id")
 	})
 
 	t.Run("disabled by sync", func(t *testing.T) {
@@ -159,10 +165,13 @@ func TestYunzhijiaT03LoginRejectsBlockedInactiveAndDisabledBySync(t *testing.T) 
 			env.cfg, env.users, env.members, env.employees, env.remover)
 		env.login = NewYunzhijiaLoginService(
 			env.cfg, env.client, env.employees, env.provisioner, env.userService, env.tenants)
+		env.client.name = employee.Name
 
 		resp, err := env.login.Login(ctx, "ticket-placeholder-005")
 		yzjT03RequireRejected(t, resp, err, yzjT03MsgAccountBlocked)
 		assert.Equal(t, 0, env.tokens.createCalls, "同步停用账号不得签发 token")
+		assert.Equal(t, 0, env.members.addCallCount(), "同步停用账号登录拒绝时不得调用 AddMember")
+		assert.Equal(t, 0, env.employees.setUserIDCallCount(), "同步停用账号登录拒绝时不得回填 user_id")
 	})
 }
 
@@ -215,6 +224,7 @@ func TestYunzhijiaT03LoginReusesExistingAccount(t *testing.T) {
 	employee.UserID = &userID
 
 	env := newYZJT03Env(yzjT03Config(), employee)
+	env.client.name = employee.Name
 	env.users = newYZJT03UserRepo(&types.User{
 		ID: userID, Username: "测试员工壬", Email: "existing-login@example.invalid",
 		PasswordHash: "keep-this-hash", TenantID: yzjT03TenantDefault, IsActive: true,
@@ -242,6 +252,7 @@ func TestYunzhijiaT03LoginFailsClosedWhenTargetTenantMissing(t *testing.T) {
 	ctx := context.Background()
 	employee := yzjT03Employee("openid-tenant-missing-001", "测试员工癸", yzjT03TenantDefault)
 	env := newYZJT03Env(yzjT03Config(), employee)
+	env.client.name = employee.Name
 	env.tenants = newYZJT03TenantService() // 目标空间不存在
 	env.userService = NewUserService(&config.Config{}, env.users, env.tokens, env.tenants, env.members, nil)
 	env.provisioner = NewYunzhijiaProvisioner(
