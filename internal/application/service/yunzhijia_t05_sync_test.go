@@ -266,9 +266,9 @@ func TestYunzhijiaT05RunFailsOnMissingOpenID(t *testing.T) {
 	ctx := context.Background()
 	cfg := yzjT05Config(10, true)
 	client := newYZJT05Client()
-	client.setPage(yunzhijia.StatusActive, 1, yzjT05Page(1, 10, 1,
-		yzjT05Employee("", "员工无号", "金蝶社区"),
-	))
+	// 真实客户端遇到缺 open_id 的条目会返回 ErrContract；同步层不再自己做
+	// 缺号检查，因此这里由客户端替身按真实行为注入契约错误。
+	client.setErr(yunzhijia.StatusActive, 1, yunzhijia.ErrContract)
 	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 0))
 	repo, accounts := yzjT05SeedRepoWithAccount()
 	rowsBefore := repo.snapshotAll()
@@ -279,7 +279,9 @@ func TestYunzhijiaT05RunFailsOnMissingOpenID(t *testing.T) {
 	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
 
 	if _, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual); err == nil {
-		t.Fatal("条目缺 open_id 时 Run 应返回契约错误")
+		t.Fatal("客户端返回契约错误时 Run 应整轮失败")
+	} else if !errors.Is(err, yunzhijia.ErrContract) {
+		t.Fatalf("Run 错误应包裹 ErrContract，实际 %v", err)
 	}
 	latest, _ := runs.Latest(ctx)
 	if latest == nil || latest.Status != types.YunzhijiaSyncStatusFailed {
@@ -289,6 +291,200 @@ func TestYunzhijiaT05RunFailsOnMissingOpenID(t *testing.T) {
 		t.Fatal("缺 open_id 时不得改任何账号")
 	}
 	yzjT05AssertAccountsUnchanged(t, repo, accounts, rowsBefore, usersBefore, membersBefore, "缺 open_id")
+}
+
+// H2：真实上游可能回显自己的 page_size（例如请求 500、回显 200），
+// 只要 page/total/累计一致就应继续；累计不一致仍整轮失败。
+func TestYunzhijiaT05RunToleratesUpstreamPageSizeEcho(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("回显 page_size 与请求不同仍成功", func(t *testing.T) {
+		cfg := yzjT05Config(500, true)
+		client := newYZJT05Client()
+		client.setPage(yunzhijia.StatusActive, 1, yzjT05Page(1, 200, 2,
+			yzjT05Employee("open-a", "员工甲", "金蝶社区"),
+			yzjT05Employee("open-b", "员工乙", "金蝶社区"),
+		))
+		client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 200, 0))
+		runs := &yzjT05RunRepo{}
+		life := newYZJT05Lifecycle()
+		svc := NewYunzhijiaSyncService(cfg, client, newYZJT05EmployeeRepo(), runs, life)
+
+		run, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual)
+		if err != nil {
+			t.Fatalf("上游回显 page_size 不同不应导致整轮失败: %v", err)
+		}
+		if run.Status != types.YunzhijiaSyncStatusSuccess {
+			t.Fatalf("状态=%s，期望 success", run.Status)
+		}
+		if run.ActiveCount != 2 {
+			t.Fatalf("ActiveCount=%d，期望 2", run.ActiveCount)
+		}
+		for _, call := range client.callSnapshot() {
+			if call.PageSize != 500 {
+				t.Fatalf("ListEmployees 请求 pageSize=%d，期望显式传 cfg.PageSize=500", call.PageSize)
+			}
+		}
+		if len(life.employeeSnapshot()) != 2 {
+			t.Fatalf("回显 page_size 不同时仍应处理 2 人，实际 %d", len(life.employeeSnapshot()))
+		}
+	})
+
+	t.Run("回显 page_size 不同时累计不一致仍整轮失败", func(t *testing.T) {
+		cfg := yzjT05Config(500, true)
+		client := newYZJT05Client()
+		client.setPage(yunzhijia.StatusActive, 1, yzjT05Page(1, 200, 3,
+			yzjT05Employee("open-a", "员工甲", "金蝶社区"),
+			yzjT05Employee("open-b", "员工乙", "金蝶社区"),
+		))
+		client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 200, 0))
+		repo, accounts := yzjT05SeedRepoWithAccount()
+		rowsBefore := repo.snapshotAll()
+		usersBefore, membersBefore := accounts.snapshot()
+		runs := &yzjT05RunRepo{}
+		life := newYZJT05Lifecycle()
+		life.accounts = accounts
+		svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
+
+		if _, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual); err == nil {
+			t.Fatal("回显 page_size 不同不豁免累计校验，累计≠total 时应整轮失败")
+		}
+		latest, _ := runs.Latest(ctx)
+		if latest == nil || latest.Status != types.YunzhijiaSyncStatusFailed {
+			t.Fatalf("累计不一致应写入 failed 运行记录，实际 %+v", latest)
+		}
+		if repo.upsertCount() != 0 || len(life.employeeSnapshot()) != 0 || len(life.inactiveSnapshot()) != 0 {
+			t.Fatal("累计不一致时不得改任何账号")
+		}
+		yzjT05AssertAccountsUnchanged(t, repo, accounts, rowsBefore, usersBefore, membersBefore, "累计不一致")
+	})
+}
+
+// H1：两批完整抓取后，本地 active 但不在任一上游名单的员工按离职收敛；
+// 已封禁的员工同样收敛状态但只记 blocked_skipped，不调用 ApplyInactive。
+func TestYunzhijiaT05RunReconcilesLocalActiveMissing(t *testing.T) {
+	ctx := context.Background()
+	cfg := yzjT05Config(10, true)
+	client := newYZJT05Client()
+	client.setPage(yunzhijia.StatusActive, 1, yzjT05Page(1, 10, 1,
+		yzjT05Employee("open-a", "员工甲", "金蝶社区"),
+	))
+	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 0))
+
+	missingUID := "user-missing"
+	blockedUID := "user-blocked"
+	blockedAt := time.Now().Add(-time.Hour)
+	repo := newYZJT05EmployeeRepo(
+		&types.YunzhijiaEmployee{
+			OpenID:     "open-missing",
+			Name:       "缺席员工",
+			Department: "金蝶社区",
+			TenantID:   yzjT05TenantDefault,
+			UserID:     &missingUID,
+			Status:     types.YunzhijiaEmployeeStatusActive,
+		},
+		&types.YunzhijiaEmployee{
+			OpenID:     "open-blocked",
+			Name:       "封禁员工",
+			Department: "金蝶社区",
+			TenantID:   yzjT05TenantDefault,
+			UserID:     &blockedUID,
+			Status:     types.YunzhijiaEmployeeStatusActive,
+			Blocked:    true,
+			BlockedAt:  &blockedAt,
+		},
+	)
+	runs := &yzjT05RunRepo{}
+	life := newYZJT05Lifecycle()
+	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
+
+	run, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	anomalies := yzjT05RunAnomalies(t, run)
+	if !yzjT05HasAnomaly(anomalies, types.YunzhijiaAnomalyLocalActiveMissing, "open-missing") {
+		t.Fatalf("缺少 open-missing 的 local_active_missing 异常；实际 %+v", anomalies)
+	}
+	if !yzjT05HasAnomaly(anomalies, types.YunzhijiaAnomalyBlockedSkipped, "open-blocked") {
+		t.Fatalf("封禁缺席员工应记 blocked_skipped；实际 %+v", anomalies)
+	}
+
+	row := repo.snapshot("open-missing")
+	if row == nil || row.Status != types.YunzhijiaEmployeeStatusInactive {
+		t.Fatalf("缺席员工应收敛为 inactive，实际 %+v", row)
+	}
+	blockedRow := repo.snapshot("open-blocked")
+	blockedOK := blockedRow != nil &&
+		blockedRow.Status == types.YunzhijiaEmployeeStatusInactive &&
+		blockedRow.Blocked
+	if !blockedOK {
+		t.Fatalf("封禁缺席员工应收敛为 inactive 且保留 blocked，实际 %+v", blockedRow)
+	}
+
+	inactive := life.inactiveSnapshot()
+	foundMissing := false
+	for _, employee := range inactive {
+		if employee.OpenID == "open-blocked" {
+			t.Fatal("封禁员工不应调用 ApplyInactive")
+		}
+		if employee.OpenID == "open-missing" {
+			foundMissing = true
+			if employee.UserID == nil || *employee.UserID != missingUID {
+				t.Fatalf("ApplyInactive 应收到库内 user_id=%q，实际 %v", missingUID, employee.UserID)
+			}
+		}
+	}
+	if !foundMissing {
+		t.Fatalf("缺席员工应调用 ApplyInactive；实际 %+v", inactive)
+	}
+}
+
+// H1 负向：本轮 active 内部出现重复 open_id 时，去重后条数仍可能等于 total，
+// 实际却漏了人；此时不得执行缺席收敛，避免把本地在职员工误判离职。
+func TestYunzhijiaT05RunSkipsMissingReconcileOnDuplicateActiveOpenID(t *testing.T) {
+	ctx := context.Background()
+	cfg := yzjT05Config(10, true)
+	client := newYZJT05Client()
+	client.setPage(yunzhijia.StatusActive, 1, yzjT05Page(1, 10, 2,
+		yzjT05Employee("open-a", "员工甲", "金蝶社区"),
+		yzjT05Employee("open-a", "员工甲重复", "金蝶社区"),
+	))
+	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 0))
+
+	missingUID := "user-missing"
+	repo := newYZJT05EmployeeRepo(&types.YunzhijiaEmployee{
+		OpenID:     "open-missing",
+		Name:       "缺席员工",
+		Department: "金蝶社区",
+		TenantID:   yzjT05TenantDefault,
+		UserID:     &missingUID,
+		Status:     types.YunzhijiaEmployeeStatusActive,
+	})
+	runs := &yzjT05RunRepo{}
+	life := newYZJT05Lifecycle()
+	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
+
+	run, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual)
+	if err != nil {
+		t.Fatalf("重复 open_id 只记异常，不应整轮失败: %v", err)
+	}
+	anomalies := yzjT05RunAnomalies(t, run)
+	if yzjT05HasAnomaly(anomalies, types.YunzhijiaAnomalyLocalActiveMissing, "") {
+		t.Fatalf("active 内部重复 open_id 时不得执行缺席收敛；实际 %+v", anomalies)
+	}
+	if got := yzjT05AnomalyCount(anomalies, types.YunzhijiaAnomalyDuplicateOpenID, "open-a"); got != 1 {
+		t.Fatalf("duplicate_open_id 异常 %d 条，期望 1；实际 %+v", got, anomalies)
+	}
+	row := repo.snapshot("open-missing")
+	if row == nil || row.Status != types.YunzhijiaEmployeeStatusActive {
+		t.Fatalf("缺席员工应保持 active（本轮不收敛），实际 %+v", row)
+	}
+	for _, employee := range life.inactiveSnapshot() {
+		if employee.OpenID == "open-missing" {
+			t.Fatal("active 重复 open_id 时不应调用 ApplyInactive 处理缺席员工")
+		}
+	}
 }
 
 func TestYunzhijiaT05RunSkipsDuplicateOpenID(t *testing.T) {
