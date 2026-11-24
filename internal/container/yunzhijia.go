@@ -26,11 +26,10 @@ func provideUserService(
 		configInfo, userRepo, tokenRepo, tenantService, memberService, systemSettingSvc,
 		service.NewYunzhijiaEmployeeLookup(employeeRepo),
 	)
-	if aware, ok := svc.(interface {
+	// 接线不对时启动直接 panic，避免云之家登录钩子静默失效。
+	svc.(interface {
 		WithYunzhijiaEmployeeState(interfaces.YunzhijiaEmployeeState)
-	}); ok {
-		aware.WithYunzhijiaEmployeeState(yzjLifecycle)
-	}
+	}).WithYunzhijiaEmployeeState(yzjLifecycle)
 	return svc
 }
 

@@ -686,21 +686,18 @@ var (
 // SetUserActive changes status and revokes sessions atomically with the
 // repository's self-disable and last-active-admin guards.
 func (s *userService) SetUserActive(ctx context.Context, userID, actorID string, active bool) (*types.User, error) {
-	user, err := s.userRepo.SetUserActive(ctx, userID, actorID, active)
-	if err != nil {
-		return nil, err
-	}
-	// 人工停用（system.go 用户状态入口）必须清 disabled_by_sync，否则同步
-	// 再入职会把它当成「同步停用」自动恢复。同步侧直接调仓储，不走这里。
+	// 人工停用（system.go 用户状态入口）必须先清 disabled_by_sync：标记
+	// 失败就不停用，避免留下「已停用、标记仍为 true」的账号被再入职
+	// 时的同步自动恢复。同步侧直接调仓储，不走这里。
 	if !active && s.yunzhijiaState != nil {
-		if markErr := s.yunzhijiaState.MarkAdminDisabled(ctx, userID); markErr != nil {
+		if err := s.yunzhijiaState.MarkAdminDisabled(ctx, userID); err != nil {
 			logger.Warnf(ctx,
-				"yunzhijia: 人工停用后标记 disabled_by_sync 失败（停用已生效）: user=%s err=%v",
-				userID, markErr)
-			return nil, fmt.Errorf("yunzhijia: 标记员工管理员停用失败: %w", markErr)
+				"yunzhijia: 人工停用前标记 disabled_by_sync 失败（未停用）: user=%s err=%v",
+				userID, err)
+			return nil, fmt.Errorf("yunzhijia: 标记员工管理员停用失败: %w", err)
 		}
 	}
-	return user, nil
+	return s.userRepo.SetUserActive(ctx, userID, actorID, active)
 }
 
 // ListAllUsers lists every platform user newest-first for the system-admin

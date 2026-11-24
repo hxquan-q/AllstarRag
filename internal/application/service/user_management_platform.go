@@ -61,6 +61,11 @@ func (s *userManagementService) PlatformBanUser(
 	if err != nil {
 		return nil, err
 	}
+	// 先清 disabled_by_sync 再封禁：标记失败就不封禁，避免再入职时被同步
+	// 当成同步停用自动解封（INV-4）。
+	if err := s.notifyYunzhijiaAdminDisabled(ctx, target.ID); err != nil {
+		return nil, err
+	}
 
 	// 生产路径：状态变更与 ban 审计同事务提交（与租户级共用 BanUserTx），
 	// 保证解封事务读到的最新 ban 是完整记录。
@@ -73,9 +78,6 @@ func (s *userManagementService) PlatformBanUser(
 		user, err := s.banRepo.BanUserTx(ctx, 0, target.ID, auditActor(ctx), "", audit)
 		if err != nil {
 			return nil, mapUserStatusError(err)
-		}
-		if err := s.notifyYunzhijiaAdminDisabled(ctx, target.ID); err != nil {
-			return nil, err
 		}
 		return user, nil
 	}
@@ -90,9 +92,6 @@ func (s *userManagementService) PlatformBanUser(
 	// 反复改写「全平台最近一次 ban」的归属。
 	if wasActive {
 		s.emitPlatformAudit(ctx, target.ID, types.AuditActionMemberBanned, reason)
-	}
-	if err := s.notifyYunzhijiaAdminDisabled(ctx, target.ID); err != nil {
-		return nil, err
 	}
 	return user, nil
 }

@@ -62,11 +62,20 @@ func (l *YunzhijiaLifecycle) ApplyEmployee(
 	if err != nil {
 		return err
 	}
-	if !user.IsActive {
-		if !employee.DisabledBySync {
-			return ErrYunzhijiaAccountBanned
+	// 先看同步停用标记：再入职、管理员先手动解封等场景会留下「在职但
+	// 标记仍为 true」，登录侧会因此永久拒绝。标记为 true 一律走恢复。
+	if employee.DisabledBySync {
+		if _, err := l.userRepo.SetUserActive(ctx, user.ID, "", true); err != nil {
+			return err
 		}
-		return l.restoreRehiredUser(ctx, user, employee)
+		// 复用调岗逻辑清理其他空间的残留成员关系，并补上目标空间。
+		if err := l.applyActiveUser(ctx, user, employee); err != nil {
+			return err
+		}
+		return l.employeeRepo.SetDisabledBySync(ctx, employee.OpenID, false)
+	}
+	if !user.IsActive {
+		return ErrYunzhijiaAccountBanned
 	}
 	return l.applyActiveUser(ctx, user, employee)
 }
@@ -136,27 +145,12 @@ func (l *YunzhijiaLifecycle) loadEmployeeUser(
 		}
 		return nil, err
 	}
-	if user == nil {
-		return nil, ErrYunzhijiaLocalUserMissing
-	}
 	return user, nil
 }
 
-// restoreRehiredUser 恢复同步停用的账号：启用、回目标空间、清标记。
-func (l *YunzhijiaLifecycle) restoreRehiredUser(
-	ctx context.Context, user *types.User, employee *types.YunzhijiaEmployee,
-) error {
-	if _, err := l.userRepo.SetUserActive(ctx, user.ID, "", true); err != nil {
-		return err
-	}
-	if err := l.ensureViewerMembership(ctx, user.ID, employee.TenantID); err != nil {
-		return err
-	}
-	return l.employeeRepo.SetDisabledBySync(ctx, employee.OpenID, false)
-}
-
-// applyActiveUser 处理在职账号：同空间确保 viewer；跨空间先移旧再加新，
-// 清除最后活跃空间（真实 RemoveMember 同时吊销 token）。
+// applyActiveUser 处理在职账号：同空间确保 viewer；跨空间先移旧再加新。
+// 真实 RemoveMember 会清 tenant_id / LastActiveTenantID 并吊销 token，
+// AddMember 再设新家空间，因此这里不再整行写回旧快照。
 func (l *YunzhijiaLifecycle) applyActiveUser(
 	ctx context.Context, user *types.User, employee *types.YunzhijiaEmployee,
 ) error {
@@ -164,7 +158,6 @@ func (l *YunzhijiaLifecycle) applyActiveUser(
 	if err != nil {
 		return err
 	}
-	moved := false
 	for _, member := range memberships {
 		if member.TenantID == employee.TenantID {
 			continue
@@ -172,16 +165,8 @@ func (l *YunzhijiaLifecycle) applyActiveUser(
 		if err := l.memberService.RemoveMember(ctx, user.ID, member.TenantID); err != nil {
 			return err
 		}
-		moved = true
 	}
-	if err := l.ensureViewerMembership(ctx, user.ID, employee.TenantID); err != nil {
-		return err
-	}
-	if !moved {
-		return nil
-	}
-	user.Preferences.LastActiveTenantID = nil
-	return l.userRepo.UpdateUser(ctx, user)
+	return l.ensureViewerMembership(ctx, user.ID, employee.TenantID)
 }
 
 // ensureViewerMembership 仅在目标空间缺少成员关系时加入 viewer。

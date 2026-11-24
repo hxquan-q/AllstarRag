@@ -295,12 +295,11 @@ func BuildContainer(container *dig.Container) *dig.Container {
 			aware.SetOwnerManagementDeps(tenantService, memberService, invitationService, userService)
 		}
 		// T06 管理端封禁/删除反向标记云之家员工目录；未启用同步时也生效，
-		// 否则下一轮同步会把人工封禁/删除的账号自动恢复或重建。
-		if aware, ok := svc.(interface {
+		// 否则下一轮同步会把人工封禁/删除的账号自动恢复或重建。接线不对
+		// 时启动直接 panic，避免安全钩子静默失效。
+		svc.(interface {
 			WithYunzhijiaEmployeeState(interfaces.YunzhijiaEmployeeState)
-		}); ok {
-			aware.WithYunzhijiaEmployeeState(yzjLifecycle)
-		}
+		}).WithYunzhijiaEmployeeState(yzjLifecycle)
 		return svc
 	}))
 	must(container.Provide(service.NewTenantInvitationService))

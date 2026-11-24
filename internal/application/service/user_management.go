@@ -144,6 +144,11 @@ func (s *userManagementService) BanUser(
 	if err := s.authorize(ctx, target); err != nil {
 		return nil, err
 	}
+	// 先清 disabled_by_sync 再封禁：标记失败就不封禁，避免留下「已封禁、
+	// 标记仍为 true」的账号被下次同步当成同步停用自动解封（INV-4）。
+	if err := s.notifyYunzhijiaAdminDisabled(ctx, target.user.ID); err != nil {
+		return nil, err
+	}
 
 	// 生产路径：状态变更与 ban 审计在同一事务内提交，解封事务读到的
 	// “最近一次 ban”因此一定是完整、已提交的记录。
@@ -160,9 +165,6 @@ func (s *userManagementService) BanUser(
 		if err != nil {
 			return nil, mapUserStatusError(err)
 		}
-		if err := s.notifyYunzhijiaAdminDisabled(ctx, target.user.ID); err != nil {
-			return nil, err
-		}
 		return user, nil
 	}
 
@@ -178,9 +180,6 @@ func (s *userManagementService) BanUser(
 	if wasActive {
 		s.emitStatusAudit(ctx, tenantID, target,
 			types.AuditActionMemberBanned, reason)
-	}
-	if err := s.notifyYunzhijiaAdminDisabled(ctx, target.user.ID); err != nil {
-		return nil, err
 	}
 	return user, nil
 }

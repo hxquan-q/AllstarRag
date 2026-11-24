@@ -27,10 +27,10 @@ func (s *userService) WithYunzhijiaEmployeeState(state interfaces.YunzhijiaEmplo
 	s.yunzhijiaState = state
 }
 
-// notifyYunzhijiaAdminDisabled 在封禁/人工停用成功后清 disabled_by_sync。
+// notifyYunzhijiaAdminDisabled 在封禁前清 disabled_by_sync。
 //
-// 标记失败不回滚已生效的封禁：返回错误让调用方看到，重试同一封禁仍
-// 幂等，下一次成功标记即可收敛。
+// 先标记再封禁：标记失败直接返回，调用方不得继续封禁，否则会留下
+// 「已封禁、标记仍为 true」的账号被下次同步当成同步停用自动解封。
 func (s *userManagementService) notifyYunzhijiaAdminDisabled(
 	ctx context.Context, userID string,
 ) error {
@@ -39,7 +39,7 @@ func (s *userManagementService) notifyYunzhijiaAdminDisabled(
 	}
 	if err := s.yunzhijiaState.MarkAdminDisabled(ctx, userID); err != nil {
 		logger.Warnf(ctx,
-			"yunzhijia: 封禁后标记 disabled_by_sync 失败（封禁已生效）: user=%s err=%v",
+			"yunzhijia: 封禁前标记 disabled_by_sync 失败（未封禁）: user=%s err=%v",
 			userID, err)
 		return fmt.Errorf("yunzhijia: 标记员工管理员停用失败: %w", err)
 	}

@@ -178,7 +178,8 @@ func (r *yunzhijiaEmployeeRepository) ListBlocked(
 	return employees, nil
 }
 
-// MarkBlocked 置 blocked=true 并清空 user_id（账号已删除）。
+// MarkBlocked 置 blocked=true。blocked 优先级最高，保留 user_id 供审计；
+// 解除禁止重建（Unblock）时再清空 user_id。
 func (r *yunzhijiaEmployeeRepository) MarkBlocked(
 	ctx context.Context, openID, blockedBy string,
 ) error {
@@ -189,7 +190,6 @@ func (r *yunzhijiaEmployeeRepository) MarkBlocked(
 			"blocked":    true,
 			"blocked_at": now,
 			"blocked_by": blockedBy,
-			"user_id":    nil,
 			"updated_at": now,
 		})
 	if res.Error != nil {
