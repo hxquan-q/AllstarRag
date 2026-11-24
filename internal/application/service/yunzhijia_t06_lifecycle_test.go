@@ -505,6 +505,27 @@ func TestYunzhijiaT06ApplyEmployeeExistingActiveEnsuresViewer(t *testing.T) {
 	require.True(t, user.IsActive)
 }
 
+func TestYunzhijiaT06ApplyEmployeeActiveWithoutMembershipAddsViewer(t *testing.T) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
+
+	userID := "u-t06-no-membership"
+	yzjT06SeedActiveUser(users, userID)
+	employee := yzjT06Employee("open-no-membership-0001", "占位员工午", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+
+	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+
+	require.Len(t, members.addCalls, 1, "在职账号缺少成员关系时必须补 viewer")
+	require.Equal(t, userID, members.addCalls[0].UserID)
+	require.Equal(t, yzjT06TenantDefault, members.addCalls[0].TenantID)
+	require.Equal(t, types.TenantRoleViewer, members.addCalls[0].Role)
+	require.Empty(t, members.removeCalls, "同空间补齐不应移除成员")
+	require.Empty(t, users.setActiveCalls, "在职账号不应改状态")
+}
+
 func TestYunzhijiaT06ApplyEmployeeRehireRestoresAccount(t *testing.T) {
 	users := newYZJT06UserRepo()
 	members := newYZJT06MemberService()

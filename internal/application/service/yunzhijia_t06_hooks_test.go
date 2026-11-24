@@ -68,6 +68,42 @@ func TestYunzhijiaT06PlatformBanMarksAdminDisabled(t *testing.T) {
 		"平台封禁成功后同样必须把员工 disabled_by_sync 置 false")
 }
 
+func TestYunzhijiaT06TenantBanMarkFailureReturnsErrorKeepsBan(t *testing.T) {
+	env := newUMTestEnv(t)
+	umSeedUser(t, env, "owner-t06", nil)
+	umSeedMembership(t, env, "owner-t06", umTenantA, types.TenantRoleOwner)
+	umSeedUser(t, env, "target-t06", nil)
+	umSeedMembership(t, env, "target-t06", umTenantA, types.TenantRoleViewer)
+
+	boom := errors.New("employee state unavailable")
+	state := &yzjT06State{adminErr: boom}
+	yzjT06InjectState(t, env, state)
+
+	ctx := umCallerCtx("owner-t06", umTenantA, types.TenantRoleOwner, false)
+	_, err := env.svc.BanUser(ctx, umTenantA, "target-t06", "placeholder reason")
+	require.ErrorIs(t, err, boom, "标记 disabled_by_sync 失败必须向上返回错误")
+	require.Len(t, state.adminCalls, 1)
+	require.False(t, umLoadUser(t, env, "target-t06").IsActive,
+		"标记失败不得回滚已生效的封禁（重试同一封禁幂等即可收敛）")
+}
+
+func TestYunzhijiaT06PlatformBanMarkFailureReturnsErrorKeepsBan(t *testing.T) {
+	env := newUMTestEnv(t)
+	umSeedUser(t, env, "sysadmin-t06", func(u *types.User) { u.IsSystemAdmin = true })
+	umSeedUser(t, env, "target-t06", nil)
+
+	boom := errors.New("employee state unavailable")
+	state := &yzjT06State{adminErr: boom}
+	yzjT06InjectState(t, env, state)
+
+	_, err := env.svc.PlatformBanUser(
+		t35SystemAdminCtx("sysadmin-t06"), "target-t06", "placeholder reason")
+	require.ErrorIs(t, err, boom, "平台标记失败同样必须向上返回错误")
+	require.Len(t, state.adminCalls, 1)
+	require.False(t, umLoadUser(t, env, "target-t06").IsActive,
+		"平台标记失败不得回滚已生效的封禁")
+}
+
 func TestYunzhijiaT06PurgeMarksBlockedBeforePurge(t *testing.T) {
 	env := newUMPurgeEnv(t)
 	umSeedUser(t, env, "owner-t06", nil)
