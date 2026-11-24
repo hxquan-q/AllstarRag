@@ -201,7 +201,8 @@ func (r *yunzhijiaEmployeeRepository) MarkBlocked(
 	return nil
 }
 
-// Unblock 解除禁止重建，清空 blocked 相关字段与 user_id。
+// Unblock 解除禁止重建，清空 blocked 相关字段与 user_id，同时清掉
+// disabled_by_sync，否则离职停用标记会让下一轮同步与登录继续拒绝重建。
 // 下一轮同步会按上游数据重新建号。重复调用（已解除）返回
 // ErrYunzhijiaEmployeeNotFound，管理端按 404 处理。
 func (r *yunzhijiaEmployeeRepository) Unblock(
@@ -211,11 +212,12 @@ func (r *yunzhijiaEmployeeRepository) Unblock(
 	res := r.db.WithContext(ctx).Model(&types.YunzhijiaEmployee{}).
 		Where("open_id = ? AND blocked = ?", openID, true).
 		Updates(map[string]interface{}{
-			"blocked":    false,
-			"blocked_at": nil,
-			"blocked_by": nil,
-			"user_id":    nil,
-			"updated_at": now,
+			"blocked":          false,
+			"blocked_at":       nil,
+			"blocked_by":       nil,
+			"user_id":          nil,
+			"disabled_by_sync": false,
+			"updated_at":       now,
 		})
 	if res.Error != nil {
 		return res.Error

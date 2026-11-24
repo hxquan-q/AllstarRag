@@ -126,14 +126,12 @@ const (
 	// tenant_id=0 because the change is system-scope, not workspace-scoped.
 	AuditActionSystemSettingChanged AuditAction = "system.setting_changed"
 
-	// AuditActionSystemYunzhijiaSyncTriggered fires when a SystemAdmin
-	// manually triggers a Yunzhijia employee sync. Details carry the run id,
-	// status and counters; never tickets, names or phone numbers.
-	// TenantID=0 because the action is system-scope.
+	// AuditActionSystemYunzhijiaSyncTriggered 表示系统管理员手动触发了一轮
+	// 云之家员工同步。详情带运行 id、状态与计数；不含 ticket、姓名或手机号。
+	// 该动作是系统级，TenantID=0。
 	AuditActionSystemYunzhijiaSyncTriggered AuditAction = "system.yunzhijia_sync_triggered"
-	// AuditActionSystemYunzhijiaUnblocked fires when a SystemAdmin clears a
-	// blocked Yunzhijia employee so the next sync may recreate the account.
-	// Details carry only open_id.
+	// AuditActionSystemYunzhijiaUnblocked 表示系统管理员解除了某个云之家
+	// 员工的禁止重建标记，下一轮同步可以重新开号。详情只带 open_id。
 	AuditActionSystemYunzhijiaUnblocked AuditAction = "system.yunzhijia_unblocked"
 
 	// AuditActionSystemAdminPromoted fires when a SystemAdmin grants

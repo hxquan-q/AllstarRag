@@ -86,7 +86,8 @@ const (
 	YunzhijiaAccountResultNone YunzhijiaAccountResult = "none"
 	// YunzhijiaAccountResultCreated 表示本轮新建了本地账号。
 	YunzhijiaAccountResultCreated YunzhijiaAccountResult = "created"
-	// YunzhijiaAccountResultUpdated 表示已有账号被更新、再入职恢复或补成员关系。
+	// YunzhijiaAccountResultUpdated 表示本轮核对过的已有在职账号（含无变化），
+	// 以及再入职恢复或补成员关系。
 	YunzhijiaAccountResultUpdated YunzhijiaAccountResult = "updated"
 	// YunzhijiaAccountResultDisabled 表示离职员工账号被停用。
 	YunzhijiaAccountResultDisabled YunzhijiaAccountResult = "disabled"

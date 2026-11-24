@@ -118,6 +118,12 @@ func (s *YunzhijiaSyncService) Run(
 	for _, employee := range plan.inactive {
 		anomalies = append(anomalies, s.applyInactive(ctx, employee, now, counters)...)
 	}
+	// 先把已发生的账号计数落进运行记录，后续步骤失败时失败记录也能反映
+	// 实际开号/更新/停用/迁移人数。
+	run.CreatedCount = counters.created
+	run.UpdatedCount = counters.updated
+	run.DisabledCount = counters.disabled
+	run.MigratedCount = counters.migrated
 	missingAnomalies, err := s.applyMissingActive(ctx, fetched, now, counters)
 	if err != nil {
 		return s.failRun(ctx, run, err)

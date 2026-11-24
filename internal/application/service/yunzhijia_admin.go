@@ -108,7 +108,7 @@ func (s *YunzhijiaAdminService) Status(
 			Name:       employee.Name,
 			Department: employee.Department,
 			BlockedAt:  employee.BlockedAt,
-			BlockedBy:  blockedByValue(employee.BlockedBy),
+			BlockedBy:  derefString(employee.BlockedBy),
 		})
 	}
 	if latest == nil {
@@ -123,17 +123,22 @@ func (s *YunzhijiaAdminService) Status(
 }
 
 // Preview 只读预检；不写员工记录与本地账号。
+// 预检跑完整轮才返回，脱离请求取消，避免浏览器断开导致记录卡在 running。
 func (s *YunzhijiaAdminService) Preview(
 	ctx context.Context,
 ) (*YunzhijiaPreviewResult, error) {
+	ctx = context.WithoutCancel(ctx)
 	return s.sync.Preview(ctx)
 }
 
 // ManualSync 手动触发一轮同步。enabled=false 时仍可用；运行中返回
 // ErrSyncRunning，由 handler 映射为 409。
+// 同步跑完整轮才返回，脱离请求取消，避免浏览器断开导致运行卡 running、
+// 审计丢失或员工停在半截。
 func (s *YunzhijiaAdminService) ManualSync(
 	ctx context.Context,
 ) (*types.YunzhijiaSyncRun, error) {
+	ctx = context.WithoutCancel(ctx)
 	run, err := s.sync.Run(ctx, types.YunzhijiaSyncTriggerManual)
 	if run != nil {
 		s.emitSyncAudit(ctx, run)
@@ -189,9 +194,6 @@ func summarizeRun(run *types.YunzhijiaSyncRun) (*YunzhijiaRunSummary, error) {
 func (s *YunzhijiaAdminService) emitSyncAudit(
 	ctx context.Context, run *types.YunzhijiaSyncRun,
 ) {
-	if s.auditLog == nil {
-		return
-	}
 	details, _ := json.Marshal(map[string]any{
 		"run_id":         run.ID,
 		"status":         run.Status,
@@ -220,9 +222,6 @@ func (s *YunzhijiaAdminService) emitSyncAudit(
 func (s *YunzhijiaAdminService) emitUnblockAudit(
 	ctx context.Context, openID, actorID string,
 ) {
-	if s.auditLog == nil {
-		return
-	}
 	details, _ := json.Marshal(map[string]any{"open_id": openID})
 	_ = s.auditLog.Log(ctx, &types.AuditLog{
 		TenantID:    0,
@@ -234,12 +233,4 @@ func (s *YunzhijiaAdminService) emitUnblockAudit(
 		Outcome:     types.AuditOutcomeSuccess,
 		Details:     types.JSON(details),
 	})
-}
-
-// blockedByValue 把可空操作人转换成展示字符串。
-func blockedByValue(blockedBy *string) string {
-	if blockedBy == nil {
-		return ""
-	}
-	return *blockedBy
 }
