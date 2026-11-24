@@ -3017,11 +3017,7 @@ export default {
       employeeHint: 'Employees: please open from Yunzhijia',
       errorTitle: 'Unable to sign in',
       errorInvalidTicket: 'Your sign-in link has expired. Please reopen it from Yunzhijia.',
-      errorProvisioning: 'Your account is being set up. Please try again tomorrow.',
-      errorDuplicateName: 'Multiple active employees share your name. Please contact your administrator.',
-      errorAccountBlocked: 'This account is unavailable. Please contact your administrator.',
       errorUnavailable: 'The system is temporarily unavailable. Please contact your administrator.',
-      errorUpstream: 'Yunzhijia is temporarily unavailable. Please try again later.',
       errorRateLimited: 'Too many attempts. Please try again later.',
       errorGeneric: 'Sign-in failed. Please reopen it from Yunzhijia.',
       backToLogin: 'Back to login'

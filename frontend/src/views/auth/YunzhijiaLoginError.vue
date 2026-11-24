@@ -18,27 +18,6 @@ const props = defineProps<{ error?: unknown }>()
 
 const { t } = useI18n()
 
-type ErrorReason =
-  | 'invalidTicket'
-  | 'provisioning'
-  | 'duplicateName'
-  | 'accountBlocked'
-  | 'unavailable'
-  | 'upstream'
-  | 'rateLimited'
-  | 'generic'
-
-// 后端 401 的业务拒绝对应登录服务里的固定中文文案（当前没有稳定的
-// 错误码）。按文案映射到本地化提示；未知文案走状态码兜底。
-const SERVER_MESSAGE_REASONS: Record<string, ErrorReason> = {
-  '登录凭证已失效，请从云之家重新打开': 'invalidTicket',
-  '账号开通中，请明天再试': 'provisioning',
-  '在职员工存在同名，请联系管理员': 'duplicateName',
-  '账号不可用，请联系管理员': 'accountBlocked',
-  '系统暂不可用，请联系管理员': 'unavailable',
-  '云之家服务暂时不可用，请稍后再试': 'upstream',
-}
-
 const status = computed(() => {
   const value = (props.error as { status?: unknown } | null | undefined)?.status
   return typeof value === 'number' ? value : 0
@@ -49,34 +28,14 @@ const serverMessage = computed(() => {
   return typeof value === 'string' ? value : ''
 })
 
-const reason = computed<ErrorReason>(() => {
-  const mapped = SERVER_MESSAGE_REASONS[serverMessage.value]
-  if (mapped) return mapped
-  if (status.value === 400) return 'invalidTicket'
-  if (status.value === 503) return 'unavailable'
-  if (status.value === 429) return 'rateLimited'
-  return 'generic'
-})
-
+// 后端文案直接展示；没有文案才按状态码兜底本地化提示。
+// 不用后端中文文案当逻辑判别键（PITFALLS G-20）。
 const message = computed(() => {
-  switch (reason.value) {
-    case 'invalidTicket':
-      return t('auth.yunzhijia.errorInvalidTicket')
-    case 'provisioning':
-      return t('auth.yunzhijia.errorProvisioning')
-    case 'duplicateName':
-      return t('auth.yunzhijia.errorDuplicateName')
-    case 'accountBlocked':
-      return t('auth.yunzhijia.errorAccountBlocked')
-    case 'unavailable':
-      return t('auth.yunzhijia.errorUnavailable')
-    case 'upstream':
-      return t('auth.yunzhijia.errorUpstream')
-    case 'rateLimited':
-      return t('auth.yunzhijia.errorRateLimited')
-    default:
-      return t('auth.yunzhijia.errorGeneric')
-  }
+  if (serverMessage.value) return serverMessage.value
+  if (status.value === 400) return t('auth.yunzhijia.errorInvalidTicket')
+  if (status.value === 429) return t('auth.yunzhijia.errorRateLimited')
+  if (status.value === 503) return t('auth.yunzhijia.errorUnavailable')
+  return t('auth.yunzhijia.errorGeneric')
 })
 </script>
 

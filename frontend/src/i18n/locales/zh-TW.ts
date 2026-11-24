@@ -6601,11 +6601,7 @@ export default {
       employeeHint: '員工請從雲之家進入',
       errorTitle: '無法登入',
       errorInvalidTicket: '登入憑證已失效，請從雲之家重新開啟',
-      errorProvisioning: '帳號開通中，請明天再試',
-      errorDuplicateName: '在職員工存在同名，請聯繫管理員',
-      errorAccountBlocked: '帳號不可用，請聯繫管理員',
       errorUnavailable: '系統暫不可用，請聯繫管理員',
-      errorUpstream: '雲之家服務暫時不可用，請稍後再試',
       errorRateLimited: '操作過於頻繁，請稍後再試',
       errorGeneric: '登入失敗，請從雲之家重新開啟',
       backToLogin: '返回登入頁'

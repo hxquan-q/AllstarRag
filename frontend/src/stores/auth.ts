@@ -14,6 +14,10 @@ import { useOrganizationStore } from '@/stores/organization'
 import { createSequencedRefresh } from '@/stores/sequencedRefresh'
 import { useCapabilitiesStore } from '@/stores/capabilities'
 
+// 登录响应写入会话的公共实现放在同级小文件，避免本 store 继续膨胀；
+// 这里统一导出，登录页与启动流程都从 `@/stores/auth` 引用。
+export { persistLoginResponseToStore } from '@/stores/authPersistence'
+
 /** 登出时丢弃 Pinia 内的空间级资源缓存，避免 SPA 重登复用上一账号数据。 */
 function clearSessionResourceCaches() {
   useChatResourcesStore().invalidate()

@@ -6600,11 +6600,7 @@ export default {
       employeeHint: '직원은 Yunzhijia에서 접속해 주세요',
       errorTitle: '로그인할 수 없습니다',
       errorInvalidTicket: '로그인 정보가 만료되었습니다. Yunzhijia에서 다시 열어 주세요.',
-      errorProvisioning: '계정을 준비 중입니다. 내일 다시 시도해 주세요.',
-      errorDuplicateName: '동명의 재직 직원이 있습니다. 관리자에게 문의해 주세요.',
-      errorAccountBlocked: '사용할 수 없는 계정입니다. 관리자에게 문의해 주세요.',
       errorUnavailable: '시스템을 일시적으로 사용할 수 없습니다. 관리자에게 문의해 주세요.',
-      errorUpstream: 'Yunzhijia 서비스를 일시적으로 사용할 수 없습니다. 잠시 후 다시 시도해 주세요.',
       errorRateLimited: '시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.',
       errorGeneric: '로그인에 실패했습니다. Yunzhijia에서 다시 열어 주세요.',
       backToLogin: '로그인 페이지로 돌아가기'

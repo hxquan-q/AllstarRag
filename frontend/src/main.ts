@@ -28,7 +28,7 @@ import { initFont } from "@/composables/useFont";
 import { brandConfig, initCustomerBrandTheme, applyDocumentBrand } from "@/brand";
 import { installTDesignIconOfflineGuard } from "@/utils/tdesign-icon-offline";
 import { installAutofillGuard } from "@/utils/disable-autofill";
-import { useAuthStore } from "@/stores/auth";
+import { useAuthStore, persistLoginResponseToStore } from "@/stores/auth";
 import { loginWithYunzhijia } from "@/api/auth";
 import { bootstrapYunzhijiaLogin } from "@/utils/yunzhijiaLogin";
 import YunzhijiaLoginError from "@/views/auth/YunzhijiaLoginError.vue";
@@ -72,11 +72,7 @@ async function bootstrap() {
   const authStore = useAuthStore();
   const yzjBoot = await bootstrapYunzhijiaLogin({
     login: loginWithYunzhijia,
-    persist: async (response) => {
-      // 只在 ticket 登录成功时加载登录页模块，正常启动不额外拉取该 chunk。
-      const { persistLoginResponseToStore } = await import("@/views/auth/Login.vue");
-      persistLoginResponseToStore(authStore, response);
-    },
+    persist: (response) => persistLoginResponseToStore(authStore, response),
     clearSession: () => authStore.logout(),
     applyLocale: (locale) => {
       i18n.global.locale.value = locale;
