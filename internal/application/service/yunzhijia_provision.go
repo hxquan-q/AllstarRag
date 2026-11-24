@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Tencent/WeKnora/internal/config"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
@@ -32,7 +33,6 @@ const (
 // 它只创建 users 行与目标空间的 viewer 成员关系，不建租户、不调
 // Register/ProvisionOwnerSpace、不写密码。登录与后续同步共用。
 type YunzhijiaProvisioner struct {
-	cfg           *config.YunzhijiaSSOConfig
 	userRepo      interfaces.UserRepository
 	memberService interfaces.TenantMemberService
 	employeeRepo  interfaces.YunzhijiaEmployeeRepository
@@ -41,7 +41,8 @@ type YunzhijiaProvisioner struct {
 	mu sync.Mutex
 }
 
-// NewYunzhijiaProvisioner 构造开号服务。
+// NewYunzhijiaProvisioner 构造开号服务。cfg 参数为红阶段锁定的
+// 构造签名保留位，开号逻辑不读取它。
 func NewYunzhijiaProvisioner(
 	cfg *config.YunzhijiaSSOConfig,
 	userRepo interfaces.UserRepository,
@@ -50,7 +51,6 @@ func NewYunzhijiaProvisioner(
 	remover interfaces.NewlyCreatedUserRemover,
 ) *YunzhijiaProvisioner {
 	return &YunzhijiaProvisioner{
-		cfg:           cfg,
 		userRepo:      userRepo,
 		memberService: memberService,
 		employeeRepo:  employeeRepo,
@@ -69,9 +69,6 @@ func NewYunzhijiaProvisioner(
 func (p *YunzhijiaProvisioner) EnsureAccount(
 	ctx context.Context, employee *types.YunzhijiaEmployee,
 ) (*types.User, error) {
-	if p == nil || employee == nil {
-		return nil, errors.New("yunzhijia: 员工记录为空")
-	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -92,9 +89,6 @@ func (p *YunzhijiaProvisioner) ensureExistingAccount(
 	if err != nil {
 		return nil, err
 	}
-	if user == nil {
-		return nil, fmt.Errorf("yunzhijia: 员工 %s 关联的用户不存在", employee.OpenID)
-	}
 	// 账号已停用时不得做任何修复写入，由登录侧 fail-closed 拒绝。
 	if !user.IsActive {
 		return user, nil
@@ -112,19 +106,13 @@ func (p *YunzhijiaProvisioner) ensureNewAccount(
 	email := fmt.Sprintf("yzj_%s@%s", employee.OpenID, yunzhijiaEmailDomain)
 
 	// 先按合成邮箱回读：同一 open_id 的并发调用已在别处建号时直接复用，
-	// 避免重复触发唯一冲突。
+	// 避免重复触发唯一冲突。仓储查不到时返回 ErrUserNotFound。
 	existing, err := p.userRepo.GetUserByEmail(ctx, email)
-	if err != nil {
+	if err != nil && !isUserLookupNotFound(err) {
 		return nil, err
 	}
 	if existing != nil {
-		if err := p.ensureViewerMembership(ctx, existing.ID, employee.TenantID); err != nil {
-			return nil, err
-		}
-		if err := p.employeeRepo.SetUserID(ctx, employee.OpenID, existing.ID); err != nil {
-			return nil, err
-		}
-		return existing, nil
+		return p.reuseExistingAccount(ctx, existing, employee)
 	}
 
 	user := &types.User{
@@ -139,14 +127,8 @@ func (p *YunzhijiaProvisioner) ensureNewAccount(
 	}
 	if err := p.createWithUniqueUsername(ctx, user, employee); err != nil {
 		// 并发 race 的另一种表现：创建失败但邮箱行已存在。
-		if raceUser, readErr := p.userRepo.GetUserByEmail(ctx, email); readErr == nil && raceUser != nil {
-			if mErr := p.ensureViewerMembership(ctx, raceUser.ID, employee.TenantID); mErr != nil {
-				return nil, mErr
-			}
-			if sErr := p.employeeRepo.SetUserID(ctx, employee.OpenID, raceUser.ID); sErr != nil {
-				return nil, sErr
-			}
-			return raceUser, nil
+		if raceUser, readErr := p.userRepo.GetUserByEmail(ctx, email); readErr == nil {
+			return p.reuseExistingAccount(ctx, raceUser, employee)
 		}
 		return nil, err
 	}
@@ -155,8 +137,26 @@ func (p *YunzhijiaProvisioner) ensureNewAccount(
 		p.rollbackNewUser(ctx, user.ID)
 		return nil, err
 	}
+	// SetUserID 失败时保留账号与成员关系：AddMember 已成功，回滚用户会
+	// 留下指向不存在用户的成员行；下次登录按邮箱回读并重试回填。
 	if err := p.employeeRepo.SetUserID(ctx, employee.OpenID, user.ID); err != nil {
-		p.rollbackNewUser(ctx, user.ID)
+		return nil, err
+	}
+	return user, nil
+}
+
+// reuseExistingAccount 复用按合成邮箱命中的账号：停用时原样返回（不写
+// 成员关系，由登录侧拒绝），否则补齐成员关系并回填 user_id。
+func (p *YunzhijiaProvisioner) reuseExistingAccount(
+	ctx context.Context, user *types.User, employee *types.YunzhijiaEmployee,
+) (*types.User, error) {
+	if !user.IsActive {
+		return user, nil
+	}
+	if err := p.ensureViewerMembership(ctx, user.ID, employee.TenantID); err != nil {
+		return nil, err
+	}
+	if err := p.employeeRepo.SetUserID(ctx, employee.OpenID, user.ID); err != nil {
 		return nil, err
 	}
 	return user, nil
@@ -202,13 +202,12 @@ func (p *YunzhijiaProvisioner) ensureViewerMembership(
 	return err
 }
 
-// rollbackNewUser 删除刚创建的用户行，避免占用邮箱/用户名唯一索引。
+// rollbackNewUser 删除刚创建、尚未产生成员关系的用户行，避免占用
+// 邮箱/用户名唯一索引。回滚失败只记日志，不覆盖原始入组错误。
 func (p *YunzhijiaProvisioner) rollbackNewUser(ctx context.Context, userID string) {
-	if p.remover == nil {
-		return
+	if err := p.remover.RemoveNewlyCreatedUser(ctx, userID); err != nil {
+		logger.Warnf(ctx, "[Yunzhijia] 新建用户回滚失败: %v", err)
 	}
-	// 回滚失败不回传给登录：原始入组/回填错误更能说明问题。
-	_ = p.remover.RemoveNewlyCreatedUser(ctx, userID)
 }
 
 // NewYunzhijiaUserRemover 返回基于 users 仓储的工作实现。
@@ -257,9 +256,6 @@ func yunzhijiaUsername(name, openID string, attempt int) string {
 // clampYunzhijiaUsername 把姓名截到能容纳后缀的长度。
 func clampYunzhijiaUsername(base, suffix string) string {
 	limit := yunzhijiaUsernameMaxRunes - utf8.RuneCountInString(suffix)
-	if limit < 1 {
-		limit = 1
-	}
 	runes := []rune(base)
 	if len(runes) > limit {
 		runes = runes[:limit]
@@ -269,11 +265,5 @@ func clampYunzhijiaUsername(base, suffix string) string {
 
 // isMembershipConflict 识别“成员关系已存在”的并发冲突。
 func isMembershipConflict(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, ErrMembershipAlreadyExists) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(err.Error()), "already exists")
+	return errors.Is(err, ErrMembershipAlreadyExists)
 }

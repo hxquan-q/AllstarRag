@@ -9,20 +9,6 @@ import (
 	"github.com/robfig/cron/v3"
 )
 
-// 01-spec §13 的默认值。配置里省略某项时可用 ApplyDefaults 补齐；
-// Enable 是总开关，默认值不自动打开，必须显式配置。
-const (
-	defaultYunzhijiaBaseURL          = "https://pj.szonesoft.com"
-	defaultYunzhijiaEmployeePath     = "/@asd_rd/api/public/employees"
-	defaultYunzhijiaTicketUserPath   = "/@project/api/plugin-api/ProjectAndCloud/queryUserName"
-	defaultYunzhijiaAppID            = "500995523"
-	defaultYunzhijiaSyncCron         = "0 3 * * *"
-	defaultYunzhijiaTimezone         = "Asia/Shanghai"
-	defaultYunzhijiaPageSize         = 500
-	defaultYunzhijiaHTTPTimeoutSecs  = 10
-	defaultYunzhijiaStartupCatchupHr = 24
-)
-
 // YunzhijiaSSOConfig 是云之家免登录与员工同步的配置段。
 //
 // 密钥/API Key 不进这里：当前员工接口无凭证，后续若有也只放 .env。
@@ -53,41 +39,6 @@ type YunzhijiaSSOConfig struct {
 	// StartupCatchupHours 是启动补跑阈值：0 = 仅首次同步、不做过期补跑；
 	// >0 = 距上次成功超过该小时数时补跑。
 	StartupCatchupHours int `yaml:"startup_catchup_hours" json:"startup_catchup_hours"`
-}
-
-// ApplyDefaults 用 01-spec §13 的默认值补齐零值字段。
-// Enabled 不参与补齐，避免把显式关闭误改成开启；nil 接收者安全返回。
-func (c *YunzhijiaSSOConfig) ApplyDefaults() {
-	if c == nil {
-		return
-	}
-	if strings.TrimSpace(c.BaseURL) == "" {
-		c.BaseURL = defaultYunzhijiaBaseURL
-	}
-	if strings.TrimSpace(c.EmployeePath) == "" {
-		c.EmployeePath = defaultYunzhijiaEmployeePath
-	}
-	if strings.TrimSpace(c.TicketUserPath) == "" {
-		c.TicketUserPath = defaultYunzhijiaTicketUserPath
-	}
-	if strings.TrimSpace(c.AppID) == "" {
-		c.AppID = defaultYunzhijiaAppID
-	}
-	if strings.TrimSpace(c.SyncCron) == "" {
-		c.SyncCron = defaultYunzhijiaSyncCron
-	}
-	if strings.TrimSpace(c.Timezone) == "" {
-		c.Timezone = defaultYunzhijiaTimezone
-	}
-	if c.PageSize == 0 {
-		c.PageSize = defaultYunzhijiaPageSize
-	}
-	if c.HTTPTimeoutSeconds == 0 {
-		c.HTTPTimeoutSeconds = defaultYunzhijiaHTTPTimeoutSecs
-	}
-	if c.StartupCatchupHours == 0 {
-		c.StartupCatchupHours = defaultYunzhijiaStartupCatchupHr
-	}
 }
 
 // Validate 全量校验配置；任何缺失或非法都返回错误（fail-closed）。

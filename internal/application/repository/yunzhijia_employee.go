@@ -202,7 +202,8 @@ func (r *yunzhijiaEmployeeRepository) MarkBlocked(
 }
 
 // Unblock 解除禁止重建，清空 blocked 相关字段与 user_id。
-// 下一轮同步会按上游数据重新建号。
+// 下一轮同步会按上游数据重新建号。重复调用（已解除）返回
+// ErrYunzhijiaEmployeeNotFound，管理端按 404 处理。
 func (r *yunzhijiaEmployeeRepository) Unblock(
 	ctx context.Context, openID string,
 ) error {

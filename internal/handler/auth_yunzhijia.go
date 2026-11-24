@@ -9,6 +9,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/errors"
 	"github.com/Tencent/WeKnora/internal/handler/dto"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
@@ -45,11 +46,11 @@ func NewYunzhijiaAuthHandler(
 // @Failure      401      {object}  dto.AuthLoginResponse  "业务拒绝"
 // @Failure      429      {object}  errors.AppError  "too many requests"
 // @Failure      500      {object}  errors.AppError  "内部错误"
-// @Failure      503      {object}  dto.AuthLoginResponse  "配置缺失或未启用"
+// @Failure      503      {object}  dto.AuthLoginResponse  "配置缺失、未启用或配置非法"
 // @Router       /auth/yunzhijia/login [post]
 func (h *YunzhijiaAuthHandler) Login(c *gin.Context) {
 	// 配置缺失或关闭时 fail-closed：不调用登录服务，也不签发 token。
-	if h == nil || h.cfg == nil || !h.cfg.Enabled {
+	if h.cfg == nil || !h.cfg.Enabled {
 		c.JSON(503, dto.AuthLoginResponse{
 			Success: false,
 			Message: yunzhijiaUnavailableMessage,
@@ -70,14 +71,18 @@ func (h *YunzhijiaAuthHandler) Login(c *gin.Context) {
 
 	resp, err := h.loginSvc.Login(c.Request.Context(), ticket)
 	if err != nil {
-		_ = c.Error(errors.NewInternalServerError("登录失败，请稍后再试"))
-		return
-	}
-	if resp == nil {
+		// 只记录错误分类；ticket 与员工姓名均不在 err 文本中。
+		logger.Warnf(c.Request.Context(), "[Yunzhijia] 登录失败: %v", err)
 		_ = c.Error(errors.NewInternalServerError("登录失败，请稍后再试"))
 		return
 	}
 	if !resp.Success {
+		logger.Warnf(c.Request.Context(), "[Yunzhijia] 登录被拒绝: %s", resp.Message)
+		// 配置非法与未启用统一回 503；业务拒绝仍回 401。
+		if resp.Message == yunzhijiaUnavailableMessage && h.cfg.Validate() != nil {
+			c.JSON(503, dto.NewAuthLoginResponse(resp))
+			return
+		}
 		c.JSON(401, dto.NewAuthLoginResponse(resp))
 		return
 	}

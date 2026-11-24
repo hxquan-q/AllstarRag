@@ -45,7 +45,8 @@ type YunzhijiaEmployeeRepository interface {
 	MarkBlocked(ctx context.Context, openID, blockedBy string) error
 
 	// Unblock 解除禁止重建：blocked=false、清空 blocked_at/blocked_by/user_id，
-	// 下一轮同步可重建账号。
+	// 下一轮同步可重建账号。重复调用（已解除）返回
+	// repository.ErrYunzhijiaEmployeeNotFound，管理端按 404 处理。
 	Unblock(ctx context.Context, openID string) error
 
 	// SetDisabledBySync 设置 disabled_by_sync 标记（不修改 status）。

@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 	"errors"
-	"strings"
 
 	"github.com/Tencent/WeKnora/internal/config"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/sso/yunzhijia"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -58,20 +58,17 @@ func NewYunzhijiaLoginService(
 func (s *YunzhijiaLoginService) Login(
 	ctx context.Context, ticket string,
 ) (*types.LoginResponse, error) {
-	if s == nil || s.cfg == nil || !s.cfg.Enabled {
+	if s.cfg == nil || !s.cfg.Enabled {
 		return yunzhijiaRejected(yunzhijiaMsgConfig), nil
 	}
-	if s.client == nil || s.provisioner == nil {
+	if s.client == nil {
 		return yunzhijiaRejected(yunzhijiaMsgConfig), nil
 	}
 	if err := s.cfg.Validate(); err != nil {
+		logger.Warnf(ctx, "[Yunzhijia] 登录配置非法: %v", err)
 		return yunzhijiaRejected(yunzhijiaMsgConfig), nil
 	}
 
-	ticket = strings.TrimSpace(ticket)
-	if ticket == "" {
-		return yunzhijiaRejected(yunzhijiaMsgInvalidTicket), nil
-	}
 	name, err := s.client.QueryUserName(ctx, ticket)
 	if err != nil {
 		if errors.Is(err, yunzhijia.ErrInvalidTicket) {
@@ -79,11 +76,6 @@ func (s *YunzhijiaLoginService) Login(
 		}
 		return yunzhijiaRejected(yunzhijiaMsgUpstream), nil
 	}
-	name = strings.TrimSpace(name)
-	if name == "" {
-		return yunzhijiaRejected(yunzhijiaMsgInvalidTicket), nil
-	}
-
 	employees, err := s.employeeRepo.FindActiveByName(ctx, name)
 	if err != nil {
 		return nil, err
@@ -95,9 +87,6 @@ func (s *YunzhijiaLoginService) Login(
 		return yunzhijiaRejected(yunzhijiaMsgDuplicateName), nil
 	}
 	employee := employees[0]
-	if employee == nil {
-		return yunzhijiaRejected(yunzhijiaMsgProvisioning), nil
-	}
 	if employee.Blocked || employee.DisabledBySync {
 		return yunzhijiaRejected(yunzhijiaMsgAccountBlocked), nil
 	}
@@ -107,9 +96,6 @@ func (s *YunzhijiaLoginService) Login(
 	if err != nil {
 		return nil, err
 	}
-	if activeTenant == nil {
-		return nil, errors.New("yunzhijia: 目标空间不存在")
-	}
 
 	// 已有账号先校验状态，停用/封禁的账号不得触发成员关系修复。
 	if employee.UserID != nil {
@@ -117,7 +103,7 @@ func (s *YunzhijiaLoginService) Login(
 		if userErr != nil {
 			return nil, userErr
 		}
-		if user != nil && !user.IsActive {
+		if !user.IsActive {
 			return yunzhijiaRejected(yunzhijiaMsgAccountBlocked), nil
 		}
 	}
@@ -126,26 +112,19 @@ func (s *YunzhijiaLoginService) Login(
 	if err != nil {
 		return nil, err
 	}
-	if user == nil || !user.IsActive {
+	if !user.IsActive {
 		return yunzhijiaRejected(yunzhijiaMsgAccountBlocked), nil
 	}
 
-	loginUser := user
-	if user.TenantID != activeTenant.ID {
-		copied := *user
-		copied.TenantID = activeTenant.ID
-		loginUser = &copied
-	}
-
-	accessToken, refreshToken, err := s.userService.GenerateTokens(ctx, loginUser)
+	accessToken, refreshToken, err := s.userService.GenerateTokens(ctx, user)
 	if err != nil {
 		return nil, err
 	}
-	memberships := s.userService.BuildLoginMemberships(ctx, loginUser, activeTenant)
+	memberships := s.userService.BuildLoginMemberships(ctx, user, activeTenant)
 
 	return &types.LoginResponse{
 		Success:      true,
-		User:         loginUser,
+		User:         user,
 		ActiveTenant: activeTenant,
 		Memberships:  memberships,
 		Token:        accessToken,
