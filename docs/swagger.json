@@ -21653,6 +21653,178 @@
                 }
             }
         },
+        "/system/admin/yunzhijia/employees/{open_id}/unblock": {
+            "post": {
+                "description": "清除 blocked 与 user_id；账号由下一轮同步重建，不在此立即开号。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理"
+                ],
+                "summary": "解除云之家员工禁止重建",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "云之家员工 open_id",
+                        "name": "open_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "open_id 非法",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "非系统管理员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "员工不存在或已解除",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/admin/yunzhijia/sync": {
+            "get": {
+                "description": "返回 enabled、最近一次真实同步运行摘要与 blocked 清单。\n不返回全量员工名单、手机号或 user_id。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理"
+                ],
+                "summary": "云之家同步状态",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_application_service.YunzhijiaAdminStatus"
+                        }
+                    },
+                    "403": {
+                        "description": "非系统管理员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "运行中返回 409；enabled=false 时仍可用于首次导入。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理"
+                ],
+                "summary": "手动触发云之家同步",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncRun"
+                        }
+                    },
+                    "403": {
+                        "description": "非系统管理员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "同步或预检进行中",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/system/admin/yunzhijia/sync/preview": {
+            "post": {
+                "description": "只读抓取/校验/计数，不写员工记录与账号；enabled=false 时仍可用。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统管理"
+                ],
+                "summary": "云之家同步预检",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_application_service.YunzhijiaPreviewResult"
+                        }
+                    },
+                    "403": {
+                        "description": "非系统管理员",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "同步或预检进行中",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "500": {
+                        "description": "内部错误",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/system/capabilities": {
             "get": {
                 "description": "返回当前部署版本及实际注册的后端路由所对应的功能能力；仅 supported=false 表示入口应隐藏",
@@ -25854,6 +26026,119 @@
                 }
             }
         },
+        "github_com_Tencent_WeKnora_internal_application_service.YunzhijiaAdminStatus": {
+            "type": "object",
+            "properties": {
+                "blocked": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_application_service.YunzhijiaBlockedEmployee"
+                    }
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "latest": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_application_service.YunzhijiaRunSummary"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_application_service.YunzhijiaBlockedEmployee": {
+            "type": "object",
+            "properties": {
+                "blocked_at": {
+                    "type": "string"
+                },
+                "blocked_by": {
+                    "type": "string"
+                },
+                "department": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "open_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_application_service.YunzhijiaPreviewResult": {
+            "type": "object",
+            "properties": {
+                "active_count": {
+                    "type": "integer"
+                },
+                "anomalies": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncAnomaly"
+                    }
+                },
+                "inactive_count": {
+                    "type": "integer"
+                },
+                "tenant_default_count": {
+                    "type": "integer"
+                },
+                "tenant_hr_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_application_service.YunzhijiaRunSummary": {
+            "type": "object",
+            "properties": {
+                "active_count": {
+                    "type": "integer"
+                },
+                "anomalies": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncAnomaly"
+                    }
+                },
+                "anomaly_count": {
+                    "type": "integer"
+                },
+                "created_count": {
+                    "type": "integer"
+                },
+                "disabled_count": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "error_summary": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "inactive_count": {
+                    "type": "integer"
+                },
+                "migrated_count": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncStatus"
+                },
+                "trigger": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncTrigger"
+                },
+                "updated_count": {
+                    "type": "integer"
+                }
+            }
+        },
         "github_com_Tencent_WeKnora_internal_config.PromptTemplate": {
             "type": "object",
             "properties": {
@@ -27625,6 +27910,8 @@
                 "opensearch.index_deleted",
                 "opensearch.reindex_executed",
                 "system.setting_changed",
+                "system.yunzhijia_sync_triggered",
+                "system.yunzhijia_unblocked",
                 "system.admin_promoted",
                 "system.admin_revoked",
                 "system.user_password_reset",
@@ -27696,6 +27983,8 @@
                 "AuditActionOpenSearchIndexDeleted",
                 "AuditActionOpenSearchReindexExecuted",
                 "AuditActionSystemSettingChanged",
+                "AuditActionSystemYunzhijiaSyncTriggered",
+                "AuditActionSystemYunzhijiaUnblocked",
                 "AuditActionSystemAdminPromoted",
                 "AuditActionSystemAdminRevoked",
                 "AuditActionSystemUserPasswordReset",
@@ -38794,6 +39083,113 @@
                     "x-agent": true
                 }
             }
+        },
+        "github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncAnomaly": {
+            "type": "object",
+            "properties": {
+                "detail": {
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "Kind 取下面的 YunzhijiaAnomaly* 常量之一。",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "open_id": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncRun": {
+            "type": "object",
+            "properties": {
+                "active_count": {
+                    "description": "拉取数量",
+                    "type": "integer"
+                },
+                "anomalies": {
+                    "description": "Anomalies 是 []YunzhijiaSyncAnomaly 的 JSON 文本。\nPostgres 用 JSONB，SQLite 存 TEXT。",
+                    "type": "object"
+                },
+                "anomaly_count": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_count": {
+                    "description": "收敛计数",
+                    "type": "integer"
+                },
+                "disabled_count": {
+                    "type": "integer"
+                },
+                "error_summary": {
+                    "description": "ErrorSummary 是整轮失败的脱敏摘要，不包含 ticket 等凭证。",
+                    "type": "string"
+                },
+                "finished_at": {
+                    "description": "FinishedAt 在运行结束时写入；running 状态为空。",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "inactive_count": {
+                    "type": "integer"
+                },
+                "migrated_count": {
+                    "type": "integer"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncStatus"
+                },
+                "trigger": {
+                    "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncTrigger"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "updated_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncStatus": {
+            "type": "string",
+            "enum": [
+                "running",
+                "success",
+                "failed"
+            ],
+            "x-enum-varnames": [
+                "YunzhijiaSyncStatusRunning",
+                "YunzhijiaSyncStatusSuccess",
+                "YunzhijiaSyncStatusFailed"
+            ]
+        },
+        "github_com_Tencent_WeKnora_internal_types.YunzhijiaSyncTrigger": {
+            "type": "string",
+            "enum": [
+                "startup",
+                "cron",
+                "manual",
+                "preview"
+            ],
+            "x-enum-varnames": [
+                "YunzhijiaSyncTriggerStartup",
+                "YunzhijiaSyncTriggerCron",
+                "YunzhijiaSyncTriggerManual",
+                "YunzhijiaSyncTriggerPreview"
+            ]
         },
         "github_com_Tencent_WeKnora_internal_types_interfaces.UserManagementListItem": {
             "type": "object",
