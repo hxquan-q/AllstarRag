@@ -40,10 +40,11 @@ func initYunzhijiaSSOConfig(cfg *config.Config) *config.YunzhijiaSSOConfig {
 	return cfg.YunzhijiaSSO
 }
 
-// initYunzhijiaClient 按配置构造外部客户端。未启用或配置非法时返回
-// nil；登录服务以 s.client == nil 判断并拒绝，不会向 nil 客户端发请求。
+// initYunzhijiaClient 按配置构造外部客户端。配置段缺失或配置非法时返回
+// nil；登录服务另外检查 enabled，预检/手动同步在 enabled=false 下仍可构造
+// 客户端运行。
 func initYunzhijiaClient(cfg *config.YunzhijiaSSOConfig) ssoyunzhijia.Client {
-	if cfg == nil || !cfg.Enabled {
+	if cfg == nil {
 		return nil
 	}
 	client, err := ssoyunzhijia.NewClientFromConfig(cfg)

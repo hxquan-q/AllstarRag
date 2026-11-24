@@ -129,4 +129,7 @@ const (
 	YunzhijiaAnomalyMembershipFailed  = "membership_failed"
 	YunzhijiaAnomalyLocalUserMissing  = "local_user_missing"
 	YunzhijiaAnomalyUpstreamFailed    = "upstream_failed"
+	// YunzhijiaAnomalyLocalActiveMissing 表示本地在职员工既不在本轮
+	// active 也不在 inactive 名单，已按离职收敛。
+	YunzhijiaAnomalyLocalActiveMissing = "local_active_missing"
 )

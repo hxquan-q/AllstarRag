@@ -1,6 +1,6 @@
 package service
 
-// 云之家同步的抓取与校验：分页拉全、total 一致性、open_id 完整性，
+// 云之家同步的抓取与校验：分页拉全、total 一致性，
 // 以及同步/预检共用的去重、部门映射与抓取阶段异常。
 
 import (
@@ -27,30 +27,11 @@ type yzjSyncPlan struct {
 	anomalies []types.YunzhijiaSyncAnomaly
 }
 
-// validateSyncConfig 只校验同步直接依赖的配置项。
-// 完整配置在进程启动时已由 config.Validate 全量校验，这里 fail-closed
-// 防止服务被直接构造时带着空配置运行。
-func (s *YunzhijiaSyncService) validateSyncConfig() error {
-	if s.cfg == nil {
-		return fmt.Errorf("yunzhijia: 同步配置缺失")
-	}
-	if s.cfg.PageSize <= 0 {
-		return fmt.Errorf("yunzhijia: page_size 必须为正整数")
-	}
-	if s.cfg.TenantDefault == 0 || s.cfg.TenantHR == 0 {
-		return fmt.Errorf("yunzhijia: 空间配置缺失")
-	}
-	if strings.TrimSpace(s.cfg.HRDepartmentKeyword) == "" {
-		return fmt.Errorf("yunzhijia: hr_department_keyword 不能为空")
-	}
-	return nil
-}
-
 // fetchAll 拉取在职与离职两个完整列表。
-// 任一页失败、分页信息不一致、累计数不等于 total、条目缺 open_id，
-// 或在职总数为 0，都返回整轮错误；调用方不得在错误后写任何账号。
+// 任一页失败、分页信息不一致、累计数不等于 total，或在职总数为 0，
+// 都返回整轮错误；调用方不得在错误后写任何账号。
 func (s *YunzhijiaSyncService) fetchAll(ctx context.Context) (*yzjFetched, error) {
-	if err := s.validateSyncConfig(); err != nil {
+	if err := s.cfg.Validate(); err != nil {
 		return nil, err
 	}
 	active, err := s.fetchStatus(ctx, yunzhijia.StatusActive)
@@ -69,6 +50,8 @@ func (s *YunzhijiaSyncService) fetchAll(ctx context.Context) (*yzjFetched, error
 
 // fetchStatus 按 cfg.PageSize（显式传参）逐页拉取，直到列表为空或累计
 // 达到 total；最后再核对累计条数与 total 完全一致。
+// 上游回显的 page_size 不做校验：真实接口可能按自己的上限返回，
+// 完整性由 page 回显、total 一致性和去重保证。
 func (s *YunzhijiaSyncService) fetchStatus(
 	ctx context.Context, status yunzhijia.Status,
 ) ([]yunzhijia.Employee, error) {
@@ -79,13 +62,10 @@ func (s *YunzhijiaSyncService) fetchStatus(
 		if err != nil {
 			return nil, fmt.Errorf("yunzhijia: 拉取 %s 第 %d 页失败: %w", status, page, err)
 		}
-		if got == nil {
-			return nil, fmt.Errorf("yunzhijia: 拉取 %s 第 %d 页返回空响应", status, page)
-		}
-		if got.Page != page || got.PageSize != s.cfg.PageSize {
+		if got.Page != page {
 			return nil, fmt.Errorf(
-				"yunzhijia: 拉取 %s 第 %d 页分页信息不一致（page=%d page_size=%d）",
-				status, page, got.Page, got.PageSize,
+				"yunzhijia: 拉取 %s 第 %d 页分页信息不一致（page=%d）",
+				status, page, got.Page,
 			)
 		}
 		if total < 0 {
@@ -105,13 +85,6 @@ func (s *YunzhijiaSyncService) fetchStatus(
 		return nil, fmt.Errorf(
 			"yunzhijia: 拉取 %s 累计 %d 条与 total %d 不一致", status, len(out), total,
 		)
-	}
-	for _, employee := range out {
-		if strings.TrimSpace(employee.OpenID) == "" {
-			return nil, fmt.Errorf(
-				"yunzhijia: %s 列表存在缺少 open_id 的条目（姓名 %q）", status, employee.Name,
-			)
-		}
 	}
 	return out, nil
 }

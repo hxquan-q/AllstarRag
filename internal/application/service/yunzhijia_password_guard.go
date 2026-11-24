@@ -9,7 +9,7 @@ import (
 )
 
 // ErrYunzhijiaEmployeePasswordDisabled 表示目标是云之家员工账号，禁止
-// 使用密码。handler 层据此映射为 403，不写用户、不吊销 token。
+// 使用密码。改密返回 400、重置密码返回 403；不写用户、不吊销 token。
 var ErrYunzhijiaEmployeePasswordDisabled = errors.New(
 	"yunzhijia employee accounts cannot use passwords")
 
@@ -19,14 +19,11 @@ type yunzhijiaEmployeeLookup struct {
 	repo interfaces.YunzhijiaEmployeeRepository
 }
 
-// NewYunzhijiaEmployeeLookup 把员工仓储适配为 YunzhijiaEmployeeLookup。
-// repo 为空时返回 nil，调用方按未注入处理（保持既有行为）。
+// NewYunzhijiaEmployeeLookup 把员工仓储适配为 YunzhijiaEmployeeLookup，
+// 仓储由容器统一注入。
 func NewYunzhijiaEmployeeLookup(
 	repo interfaces.YunzhijiaEmployeeRepository,
 ) interfaces.YunzhijiaEmployeeLookup {
-	if repo == nil {
-		return nil
-	}
 	return &yunzhijiaEmployeeLookup{repo: repo}
 }
 

@@ -95,6 +95,11 @@ func (s *YunzhijiaSyncService) Run(
 	for _, employee := range plan.inactive {
 		anomalies = append(anomalies, s.applyInactive(ctx, employee, now)...)
 	}
+	missingAnomalies, err := s.applyMissingActive(ctx, fetched, now)
+	if err != nil {
+		return s.failRun(ctx, run, err)
+	}
+	anomalies = append(anomalies, missingAnomalies...)
 
 	encoded, err := marshalAnomalies(anomalies)
 	if err != nil {
@@ -194,6 +199,65 @@ func (s *YunzhijiaSyncService) applyInactive(
 		return []types.YunzhijiaSyncAnomaly{lifecycleAnomaly(persisted, err)}
 	}
 	return nil
+}
+
+// applyMissingActive 处理「本地 active、但本轮上游 active/inactive 两批
+// 名单都没有」的员工：两批都完整抓取时，这些人按离职收敛（AC-11）。
+//
+// 在职列表出现重复 open_id 时不执行：去重后条数仍等于 total，但实际
+// 漏了人，不能据此判定缺席者离职（INV-9）。active total=0 已由抓取阶段
+// 整轮拒绝，不会误判全员。
+func (s *YunzhijiaSyncService) applyMissingActive(
+	ctx context.Context, fetched *yzjFetched, now time.Time,
+) ([]types.YunzhijiaSyncAnomaly, error) {
+	activeSeen := make(map[string]struct{}, len(fetched.active))
+	for _, employee := range fetched.active {
+		if _, dup := activeSeen[employee.OpenID]; dup {
+			return nil, nil
+		}
+		activeSeen[employee.OpenID] = struct{}{}
+	}
+
+	fetchedSeen := make(map[string]struct{}, len(fetched.active)+len(fetched.inactive))
+	for _, employee := range fetched.active {
+		fetchedSeen[employee.OpenID] = struct{}{}
+	}
+	for _, employee := range fetched.inactive {
+		fetchedSeen[employee.OpenID] = struct{}{}
+	}
+
+	rows, err := s.employeeRepo.ListByStatus(ctx, types.YunzhijiaEmployeeStatusActive)
+	if err != nil {
+		return nil, fmt.Errorf("yunzhijia: 查询本地在职员工失败: %w", err)
+	}
+	var anomalies []types.YunzhijiaSyncAnomaly
+	for _, row := range rows {
+		if _, seen := fetchedSeen[row.OpenID]; seen {
+			continue
+		}
+		anomalies = append(anomalies, types.YunzhijiaSyncAnomaly{
+			Kind:   types.YunzhijiaAnomalyLocalActiveMissing,
+			OpenID: row.OpenID,
+			Name:   row.Name,
+			Detail: "本地在职员工不在本轮上游名单，按离职处理",
+		})
+		anomalies = append(anomalies, s.applyInactive(ctx, yzjEmployeeFromRow(row), now)...)
+	}
+	return anomalies, nil
+}
+
+// yzjEmployeeFromRow 用本地行构造离职处理入参：本轮上游没有该员工，
+// 沿用库里已有的姓名、部门与手机号，避免 upsert 清空同步字段。
+func yzjEmployeeFromRow(row *types.YunzhijiaEmployee) yunzhijia.Employee {
+	employee := yunzhijia.Employee{
+		OpenID:     row.OpenID,
+		Name:       row.Name,
+		Department: row.Department,
+	}
+	if row.Mobile != nil {
+		employee.Mobile = *row.Mobile
+	}
+	return employee
 }
 
 // persistAndReload 先 upsert 同步字段，再从仓储读出完整行。
