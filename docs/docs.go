@@ -2029,7 +2029,7 @@ const docTemplate = `{
                         }
                     },
                     "503": {
-                        "description": "配置缺失或未启用",
+                        "description": "配置缺失、未启用或配置非法",
                         "schema": {
                             "$ref": "#/definitions/github_com_Tencent_WeKnora_internal_handler_dto.AuthLoginResponse"
                         }
