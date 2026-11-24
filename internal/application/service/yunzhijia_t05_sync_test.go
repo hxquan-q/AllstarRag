@@ -1165,3 +1165,37 @@ func TestYunzhijiaT05RunBlocksConcurrentRun(t *testing.T) {
 		t.Fatal("首个 Run 未结束")
 	}
 }
+
+// T08 补充：Run 必须把生命周期返回的动作换算成 AC-14 计数。
+// 3 名在职分别 created/updated/migrated，1 名离职 disabled，none 不计。
+func TestYunzhijiaT05RunCountsLifecycleResults(t *testing.T) {
+	ctx := context.Background()
+	cfg := yzjT05Config(10, true)
+	client := newYZJT05Client()
+	client.setPage(yunzhijia.StatusActive, 1, yzjT05Page(1, 10, 3,
+		yzjT05Employee("open-created", "占位员工甲", "金蝶社区"),
+		yzjT05Employee("open-updated", "占位员工乙", "金蝶社区"),
+		yzjT05Employee("open-migrated", "占位员工丙", "人力资源部"),
+	))
+	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 1,
+		yzjT05Employee("open-disabled", "占位员工丁", "金蝶社区"),
+	))
+	repo := newYZJT05EmployeeRepo()
+	runs := &yzjT05RunRepo{}
+	life := newYZJT05Lifecycle()
+	life.setEmployeeResult("open-created", types.YunzhijiaAccountResultCreated)
+	life.setEmployeeResult("open-updated", types.YunzhijiaAccountResultUpdated)
+	life.setEmployeeResult("open-migrated", types.YunzhijiaAccountResultMigrated)
+	life.setInactiveResult("open-disabled", types.YunzhijiaAccountResultDisabled)
+	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
+
+	run, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual)
+	if err != nil {
+		t.Fatalf("Run 返回错误: %v", err)
+	}
+	if run.CreatedCount != 1 || run.UpdatedCount != 1 ||
+		run.DisabledCount != 1 || run.MigratedCount != 1 {
+		t.Fatalf("计数 created=%d updated=%d disabled=%d migrated=%d，期望 1/1/1/1",
+			run.CreatedCount, run.UpdatedCount, run.DisabledCount, run.MigratedCount)
+	}
+}

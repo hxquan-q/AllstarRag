@@ -4,8 +4,10 @@ package service
 //
 // 本轮锁定的实现契约（票面 + 01-spec §10.3–10.6 + 02-plan §8.3/§8.4）：
 //   NewYunzhijiaLifecycle(cfg, provisioner, userRepo, memberService, employeeRepo)
-//     (*YunzhijiaLifecycle).ApplyEmployee(ctx, *types.YunzhijiaEmployee) error
-//     (*YunzhijiaLifecycle).ApplyInactive(ctx, *types.YunzhijiaEmployee) error
+//     (*YunzhijiaLifecycle).ApplyEmployee(ctx, *types.YunzhijiaEmployee)
+//       (types.YunzhijiaAccountResult, error)
+//     (*YunzhijiaLifecycle).ApplyInactive(ctx, *types.YunzhijiaEmployee)
+//       (types.YunzhijiaAccountResult, error)
 //     (*YunzhijiaLifecycle).MarkAdminDisabled(ctx, userID) error
 //     (*YunzhijiaLifecycle).MarkBlockedAfterPurge(ctx, userID, actorID) error
 //   *YunzhijiaLifecycle 满足 interfaces.YunzhijiaAccountLifecycle 与
@@ -58,6 +60,24 @@ func yzjT06Config(enabled bool) *config.YunzhijiaSSOConfig {
 }
 
 func yzjT06Ptr(s string) *string { return &s }
+
+// T08 起生命周期接口返回 (结果, error)；下列辅助保持 T06 用例原逻辑，
+// 只把单返回值断言适配为双返回值。
+func yzjT06ApplyEmployeeOK(
+	t *testing.T, lifecycle *YunzhijiaLifecycle, employee *types.YunzhijiaEmployee,
+) {
+	t.Helper()
+	_, err := lifecycle.ApplyEmployee(context.Background(), employee)
+	require.NoError(t, err)
+}
+
+func yzjT06ApplyInactiveOK(
+	t *testing.T, lifecycle *YunzhijiaLifecycle, employee *types.YunzhijiaEmployee,
+) {
+	t.Helper()
+	_, err := lifecycle.ApplyInactive(context.Background(), employee)
+	require.NoError(t, err)
+}
 
 func yzjT06Employee(openID, name string, tenantID uint64) *types.YunzhijiaEmployee {
 	return &types.YunzhijiaEmployee{
@@ -464,7 +484,7 @@ func TestYunzhijiaT06ApplyEmployeeNewAccountProvisionsViewer(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	employee := yzjT06Employee("open-new-0001", "占位员工甲", yzjT06TenantDefault)
-	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
 	require.Len(t, users.createCalls, 1, "新员工必须走 provisioner 建号")
 	created := users.createCalls[0]
@@ -495,7 +515,7 @@ func TestYunzhijiaT06ApplyEmployeeExistingActiveEnsuresViewer(t *testing.T) {
 	employee := yzjT06Employee("open-existing-0001", "占位员工乙", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 
-	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
 	require.Len(t, users.createCalls, 0, "已有账号不应重复建号")
 	require.True(t, members.hasMembership(userID, yzjT06TenantDefault), "应保留 viewer 成员关系")
@@ -516,7 +536,7 @@ func TestYunzhijiaT06ApplyEmployeeActiveWithoutMembershipAddsViewer(t *testing.T
 	employee := yzjT06Employee("open-no-membership-0001", "占位员工午", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 
-	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
 	require.Len(t, members.addCalls, 1, "在职账号缺少成员关系时必须补 viewer")
 	require.Equal(t, userID, members.addCalls[0].UserID)
@@ -538,7 +558,7 @@ func TestYunzhijiaT06ApplyEmployeeRehireRestoresAccount(t *testing.T) {
 	employee.UserID = yzjT06Ptr(userID)
 	employee.DisabledBySync = true
 
-	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
 	require.Len(t, users.setActiveCalls, 1, "同步停用的账号再入职必须重新启用")
 	require.Equal(t, userID, users.setActiveCalls[0].UserID)
@@ -570,7 +590,7 @@ func TestYunzhijiaT06ApplyEmployeeActiveRehireClearsDisabledFlag(t *testing.T) {
 	employees := newYZJT06EmployeeRepo(employee)
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
-	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
 	require.Len(t, users.setActiveCalls, 1, "标记为 true 时即使账号 active 也必须走恢复路径")
 	require.True(t, users.setActiveCalls[0].Active)
@@ -600,7 +620,7 @@ func TestYunzhijiaT06ApplyEmployeeTransferMovesSpace(t *testing.T) {
 	employee := yzjT06Employee("open-transfer-0001", "占位员工丁", yzjT06TenantHR)
 	employee.UserID = yzjT06Ptr(userID)
 
-	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
 	require.Len(t, members.removeCalls, 1, "调岗必须先移除旧空间")
 	require.Equal(t, yzjT06TenantDefault, members.removeCalls[0].TenantID)
@@ -624,7 +644,7 @@ func TestYunzhijiaT06ApplyEmployeeBlockedIsSkipped(t *testing.T) {
 	employee := yzjT06Employee("open-blocked-0001", "占位员工戊", yzjT06TenantDefault)
 	employee.Blocked = true
 
-	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 	yzjT06RequireNoMutations(t, users, members, employees)
 }
 
@@ -640,7 +660,7 @@ func TestYunzhijiaT06ApplyEmployeeAdminBannedNotUnbanned(t *testing.T) {
 	employee.UserID = yzjT06Ptr(userID)
 	employee.DisabledBySync = false
 
-	err := lifecycle.ApplyEmployee(context.Background(), employee)
+	_, err := lifecycle.ApplyEmployee(context.Background(), employee)
 	require.ErrorIs(t, err, ErrYunzhijiaAccountBanned)
 	require.Empty(t, users.setActiveCalls, "管理员封禁不得自动解封")
 	require.Empty(t, members.addCalls, "管理员封禁不得自动入组")
@@ -658,7 +678,7 @@ func TestYunzhijiaT06ApplyEmployeeMissingLocalUser(t *testing.T) {
 	employee := yzjT06Employee("open-missing-0001", "占位员工庚", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 
-	err := lifecycle.ApplyEmployee(context.Background(), employee)
+	_, err := lifecycle.ApplyEmployee(context.Background(), employee)
 	require.ErrorIs(t, err, ErrYunzhijiaLocalUserMissing)
 	yzjT06RequireNoMutations(t, users, members, employees)
 }
@@ -680,7 +700,7 @@ func TestYunzhijiaT06ApplyInactiveDisablesAndRevokes(t *testing.T) {
 	employee.UserID = yzjT06Ptr(userID)
 	employee.Status = types.YunzhijiaEmployeeStatusInactive
 
-	require.NoError(t, lifecycle.ApplyInactive(context.Background(), employee))
+	yzjT06ApplyInactiveOK(t, lifecycle, employee)
 
 	require.Len(t, users.setActiveCalls, 1, "离职必须停用账号（仓储内同时吊销 token）")
 	require.Equal(t, userID, users.setActiveCalls[0].UserID)
@@ -711,7 +731,7 @@ func TestYunzhijiaT06ApplyInactiveBlockedUnchanged(t *testing.T) {
 	employee.Status = types.YunzhijiaEmployeeStatusInactive
 	employee.Blocked = true
 
-	require.NoError(t, lifecycle.ApplyInactive(context.Background(), employee))
+	yzjT06ApplyInactiveOK(t, lifecycle, employee)
 	yzjT06RequireNoMutations(t, users, members, employees)
 }
 
@@ -729,7 +749,7 @@ func TestYunzhijiaT06ApplyInactiveAdminBannedUnchanged(t *testing.T) {
 	employee.Status = types.YunzhijiaEmployeeStatusInactive
 	employee.DisabledBySync = false
 
-	require.NoError(t, lifecycle.ApplyInactive(context.Background(), employee))
+	yzjT06ApplyInactiveOK(t, lifecycle, employee)
 	require.Empty(t, users.setActiveCalls, "已封禁账号不应重复停用")
 	require.Empty(t, members.removeCalls, "已封禁账号成员关系不变")
 	require.Empty(t, employees.setDisabledCalls, "已封禁账号不得写 disabled_by_sync")
@@ -747,7 +767,7 @@ func TestYunzhijiaT06ApplyInactiveMissingLocalUser(t *testing.T) {
 	employee.UserID = yzjT06Ptr(userID)
 	employee.Status = types.YunzhijiaEmployeeStatusInactive
 
-	err := lifecycle.ApplyInactive(context.Background(), employee)
+	_, err := lifecycle.ApplyInactive(context.Background(), employee)
 	require.ErrorIs(t, err, ErrYunzhijiaLocalUserMissing)
 	yzjT06RequireNoMutations(t, users, members, employees)
 }

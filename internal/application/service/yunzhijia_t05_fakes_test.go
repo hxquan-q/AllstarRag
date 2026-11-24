@@ -519,37 +519,72 @@ type yzjT05Lifecycle struct {
 	inactiveCalls []*types.YunzhijiaEmployee
 	employeeErrs  map[string]error
 	inactiveErrs  map[string]error
+	// employeeResults / inactiveResults 让用例逐员工指定本轮动作，
+	// 用于验证 Run 按 created/updated/disabled/migrated 累计计数。
+	// 未配置的员工默认 none，保持与 T05 旧用例一致的“不计”语义。
+	employeeResults map[string]types.YunzhijiaAccountResult
+	inactiveResults map[string]types.YunzhijiaAccountResult
 }
 
 func newYZJT05Lifecycle() *yzjT05Lifecycle {
 	return &yzjT05Lifecycle{
-		employeeErrs: map[string]error{},
-		inactiveErrs: map[string]error{},
+		employeeErrs:    map[string]error{},
+		inactiveErrs:    map[string]error{},
+		employeeResults: map[string]types.YunzhijiaAccountResult{},
+		inactiveResults: map[string]types.YunzhijiaAccountResult{},
 	}
 }
 
 func (l *yzjT05Lifecycle) ApplyEmployee(
 	_ context.Context, employee *types.YunzhijiaEmployee,
-) error {
+) (types.YunzhijiaAccountResult, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.employeeCalls = append(l.employeeCalls, yzjT05CloneEmployee(employee))
 	if l.accounts != nil {
 		l.accounts.applyEmployee(employee.OpenID, employee.TenantID)
 	}
-	return l.employeeErrs[employee.OpenID]
+	if err := l.employeeErrs[employee.OpenID]; err != nil {
+		return types.YunzhijiaAccountResultNone, err
+	}
+	if result, ok := l.employeeResults[employee.OpenID]; ok {
+		return result, nil
+	}
+	return types.YunzhijiaAccountResultNone, nil
 }
 
 func (l *yzjT05Lifecycle) ApplyInactive(
 	_ context.Context, employee *types.YunzhijiaEmployee,
-) error {
+) (types.YunzhijiaAccountResult, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.inactiveCalls = append(l.inactiveCalls, yzjT05CloneEmployee(employee))
 	if l.accounts != nil {
 		l.accounts.applyInactive(employee.OpenID)
 	}
-	return l.inactiveErrs[employee.OpenID]
+	if err := l.inactiveErrs[employee.OpenID]; err != nil {
+		return types.YunzhijiaAccountResultNone, err
+	}
+	if result, ok := l.inactiveResults[employee.OpenID]; ok {
+		return result, nil
+	}
+	return types.YunzhijiaAccountResultNone, nil
+}
+
+func (l *yzjT05Lifecycle) setEmployeeResult(
+	openID string, result types.YunzhijiaAccountResult,
+) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.employeeResults[openID] = result
+}
+
+func (l *yzjT05Lifecycle) setInactiveResult(
+	openID string, result types.YunzhijiaAccountResult,
+) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.inactiveResults[openID] = result
 }
 
 func (l *yzjT05Lifecycle) setEmployeeErr(openID string, err error) {

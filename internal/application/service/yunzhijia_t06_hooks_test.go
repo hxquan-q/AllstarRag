@@ -212,7 +212,7 @@ func TestYunzhijiaT06SyncPathBypassesUserServiceHook(t *testing.T) {
 	state := &yzjT06State{}
 	svc.(*userService).WithYunzhijiaEmployeeState(state)
 
-	require.NoError(t, lifecycle.ApplyInactive(context.Background(), employee))
+	yzjT06ApplyInactiveOK(t, lifecycle, employee)
 
 	require.Len(t, users.setActiveCalls, 1, "同步离职应直接调用仓储停用")
 	require.False(t, users.setActiveCalls[0].Active)
