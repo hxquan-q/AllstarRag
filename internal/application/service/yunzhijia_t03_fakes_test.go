@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/application/repository"
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/sso/yunzhijia"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -223,7 +224,7 @@ func (r *yzjT03UserRepo) GetUserByID(_ context.Context, id string) (*types.User,
 	defer r.mu.Unlock()
 	u, ok := r.users[id]
 	if !ok {
-		return nil, nil
+		return nil, repository.ErrUserNotFound
 	}
 	cp := *u
 	return &cp, nil
@@ -234,7 +235,7 @@ func (r *yzjT03UserRepo) GetUserByEmail(_ context.Context, email string) (*types
 	defer r.mu.Unlock()
 	id, ok := r.byEmail[email]
 	if !ok {
-		return nil, nil
+		return nil, repository.ErrUserNotFound
 	}
 	u := r.users[id]
 	cp := *u
