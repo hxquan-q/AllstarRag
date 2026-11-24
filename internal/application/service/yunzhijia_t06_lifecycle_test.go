@@ -337,8 +337,8 @@ func (r *yzjT06EmployeeRepo) MarkBlocked(
 		OpenID: openID, Actor: blockedBy,
 	})
 	if row := r.byOpenID[openID]; row != nil {
+		// 与真实仓储对齐：MarkBlocked 保留 user_id 供审计，Unblock 时才清。
 		row.Blocked = true
-		row.UserID = nil
 	}
 	return nil
 }
@@ -555,16 +555,46 @@ func TestYunzhijiaT06ApplyEmployeeRehireRestoresAccount(t *testing.T) {
 	require.Empty(t, members.removeCalls, "同空间再入职不应移除成员")
 }
 
-func TestYunzhijiaT06ApplyEmployeeTransferMovesSpaceAndClearsSession(t *testing.T) {
+// M2：在职但 disabled_by_sync=true（如管理员先封禁再解封、上一轮离职停用后
+// 人工恢复）必须走恢复路径清标记，否则登录侧会永久拒绝。
+func TestYunzhijiaT06ApplyEmployeeActiveRehireClearsDisabledFlag(t *testing.T) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+
+	userID := "u-t06-rehire-flag"
+	user := yzjT06SeedActiveUser(users, userID)
+	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
+	employee := yzjT06Employee("open-rehire-flag-0001", "占位员工未", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+	employee.DisabledBySync = true
+	employees := newYZJT06EmployeeRepo(employee)
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
+
+	require.NoError(t, lifecycle.ApplyEmployee(context.Background(), employee))
+
+	require.Len(t, users.setActiveCalls, 1, "标记为 true 时即使账号 active 也必须走恢复路径")
+	require.True(t, users.setActiveCalls[0].Active)
+	require.True(t, user.IsActive, "恢复后账号必须保持可用")
+	require.Empty(t, users.createCalls, "已有账号不应重复建号")
+
+	require.Len(t, employees.setDisabledCalls, 1, "恢复后必须清掉 disabled_by_sync，登录才不会被拒")
+	require.Equal(t, employee.OpenID, employees.setDisabledCalls[0].OpenID)
+	require.False(t, employees.setDisabledCalls[0].Disabled)
+	require.False(t, employees.byOpenID[employee.OpenID].DisabledBySync,
+		"仓储中的标记必须已清空（登录读取的就是这一列）")
+
+	require.Empty(t, members.addCalls, "已在本空间不应重复加入")
+	require.Empty(t, members.removeCalls)
+}
+
+func TestYunzhijiaT06ApplyEmployeeTransferMovesSpace(t *testing.T) {
 	users := newYZJT06UserRepo()
 	members := newYZJT06MemberService()
 	employees := newYZJT06EmployeeRepo()
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-t06-transfer"
-	user := yzjT06SeedActiveUser(users, userID)
-	oldTenant := yzjT06TenantDefault
-	user.Preferences.LastActiveTenantID = &oldTenant
+	yzjT06SeedActiveUser(users, userID)
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 
 	employee := yzjT06Employee("open-transfer-0001", "占位员工丁", yzjT06TenantHR)
@@ -583,9 +613,6 @@ func TestYunzhijiaT06ApplyEmployeeTransferMovesSpaceAndClearsSession(t *testing.
 	require.Equal(t, "add", members.events[1])
 	require.False(t, members.hasMembership(userID, yzjT06TenantDefault), "旧空间成员关系必须移除")
 	require.True(t, members.hasMembership(userID, yzjT06TenantHR))
-
-	require.NotEmpty(t, users.updateCalls, "调岗必须清除 LastActiveTenantID")
-	require.Nil(t, users.updateCalls[len(users.updateCalls)-1].Preferences.LastActiveTenantID)
 }
 
 func TestYunzhijiaT06ApplyEmployeeBlockedIsSkipped(t *testing.T) {

@@ -11,7 +11,8 @@ package service
 //   - userService.WithYunzhijiaEmployeeState(state) 可选注入。
 //
 // 行为：
-//   - BanUser / PlatformBanUser 成功后 MarkAdminDisabled；
+//   - BanUser / PlatformBanUser 先 MarkAdminDisabled 再封禁；标记失败返回错误
+//     且不执行封禁（避免「已封禁、标记仍 true」被同步自动解封，INV-4）；
 //   - PurgeUser / PlatformPurgeUser 授权通过后先 MarkBlockedAfterPurge，再
 //     PurgeUserTx；标记失败返回错误且不 purge；
 //   - userService.SetUserActive（人工入口）调用 MarkAdminDisabled；
@@ -68,7 +69,7 @@ func TestYunzhijiaT06PlatformBanMarksAdminDisabled(t *testing.T) {
 		"平台封禁成功后同样必须把员工 disabled_by_sync 置 false")
 }
 
-func TestYunzhijiaT06TenantBanMarkFailureReturnsErrorKeepsBan(t *testing.T) {
+func TestYunzhijiaT06TenantBanMarkFailureReturnsErrorBlocksBan(t *testing.T) {
 	env := newUMTestEnv(t)
 	umSeedUser(t, env, "owner-t06", nil)
 	umSeedMembership(t, env, "owner-t06", umTenantA, types.TenantRoleOwner)
@@ -83,11 +84,11 @@ func TestYunzhijiaT06TenantBanMarkFailureReturnsErrorKeepsBan(t *testing.T) {
 	_, err := env.svc.BanUser(ctx, umTenantA, "target-t06", "placeholder reason")
 	require.ErrorIs(t, err, boom, "标记 disabled_by_sync 失败必须向上返回错误")
 	require.Len(t, state.adminCalls, 1)
-	require.False(t, umLoadUser(t, env, "target-t06").IsActive,
-		"标记失败不得回滚已生效的封禁（重试同一封禁幂等即可收敛）")
+	require.True(t, umLoadUser(t, env, "target-t06").IsActive,
+		"先标记后封禁：标记失败必须阻断封禁，账号保持可用（INV-4）")
 }
 
-func TestYunzhijiaT06PlatformBanMarkFailureReturnsErrorKeepsBan(t *testing.T) {
+func TestYunzhijiaT06PlatformBanMarkFailureReturnsErrorBlocksBan(t *testing.T) {
 	env := newUMTestEnv(t)
 	umSeedUser(t, env, "sysadmin-t06", func(u *types.User) { u.IsSystemAdmin = true })
 	umSeedUser(t, env, "target-t06", nil)
@@ -100,8 +101,8 @@ func TestYunzhijiaT06PlatformBanMarkFailureReturnsErrorKeepsBan(t *testing.T) {
 		t35SystemAdminCtx("sysadmin-t06"), "target-t06", "placeholder reason")
 	require.ErrorIs(t, err, boom, "平台标记失败同样必须向上返回错误")
 	require.Len(t, state.adminCalls, 1)
-	require.False(t, umLoadUser(t, env, "target-t06").IsActive,
-		"平台标记失败不得回滚已生效的封禁")
+	require.True(t, umLoadUser(t, env, "target-t06").IsActive,
+		"平台封禁同样先标记后封禁：标记失败必须阻断封禁（INV-4）")
 }
 
 func TestYunzhijiaT06PurgeMarksBlockedBeforePurge(t *testing.T) {
