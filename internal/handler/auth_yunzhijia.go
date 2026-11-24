@@ -49,8 +49,8 @@ func NewYunzhijiaAuthHandler(
 // @Failure      503      {object}  dto.AuthLoginResponse  "配置缺失、未启用或配置非法"
 // @Router       /auth/yunzhijia/login [post]
 func (h *YunzhijiaAuthHandler) Login(c *gin.Context) {
-	// 配置缺失或关闭时 fail-closed：不调用登录服务，也不签发 token。
-	if h.cfg == nil || !h.cfg.Enabled {
+	// 配置缺失、关闭或非法时 fail-closed：不调用登录服务，也不签发 token。
+	if h.cfg == nil || !h.cfg.Enabled || h.cfg.Validate() != nil {
 		c.JSON(503, dto.AuthLoginResponse{
 			Success: false,
 			Message: yunzhijiaUnavailableMessage,
@@ -78,11 +78,6 @@ func (h *YunzhijiaAuthHandler) Login(c *gin.Context) {
 	}
 	if !resp.Success {
 		logger.Warnf(c.Request.Context(), "[Yunzhijia] 登录被拒绝: %s", resp.Message)
-		// 配置非法与未启用统一回 503；业务拒绝仍回 401。
-		if resp.Message == yunzhijiaUnavailableMessage && h.cfg.Validate() != nil {
-			c.JSON(503, dto.NewAuthLoginResponse(resp))
-			return
-		}
 		c.JSON(401, dto.NewAuthLoginResponse(resp))
 		return
 	}
