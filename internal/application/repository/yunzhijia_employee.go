@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	// ErrYunzhijiaEmployeeExists 由 Create / UpsertByOpenID 在 open_id
-	// 唯一键冲突时返回，服务层据此走开号或同步的冲突分支。
+	// ErrYunzhijiaEmployeeExists 由 Create 在 open_id 唯一键冲突时返回，
+	// 服务层据此走开号冲突分支。
 	ErrYunzhijiaEmployeeExists = errors.New("repository: yunzhijia employee already exists")
 	// ErrYunzhijiaEmployeeNotFound 由写操作（MarkBlocked/Unblock/
 	// SetDisabledBySync/UpdateSyncedFields）在目标行不存在时返回。
@@ -44,8 +44,7 @@ func isYunzhijiaDuplicate(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "duplicate") ||
-		strings.Contains(msg, "unique constraint") ||
-		strings.Contains(msg, "unique constraint failed")
+		strings.Contains(msg, "unique constraint")
 }
 
 // Create 插入一行员工目录记录。
@@ -80,9 +79,6 @@ func (r *yunzhijiaEmployeeRepository) UpsertByOpenID(
 		}),
 	}).Create(employee).Error
 	if err != nil {
-		if isYunzhijiaDuplicate(err) {
-			return ErrYunzhijiaEmployeeExists
-		}
 		return err
 	}
 	return nil
@@ -212,7 +208,7 @@ func (r *yunzhijiaEmployeeRepository) Unblock(
 ) error {
 	now := time.Now()
 	res := r.db.WithContext(ctx).Model(&types.YunzhijiaEmployee{}).
-		Where("open_id = ?", openID).
+		Where("open_id = ? AND blocked = ?", openID, true).
 		Updates(map[string]interface{}{
 			"blocked":    false,
 			"blocked_at": nil,

@@ -24,8 +24,6 @@ const (
 	DefaultTimeout = 10 * time.Second
 	// DefaultMaxBodyBytes 是响应体读取上限（8 MiB），防止超大响应耗尽内存。
 	DefaultMaxBodyBytes int64 = 8 << 20
-	// DefaultPageSize 是员工列表的默认分页大小。
-	DefaultPageSize = 500
 
 	ticketSuccessCode = 200
 	ticketSuccessMsg  = "成功"
@@ -51,16 +49,13 @@ type Options struct {
 	Timeout time.Duration
 	// MaxBodyBytes 是响应体上限，<=0 时用 DefaultMaxBodyBytes。
 	MaxBodyBytes int64
-	// PageSize 是调用方传 pageSize<=0 时的默认分页大小，<=0 时用 DefaultPageSize。
-	PageSize int
 }
 
 // HTTPClient 是 Client 的标准库实现。
 type HTTPClient struct {
 	httpClient      *http.Client
 	ticketURLPrefix string
-	employeeURL     string
-	pageSize        int
+	employeeBaseURL *url.URL
 	maxBodyBytes    int64
 }
 
@@ -72,11 +67,11 @@ func NewClient(opts Options) (*HTTPClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	ticketURLPrefix, err := joinURLPath(base, opts.TicketUserPath)
+	ticketBaseURL, err := joinURLPath(base, opts.TicketUserPath)
 	if err != nil {
 		return nil, fmt.Errorf("yunzhijia: invalid ticket_user_path: %w", err)
 	}
-	employeeURL, err := joinURLPath(base, opts.EmployeePath)
+	employeeBaseURL, err := joinURLPath(base, opts.EmployeePath)
 	if err != nil {
 		return nil, fmt.Errorf("yunzhijia: invalid employee_path: %w", err)
 	}
@@ -89,19 +84,13 @@ func NewClient(opts Options) (*HTTPClient, error) {
 	if maxBodyBytes <= 0 {
 		maxBodyBytes = DefaultMaxBodyBytes
 	}
-	pageSize := opts.PageSize
-	if pageSize <= 0 {
-		pageSize = DefaultPageSize
-	}
-
 	return &HTTPClient{
 		httpClient: &http.Client{
 			Timeout:       timeout,
 			CheckRedirect: rejectRedirect,
 		},
-		ticketURLPrefix: ticketURLPrefix,
-		employeeURL:     employeeURL,
-		pageSize:        pageSize,
+		ticketURLPrefix: ticketBaseURL.String(),
+		employeeBaseURL: employeeBaseURL,
 		maxBodyBytes:    maxBodyBytes,
 	}, nil
 }
@@ -116,7 +105,6 @@ func NewClientFromConfig(cfg *config.YunzhijiaSSOConfig) (*HTTPClient, error) {
 		TicketUserPath: cfg.TicketUserPath,
 		EmployeePath:   cfg.EmployeePath,
 		Timeout:        time.Duration(cfg.HTTPTimeoutSeconds) * time.Second,
-		PageSize:       cfg.PageSize,
 	})
 }
 
@@ -166,26 +154,14 @@ func (c *HTTPClient) QueryUserName(ctx context.Context, ticket string) (string, 
 func (c *HTTPClient) ListEmployees(
 	ctx context.Context, status Status, page, pageSize int,
 ) (*EmployeePage, error) {
-	if !status.valid() {
-		return nil, fmt.Errorf("yunzhijia: invalid employee status %q", status)
-	}
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 {
-		pageSize = c.pageSize
-	}
-	endpoint, err := c.employeeEndpoint(status, page, pageSize)
-	if err != nil {
-		return nil, fmt.Errorf("%w: build employee request failed", ErrUpstream)
-	}
+	endpoint := c.employeeEndpoint(status, page, pageSize)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("%w: build employee request failed", ErrUpstream)
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrUpstream, err.Error())
+		return nil, fmt.Errorf("%w: %w", ErrUpstream, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -215,9 +191,11 @@ func convertEmployeePage(payload employeeListResponse) (*EmployeePage, error) {
 	}
 	list := make([]Employee, 0, len(payload.List))
 	for _, item := range payload.List {
-		if strings.TrimSpace(item.OpenID) == "" {
+		item.OpenID = strings.TrimSpace(item.OpenID)
+		if item.OpenID == "" {
 			return nil, fmt.Errorf("%w: employee without open_id", ErrContract)
 		}
+		item.Name = strings.TrimSpace(item.Name)
 		list = append(list, Employee(item))
 	}
 	return &EmployeePage{
@@ -232,17 +210,14 @@ func (c *HTTPClient) ticketURL(ticket string) string {
 	return c.ticketURLPrefix + "/" + url.PathEscape(ticket)
 }
 
-func (c *HTTPClient) employeeEndpoint(status Status, page, pageSize int) (string, error) {
-	u, err := url.Parse(c.employeeURL)
-	if err != nil {
-		return "", err
-	}
+func (c *HTTPClient) employeeEndpoint(status Status, page, pageSize int) string {
+	u := *c.employeeBaseURL
 	q := u.Query()
 	q.Set("status", string(status))
 	q.Set("page", strconv.Itoa(page))
 	q.Set("page_size", strconv.Itoa(pageSize))
 	u.RawQuery = q.Encode()
-	return u.String(), nil
+	return u.String()
 }
 
 func (c *HTTPClient) readBody(r io.Reader) ([]byte, error) {
@@ -290,16 +265,16 @@ func parseBaseURL(raw string) (*url.URL, error) {
 	return base, nil
 }
 
-func joinURLPath(base *url.URL, rawPath string) (string, error) {
+func joinURLPath(base *url.URL, rawPath string) (*url.URL, error) {
 	rawPath = strings.TrimSpace(rawPath)
 	if rawPath == "" {
-		return "", fmt.Errorf("path is empty")
+		return nil, fmt.Errorf("path is empty")
 	}
 	if strings.ContainsAny(rawPath, "?#") {
-		return "", fmt.Errorf("path must not contain query or fragment")
+		return nil, fmt.Errorf("path must not contain query or fragment")
 	}
 	u := *base
 	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(rawPath, "/")
 	u.RawPath = ""
-	return u.String(), nil
+	return &u, nil
 }

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -12,11 +13,12 @@ import (
 )
 
 const (
-	// yunzhijiaTicketMaxLength 是登录 ticket 的合理上限；明显超长直接 400。
-	yunzhijiaTicketMaxLength = 4096
 	// yunzhijiaUnavailableMessage 与 service 层配置错误文案保持一致。
 	yunzhijiaUnavailableMessage = "系统暂不可用，请联系管理员"
 )
+
+// yunzhijiaTicketPattern 是 ticket 的字符白名单与长度上限（外部输入边界）。
+var yunzhijiaTicketPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
 
 // YunzhijiaAuthHandler 暴露云之家 ticket 免登录 HTTP 入口。
 type YunzhijiaAuthHandler struct {
@@ -61,7 +63,7 @@ func (h *YunzhijiaAuthHandler) Login(c *gin.Context) {
 		return
 	}
 	ticket := strings.TrimSpace(req.Ticket)
-	if ticket == "" || len(ticket) > yunzhijiaTicketMaxLength {
+	if !yunzhijiaTicketPattern.MatchString(ticket) {
 		c.JSON(400, gin.H{"success": false, "message": "请求参数不合法"})
 		return
 	}

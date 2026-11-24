@@ -10,10 +10,6 @@ const (
 	StatusInactive Status = "inactive"
 )
 
-func (s Status) valid() bool {
-	return s == StatusActive || s == StatusInactive
-}
-
 // Employee 是员工列表里的一条记录。Mobile 可以为空。
 type Employee struct {
 	OpenID     string

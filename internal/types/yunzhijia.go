@@ -17,15 +17,6 @@ const (
 	YunzhijiaEmployeeStatusInactive YunzhijiaEmployeeStatus = "inactive"
 )
 
-// IsValid 报告 s 是否为已定义状态。用于仓储写入前的边界校验。
-func (s YunzhijiaEmployeeStatus) IsValid() bool {
-	switch s {
-	case YunzhijiaEmployeeStatusActive, YunzhijiaEmployeeStatusInactive:
-		return true
-	}
-	return false
-}
-
 // YunzhijiaEmployee 是云之家员工目录与本地账号的映射行。
 //
 // 一个 open_id 只对应一行；user_id 在本地账号创建成功后回填，
@@ -39,8 +30,8 @@ type YunzhijiaEmployee struct {
 	Name string `json:"name" gorm:"type:varchar(255);not null;index:idx_yunzhijia_employees_name_status,priority:1"`
 	// Department 保留上游部门路径原文，用于判断是否属于人力空间。
 	Department string `json:"department" gorm:"type:varchar(500);not null;default:''"`
-	// Mobile 可为空；仅支撑管理员查看，不参与登录。
-	Mobile *string `json:"mobile,omitempty" gorm:"type:varchar(32)"`
+	// Mobile 可为空；存但不展示，不参与登录。
+	Mobile *string `json:"-" gorm:"type:varchar(32)"`
 	// TenantID 是该员工当前应归属的本地空间（默认 10024，人力 10022）。
 	TenantID uint64 `json:"tenant_id" gorm:"not null;index:idx_yunzhijia_employees_tenant_status,priority:1"`
 	// UserID 指向本地 users.id，未开号时为空。
@@ -124,7 +115,7 @@ type YunzhijiaSyncAnomaly struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// 同步异常类型（01-spec §10.5 清单）。
+// 同步异常类型（01-spec §10.7 清单）。
 const (
 	YunzhijiaAnomalyDuplicateName     = "duplicate_name"
 	YunzhijiaAnomalyDuplicateOpenID   = "duplicate_open_id"

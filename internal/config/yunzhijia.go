@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 	"time"
 	_ "time/tzdata" // 校验 timezone 时不依赖宿主机 tzdata
@@ -17,9 +16,6 @@ const (
 	defaultYunzhijiaEmployeePath     = "/@asd_rd/api/public/employees"
 	defaultYunzhijiaTicketUserPath   = "/@project/api/plugin-api/ProjectAndCloud/queryUserName"
 	defaultYunzhijiaAppID            = "500995523"
-	defaultYunzhijiaTenantDefault    = uint64(10024)
-	defaultYunzhijiaTenantHR         = uint64(10022)
-	defaultYunzhijiaHRDepartment     = "人力资源部"
 	defaultYunzhijiaSyncCron         = "0 3 * * *"
 	defaultYunzhijiaTimezone         = "Asia/Shanghai"
 	defaultYunzhijiaPageSize         = 500
@@ -54,29 +50,9 @@ type YunzhijiaSSOConfig struct {
 	PageSize int `yaml:"page_size" json:"page_size"`
 	// HTTPTimeoutSeconds 是单次外部请求超时。
 	HTTPTimeoutSeconds int `yaml:"http_timeout_seconds" json:"http_timeout_seconds"`
-	// StartupCatchupHours：启动时距上次成功超过该小时数就补跑一次。
+	// StartupCatchupHours 是启动补跑阈值：0 = 仅首次同步、不做过期补跑；
+	// >0 = 距上次成功超过该小时数时补跑。
 	StartupCatchupHours int `yaml:"startup_catchup_hours" json:"startup_catchup_hours"`
-}
-
-// DefaultYunzhijiaSSOConfig 返回 01-spec §13 的完整默认配置。
-// 返回的 Enabled 为 true，仅用于生成/补齐配置模板；是否启用仍由
-// 配置文件里的 enabled 显式决定。
-func DefaultYunzhijiaSSOConfig() *YunzhijiaSSOConfig {
-	return &YunzhijiaSSOConfig{
-		Enabled:             true,
-		BaseURL:             defaultYunzhijiaBaseURL,
-		EmployeePath:        defaultYunzhijiaEmployeePath,
-		TicketUserPath:      defaultYunzhijiaTicketUserPath,
-		AppID:               defaultYunzhijiaAppID,
-		TenantDefault:       defaultYunzhijiaTenantDefault,
-		TenantHR:            defaultYunzhijiaTenantHR,
-		HRDepartmentKeyword: defaultYunzhijiaHRDepartment,
-		SyncCron:            defaultYunzhijiaSyncCron,
-		Timezone:            defaultYunzhijiaTimezone,
-		PageSize:            defaultYunzhijiaPageSize,
-		HTTPTimeoutSeconds:  defaultYunzhijiaHTTPTimeoutSecs,
-		StartupCatchupHours: defaultYunzhijiaStartupCatchupHr,
-	}
 }
 
 // ApplyDefaults 用 01-spec §13 的默认值补齐零值字段。
@@ -97,15 +73,6 @@ func (c *YunzhijiaSSOConfig) ApplyDefaults() {
 	if strings.TrimSpace(c.AppID) == "" {
 		c.AppID = defaultYunzhijiaAppID
 	}
-	if c.TenantDefault == 0 {
-		c.TenantDefault = defaultYunzhijiaTenantDefault
-	}
-	if c.TenantHR == 0 {
-		c.TenantHR = defaultYunzhijiaTenantHR
-	}
-	if strings.TrimSpace(c.HRDepartmentKeyword) == "" {
-		c.HRDepartmentKeyword = defaultYunzhijiaHRDepartment
-	}
 	if strings.TrimSpace(c.SyncCron) == "" {
 		c.SyncCron = defaultYunzhijiaSyncCron
 	}
@@ -123,20 +90,15 @@ func (c *YunzhijiaSSOConfig) ApplyDefaults() {
 	}
 }
 
-// Validate 校验配置。enabled=false 时直接放行（登录/同步由调用方跳过）；
-// enabled=true 时任何缺失或非法都返回错误（fail-closed）。
+// Validate 全量校验配置；任何缺失或非法都返回错误（fail-closed）。
+// 是否启用由调用方自行判断，这里不因 enabled=false 跳过校验。
+// base_url 的格式校验只在客户端的 parseBaseURL 做一处。
 func (c *YunzhijiaSSOConfig) Validate() error {
 	if c == nil {
 		return fmt.Errorf("yunzhijia_sso: 配置段缺失")
 	}
-	if !c.Enabled {
-		return nil
-	}
 
 	var problems []string
-	if err := validateYunzhijiaBaseURL(c.BaseURL); err != nil {
-		problems = append(problems, err.Error())
-	}
 	if err := validateYunzhijiaPath("employee_path", c.EmployeePath); err != nil {
 		problems = append(problems, err.Error())
 	}
@@ -180,28 +142,6 @@ func (c *YunzhijiaSSOConfig) Validate() error {
 
 	if len(problems) > 0 {
 		return fmt.Errorf("yunzhijia_sso: %s", strings.Join(problems, "; "))
-	}
-	return nil
-}
-
-// validateYunzhijiaBaseURL 要求绝对 http(s) 地址，且不带用户信息。
-func validateYunzhijiaBaseURL(raw string) error {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return fmt.Errorf("base_url 不能为空")
-	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return fmt.Errorf("base_url 非法: %v", err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("base_url 必须是 http 或 https 地址")
-	}
-	if u.Host == "" {
-		return fmt.Errorf("base_url 缺少主机名")
-	}
-	if u.User != nil {
-		return fmt.Errorf("base_url 不允许携带用户信息")
 	}
 	return nil
 }
