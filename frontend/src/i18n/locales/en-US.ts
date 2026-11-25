@@ -4863,6 +4863,7 @@ export default {
         unblockConfirm: 'Remove the rebuild block for {name}? The account will be recreated on the next sync.',
         preview: 'Preview',
         previewTitle: 'Preview result (read-only, no account writes)',
+        previewHint: 'Preview is read-only and may take 1–2 minutes.',
         previewActive: 'Active employees',
         previewInactive: 'Inactive employees',
         previewTenantDefault: 'Default space employees',

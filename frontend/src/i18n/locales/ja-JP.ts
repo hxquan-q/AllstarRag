@@ -4863,6 +4863,7 @@ export default {
         unblockConfirm: '{name} の再作成禁止を解除しますか？アカウントは次回同期で再作成されます。',
         preview: '事前確認',
         previewTitle: '事前確認の結果（読み取り専用、アカウントは書き込みません）',
+        previewHint: '事前確認は読み取り専用で、1〜2 分かかる場合があります。',
         previewActive: '在職従業員',
         previewInactive: '退職従業員',
         previewTenantDefault: '既定スペースの従業員',

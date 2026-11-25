@@ -1,10 +1,37 @@
 <template>
-  <section class="yzj-sync" :aria-label="t('system.globalSettings.yunzhijiaSync.title')">
-    <header class="yzj-sync__header">
-      <div class="yzj-sync__heading">
-        <h3>{{ t('system.globalSettings.yunzhijiaSync.title') }}</h3>
-        <p>{{ t('system.globalSettings.yunzhijiaSync.description') }}</p>
+  <div class="yzj-sync">
+    <!-- 顶部一行：左侧状态摘要，右侧操作按钮，与「操作记录」工具条同一套风格。 -->
+    <div class="yzj-sync__toolbar">
+      <div class="yzj-sync__summary">
+        <div class="yzj-sync__status-line">
+          <t-tag
+            v-if="status"
+            :theme="status.enabled ? 'success' : 'default'"
+            variant="light"
+            size="small"
+          >
+            {{ t(status.enabled
+              ? 'system.globalSettings.yunzhijiaSync.enabled'
+              : 'system.globalSettings.yunzhijiaSync.disabled') }}
+          </t-tag>
+          <t-loading v-if="isRunning" size="small" />
+          <span v-if="latest" class="yzj-sync__muted">
+            {{ t('system.globalSettings.yunzhijiaSync.latestTitle') }}：{{ formatTime(latest.started_at) }} ·
+            {{ enumLabel('triggers', latest.trigger) }} · {{ enumLabel('statuses', latest.status) }} ·
+            {{ formatDuration(latest.duration_ms) }}
+          </span>
+          <span v-else class="yzj-sync__muted">
+            {{ t('system.globalSettings.yunzhijiaSync.noRuns') }}
+          </span>
+        </div>
+        <p class="yzj-sync__muted yzj-sync__hint">
+          {{ t('system.globalSettings.yunzhijiaSync.description') }}
+        </p>
+        <p v-if="latest?.error_summary" class="yzj-sync__error">
+          {{ t('system.globalSettings.yunzhijiaSync.errorSummary') }}：{{ latest.error_summary }}
+        </p>
       </div>
+
       <div class="yzj-sync__actions">
         <t-button variant="outline" :loading="previewing" :disabled="busy" @click="onPreview">
           {{ t('system.globalSettings.yunzhijiaSync.preview') }}
@@ -12,19 +39,25 @@
         <t-button theme="primary" :loading="syncing" :disabled="busy" @click="onSync">
           {{ t('system.globalSettings.yunzhijiaSync.syncNow') }}
         </t-button>
-        <t-button variant="text" shape="square" :loading="loading" :disabled="busy"
-          :title="t('system.globalSettings.yunzhijiaSync.refresh')"
-          :aria-label="t('system.globalSettings.yunzhijiaSync.refresh')" @click="loadStatus">
-          <template #icon><t-icon name="refresh" /></template>
+        <t-button variant="outline" :loading="loading" :disabled="busy" @click="loadStatus">
+          {{ t('system.globalSettings.yunzhijiaSync.refresh') }}
         </t-button>
+        <p v-if="previewing" class="yzj-sync__muted yzj-sync__hint">
+          {{ t('system.globalSettings.yunzhijiaSync.previewHint') }}
+        </p>
       </div>
-    </header>
+    </div>
 
-    <t-alert v-if="status && !status.enabled" theme="warning"
-      :message="t('system.globalSettings.yunzhijiaSync.disabledHint')" />
-    <t-alert v-if="loadError" theme="error" :message="loadError" />
-    <t-alert v-if="syncError" theme="error" :message="syncError" />
-    <t-alert v-if="previewError" theme="error" :message="previewError" />
+    <t-alert
+      v-if="status && !status.enabled"
+      theme="info"
+      :message="t('system.globalSettings.yunzhijiaSync.disabledHint')"
+    />
+    <t-alert v-if="loadError" theme="error" :message="loadError">
+      <template #operation>
+        <t-button size="small" @click="loadStatus">{{ t('common.retry') }}</t-button>
+      </template>
+    </t-alert>
 
     <div v-if="loading && !status" class="yzj-sync__state">
       <t-loading size="small" />
@@ -32,165 +65,105 @@
     </div>
 
     <template v-else-if="status">
-      <section class="yzj-sync__card">
-        <div class="yzj-sync__card-head">
-          <h4>{{ t('system.globalSettings.yunzhijiaSync.latestTitle') }}</h4>
-          <t-tag :theme="status.enabled ? 'success' : 'default'" variant="light" size="small">
-            {{ t(status.enabled
-              ? 'system.globalSettings.yunzhijiaSync.enabled'
-              : 'system.globalSettings.yunzhijiaSync.disabled') }}
-          </t-tag>
+      <!-- 最近一次同步的计数：不套卡片，数字大一号；0 淡色，异常用警示色。 -->
+      <dl class="yzj-sync__stats">
+        <div
+          v-for="field in countFields"
+          :key="field.key"
+          :class="{
+            'is-zero': !latest || latest[field.key] === 0,
+            'is-warning': field.key === 'anomaly_count' && (latest?.anomaly_count ?? 0) > 0,
+          }"
+        >
+          <dt>{{ t(field.labelKey) }}</dt>
+          <dd>{{ latest ? latest[field.key] : '—' }}</dd>
         </div>
+      </dl>
 
-        <template v-if="latest">
-          <dl class="yzj-sync__facts">
-            <div>
-              <dt>{{ t('system.globalSettings.yunzhijiaSync.fields.startedAt') }}</dt>
-              <dd>{{ formatDate(latest.started_at) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('system.globalSettings.yunzhijiaSync.fields.trigger') }}</dt>
-              <dd>{{ enumLabel('triggers', latest.trigger) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('system.globalSettings.yunzhijiaSync.fields.status') }}</dt>
-              <dd>{{ enumLabel('statuses', latest.status) }}</dd>
-            </div>
-            <div>
-              <dt>{{ t('system.globalSettings.yunzhijiaSync.fields.duration') }}</dt>
-              <dd>{{ formatDuration(latest.duration_ms) }}</dd>
-            </div>
-          </dl>
+      <!-- 异常 / 禁止重建 分段切换，同一时间只展示一张表。 -->
+      <div class="yzj-sync__section">
+        <t-radio-group v-model="tableMode" variant="default-filled" size="small">
+          <t-radio-button value="anomalies">
+            {{ t('system.globalSettings.yunzhijiaSync.anomaliesTitle') }}（{{ anomalies.length }}）
+          </t-radio-button>
+          <t-radio-button value="blocked">
+            {{ t('system.globalSettings.yunzhijiaSync.blockedTitle') }}（{{ blocked.length }}）
+          </t-radio-button>
+        </t-radio-group>
 
-          <dl class="yzj-sync__counts">
-            <div v-for="field in countFields" :key="field.key">
-              <dt>{{ t(field.labelKey) }}</dt>
-              <dd>{{ latest[field.key] }}</dd>
-            </div>
-          </dl>
-
-          <p v-if="latest.error_summary" class="yzj-sync__error">
-            {{ t('system.globalSettings.yunzhijiaSync.errorSummary') }}：{{ latest.error_summary }}
-          </p>
+        <template v-if="tableMode === 'anomalies'">
+          <t-table
+            v-if="anomalies.length > 0"
+            class="yzj-sync__table"
+            :data="anomalies"
+            :columns="anomalyColumns"
+            :row-key="anomalyRowKey"
+            size="medium"
+            hover
+          >
+            <template #kind="{ row }">
+              <t-tag size="small" variant="light" :theme="anomalyTagTheme(row.kind)">
+                {{ enumLabel('anomalyKinds', row.kind) }}
+              </t-tag>
+            </template>
+            <template #name="{ row }">{{ row.name || '—' }}</template>
+            <template #detail="{ row }">
+              <span class="yzj-sync__ellipsis" :title="row.detail || ''">{{ row.detail || '—' }}</span>
+            </template>
+          </t-table>
+          <t-empty v-else :description="t('system.globalSettings.yunzhijiaSync.anomaliesEmpty')" />
         </template>
-        <p v-else class="yzj-sync__empty">{{ t('system.globalSettings.yunzhijiaSync.noRuns') }}</p>
-      </section>
 
-      <section class="yzj-sync__block">
-        <h4>
-          {{ t('system.globalSettings.yunzhijiaSync.anomaliesTitle') }}
-          <span class="yzj-sync__badge">{{ latest?.anomaly_count ?? 0 }}</span>
-        </h4>
-        <p v-if="anomalies.length === 0" class="yzj-sync__empty">
-          {{ t('system.globalSettings.yunzhijiaSync.anomaliesEmpty') }}
-        </p>
-        <table v-else class="yzj-sync__table">
-          <thead>
-            <tr>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.anomalyColumns.kind') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.anomalyColumns.name') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.anomalyColumns.detail') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, index) in anomalies" :key="`${item.kind}-${item.open_id || item.name || index}`">
-              <td>{{ enumLabel('anomalyKinds', item.kind) }}</td>
-              <td>{{ item.name || '—' }}</td>
-              <td>{{ item.detail || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section class="yzj-sync__block">
-        <h4>
-          {{ t('system.globalSettings.yunzhijiaSync.blockedTitle') }}
-          <span class="yzj-sync__badge">{{ blocked.length }}</span>
-        </h4>
-        <p v-if="blocked.length === 0" class="yzj-sync__empty">
-          {{ t('system.globalSettings.yunzhijiaSync.blockedEmpty') }}
-        </p>
-        <table v-else class="yzj-sync__table">
-          <thead>
-            <tr>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.blockedColumns.openId') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.blockedColumns.name') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.blockedColumns.department') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.blockedColumns.blockedAt') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.blockedColumns.blockedBy') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.blockedColumns.actions') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in blocked" :key="row.open_id">
-              <td class="yzj-sync__mono">{{ row.open_id }}</td>
-              <td>{{ row.name || '—' }}</td>
-              <td>{{ row.department || '—' }}</td>
-              <td>{{ formatDate(row.blocked_at) }}</td>
-              <td>{{ row.blocked_by || '—' }}</td>
-              <td>
-                <t-popconfirm :content="t('system.globalSettings.yunzhijiaSync.unblockConfirm', { name: row.name })"
-                  theme="warning" placement="left"
-                  :confirm-btn="{ content: t('system.globalSettings.yunzhijiaSync.unblock'), theme: 'danger' }"
-                  :cancel-btn="t('common.cancel')" @confirm="onUnblock(row)">
-                  <t-button variant="text" size="small" :loading="unblockingOpenId === row.open_id" :disabled="busy">
-                    {{ t('system.globalSettings.yunzhijiaSync.unblock') }}
-                  </t-button>
-                </t-popconfirm>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section v-if="previewResult" class="yzj-sync__block">
-        <h4>{{ t('system.globalSettings.yunzhijiaSync.previewTitle') }}</h4>
-        <dl class="yzj-sync__counts">
-          <div>
-            <dt>{{ t('system.globalSettings.yunzhijiaSync.previewActive') }}</dt>
-            <dd>{{ previewResult.active_count }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('system.globalSettings.yunzhijiaSync.previewInactive') }}</dt>
-            <dd>{{ previewResult.inactive_count }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('system.globalSettings.yunzhijiaSync.previewTenantDefault') }}</dt>
-            <dd>{{ previewResult.tenant_default_count }}</dd>
-          </div>
-          <div>
-            <dt>{{ t('system.globalSettings.yunzhijiaSync.previewTenantHR') }}</dt>
-            <dd>{{ previewResult.tenant_hr_count }}</dd>
-          </div>
-        </dl>
-
-        <h5>
-          {{ t('system.globalSettings.yunzhijiaSync.previewAnomalies') }}
-          <span class="yzj-sync__badge">{{ previewAnomalies.length }}</span>
-        </h5>
-        <p v-if="previewAnomalies.length === 0" class="yzj-sync__empty">
-          {{ t('system.globalSettings.yunzhijiaSync.anomaliesEmpty') }}
-        </p>
-        <table v-else class="yzj-sync__table">
-          <thead>
-            <tr>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.anomalyColumns.kind') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.anomalyColumns.name') }}</th>
-              <th>{{ t('system.globalSettings.yunzhijiaSync.anomalyColumns.detail') }}</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(item, index) in previewAnomalies"
-              :key="`preview-${item.kind}-${item.open_id || item.name || index}`">
-              <td>{{ enumLabel('anomalyKinds', item.kind) }}</td>
-              <td>{{ item.name || '—' }}</td>
-              <td>{{ item.detail || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
+        <template v-else>
+          <t-table
+            v-if="blocked.length > 0"
+            class="yzj-sync__table"
+            :data="blocked"
+            :columns="blockedColumns"
+            row-key="open_id"
+            size="medium"
+            hover
+          >
+            <template #name="{ row }">
+              <div class="yzj-sync__person">
+                <span>{{ row.name || '—' }}</span>
+                <span class="yzj-sync__muted yzj-sync__mono">{{ row.open_id }}</span>
+              </div>
+            </template>
+            <template #department="{ row }">{{ row.department || '—' }}</template>
+            <template #blocked_at="{ row }">{{ formatTime(row.blocked_at) }}</template>
+            <template #blocked_by="{ row }">{{ row.blocked_by || '—' }}</template>
+            <template #actions="{ row }">
+              <t-popconfirm
+                :content="t('system.globalSettings.yunzhijiaSync.unblockConfirm', { name: row.name })"
+                theme="warning"
+                placement="left"
+                :confirm-btn="{ content: t('system.globalSettings.yunzhijiaSync.unblock'), theme: 'danger' }"
+                :cancel-btn="t('common.cancel')"
+                @confirm="onUnblock(row)"
+              >
+                <t-button
+                  variant="text"
+                  size="small"
+                  :loading="unblockingOpenId === row.open_id"
+                  :disabled="busy"
+                >
+                  {{ t('system.globalSettings.yunzhijiaSync.unblock') }}
+                </t-button>
+              </t-popconfirm>
+            </template>
+          </t-table>
+          <t-empty v-else :description="t('system.globalSettings.yunzhijiaSync.blockedEmpty')" />
+        </template>
+      </div>
     </template>
-  </section>
+
+    <YunzhijiaPreviewDialog
+      :visible="previewResult !== null"
+      :result="previewResult"
+      @close="previewResult = null"
+    />
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -205,7 +178,9 @@ import {
   type YunzhijiaAdminStatus,
   type YunzhijiaBlockedEmployee,
   type YunzhijiaPreviewResult,
+  type YunzhijiaSyncAnomaly,
 } from '@/api/system/yunzhijia'
+import YunzhijiaPreviewDialog from './YunzhijiaPreviewDialog.vue'
 
 const { t, te, locale } = useI18n()
 
@@ -216,14 +191,13 @@ const previewing = ref(false)
 const syncing = ref(false)
 const unblockingOpenId = ref<string | null>(null)
 const loadError = ref('')
-const previewError = ref('')
-const syncError = ref('')
+const tableMode = ref<'anomalies' | 'blocked'>('anomalies')
 
 const latest = computed(() => status.value?.latest ?? null)
 const anomalies = computed(() => latest.value?.anomalies ?? [])
 const blocked = computed(() => status.value?.blocked ?? [])
-const previewAnomalies = computed(() => previewResult.value?.anomalies ?? [])
 const busy = computed(() => loading.value || previewing.value || syncing.value)
+const isRunning = computed(() => latest.value?.status === 'running')
 
 const countFields = [
   { key: 'active_count', labelKey: 'system.globalSettings.yunzhijiaSync.fields.activeCount' },
@@ -235,16 +209,38 @@ const countFields = [
   { key: 'anomaly_count', labelKey: 'system.globalSettings.yunzhijiaSync.fields.anomalyCount' },
 ] as const
 
+const anomalyColumns = computed(() => [
+  { colKey: 'kind', title: t('system.globalSettings.yunzhijiaSync.anomalyColumns.kind'), width: 140 },
+  { colKey: 'name', title: t('system.globalSettings.yunzhijiaSync.anomalyColumns.name'), width: 160, ellipsis: true },
+  { colKey: 'detail', title: t('system.globalSettings.yunzhijiaSync.anomalyColumns.detail'), ellipsis: true },
+])
+
+const blockedColumns = computed(() => [
+  { colKey: 'name', title: t('system.globalSettings.yunzhijiaSync.blockedColumns.name'), width: 200, ellipsis: true },
+  { colKey: 'department', title: t('system.globalSettings.yunzhijiaSync.blockedColumns.department'), width: 160, ellipsis: true },
+  { colKey: 'blocked_at', title: t('system.globalSettings.yunzhijiaSync.blockedColumns.blockedAt'), width: 180 },
+  { colKey: 'blocked_by', title: t('system.globalSettings.yunzhijiaSync.blockedColumns.blockedBy'), width: 160, ellipsis: true },
+  { colKey: 'actions', title: t('system.globalSettings.yunzhijiaSync.blockedColumns.actions'), width: 90 },
+])
+
+function anomalyRowKey(row: YunzhijiaSyncAnomaly, index: number): string {
+  return `${row.kind}-${row.open_id || row.name || index}`
+}
+
+function anomalyTagTheme(kind: string): 'warning' | 'default' {
+  return kind === 'duplicate_name' || kind === 'provision_failed' ? 'warning' : 'default'
+}
+
 function enumLabel(group: 'triggers' | 'statuses' | 'anomalyKinds', value: string): string {
   const path = `system.globalSettings.yunzhijiaSync.${group}.${value}`
   return te(path) ? (t(path) as string) : value
 }
 
-function formatDate(value?: string | null): string {
+// 时间格式与「操作记录」一致，避免同一页出现两种时间样式。
+function formatTime(value?: string | null): string {
   if (!value) return '—'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString(locale.value, { hour12: false })
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString(locale.value)
 }
 
 function formatDuration(ms?: number): string {
@@ -275,12 +271,11 @@ async function loadStatus() {
 
 async function onPreview() {
   previewing.value = true
-  previewError.value = ''
   previewResult.value = null
   try {
     previewResult.value = await previewYunzhijiaSync()
   } catch (error) {
-    previewError.value = resolveError(error, 'system.globalSettings.yunzhijiaSync.messages.previewFailed')
+    MessagePlugin.error(resolveError(error, 'system.globalSettings.yunzhijiaSync.messages.previewFailed'))
   } finally {
     previewing.value = false
   }
@@ -288,12 +283,11 @@ async function onPreview() {
 
 async function onSync() {
   syncing.value = true
-  syncError.value = ''
   try {
     await runYunzhijiaSync()
     MessagePlugin.success(t('system.globalSettings.yunzhijiaSync.messages.syncSuccess'))
   } catch (error) {
-    syncError.value = resolveError(error, 'system.globalSettings.yunzhijiaSync.messages.syncFailed')
+    MessagePlugin.error(resolveError(error, 'system.globalSettings.yunzhijiaSync.messages.syncFailed'))
   } finally {
     syncing.value = false
     // 成功、失败、超时、409 都刷新一次状态卡：后端同步可能已在后台完成，
@@ -318,166 +312,139 @@ async function onUnblock(row: YunzhijiaBlockedEmployee) {
 onMounted(loadStatus)
 </script>
 
-<style lang="less" scoped>
+<style scoped lang="less">
 .yzj-sync {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 24px;
-  padding-top: 24px;
-  border-top: 1px solid var(--td-component-stroke);
+  gap: var(--app-space-4);
+  min-width: 0;
 }
-.yzj-sync__header {
+
+.yzj-sync__toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--app-space-3);
 }
-.yzj-sync__heading {
+
+.yzj-sync__summary {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-1);
   min-width: 0;
-  h3 {
-    margin: 0;
-    font-size: var(--app-text-lg);
-    font-weight: 600;
-    color: var(--td-text-color-primary);
-  }
-  p {
-    margin: 4px 0 0;
-    font-size: var(--app-text-sm);
-    color: var(--td-text-color-secondary);
-  }
 }
-.yzj-sync__actions {
+
+.yzj-sync__status-line {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--app-space-2);
 }
-.yzj-sync__card,
-.yzj-sync__block {
-  padding: 16px;
-  border: 1px solid var(--td-component-stroke);
-  border-radius: var(--app-radius-sm);
-}
-.yzj-sync__card-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-  h4,
-  h5 {
-    margin: 0;
-    font-size: var(--app-text-md);
-    font-weight: 600;
-  }
-}
-.yzj-sync__block h4,
-.yzj-sync__block h5 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 10px;
-  font-size: var(--app-text-md);
-  font-weight: 600;
-}
-.yzj-sync__block h5 {
-  margin-top: 16px;
+
+.yzj-sync__muted {
+  color: var(--td-text-color-secondary);
   font-size: var(--app-text-sm);
 }
-.yzj-sync__facts,
-.yzj-sync__counts {
-  display: grid;
-  gap: 12px;
+
+.yzj-sync__hint {
   margin: 0;
-  div {
-    min-width: 0;
-  }
-  dt {
-    font-size: var(--app-text-sm);
-    color: var(--td-text-color-placeholder);
-  }
-  dd {
-    margin: 2px 0 0;
-    font-size: var(--app-text-md);
-    color: var(--td-text-color-primary);
-    overflow-wrap: anywhere;
-  }
 }
-.yzj-sync__facts {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-}
-.yzj-sync__counts {
-  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px dashed var(--td-component-stroke);
-}
+
 .yzj-sync__error {
-  margin: 12px 0 0;
+  margin: 0;
   font-size: var(--app-text-sm);
   color: var(--td-error-color);
   overflow-wrap: anywhere;
 }
-.yzj-sync__empty {
-  margin: 0;
-  font-size: var(--app-text-sm);
-  color: var(--td-text-color-placeholder);
+
+.yzj-sync__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--app-space-2);
 }
+
+.yzj-sync__actions .yzj-sync__hint {
+  flex-basis: 100%;
+  text-align: right;
+}
+
 .yzj-sync__state {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 24px 0;
-  color: var(--td-text-color-placeholder);
-  font-size: var(--app-text-sm);
+  gap: var(--app-space-2);
+  padding: var(--app-space-6) 0;
+  color: var(--td-text-color-secondary);
 }
-.yzj-sync__badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 6px;
-  border-radius: var(--app-radius-pill);
-  background: var(--td-brand-color-light);
-  color: var(--td-brand-color);
-  font-size: var(--app-text-xs);
-  font-weight: 500;
-}
-.yzj-sync__table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--app-text-sm);
-  th,
-  td {
-    padding: 8px 10px;
-    text-align: left;
-    border-bottom: 1px solid var(--td-component-stroke);
-    vertical-align: top;
+
+.yzj-sync__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: var(--app-space-4);
+  margin: 0;
+
+  div {
+    min-width: 0;
   }
-  th {
+
+  dt {
+    font-size: var(--app-text-sm);
     color: var(--td-text-color-secondary);
-    font-weight: 500;
-    white-space: nowrap;
   }
-  td {
+
+  dd {
+    margin: 2px 0 0;
+    font-size: var(--app-text-xl);
+    font-weight: 600;
     color: var(--td-text-color-primary);
-    overflow-wrap: anywhere;
   }
-  tr:last-child td {
-    border-bottom: none;
+
+  .is-zero dd {
+    font-weight: 500;
+    color: var(--td-text-color-placeholder);
+  }
+
+  .is-warning dd {
+    color: var(--td-warning-color);
   }
 }
-.yzj-sync__mono {
-  font-family: var(--td-font-family-mono);
-  font-size: var(--app-text-xs);
+
+.yzj-sync__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--app-space-3);
+  min-width: 0;
 }
-@media (max-width: 860px) {
-  .yzj-sync__table {
-    display: block;
+
+.yzj-sync__table {
+  min-width: 0;
+
+  // 窄屏时表格横向滚动，不撑破 Tab 内容区。
+  :deep(.t-table__content) {
     overflow-x: auto;
   }
+}
+
+.yzj-sync__ellipsis {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yzj-sync__person {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.yzj-sync__mono {
+  overflow: hidden;
+  font-family: var(--app-font-family-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

@@ -4469,6 +4469,7 @@ export default {
         unblockConfirm: '确定解除「{name}」的禁止重建？账号将在下一轮同步重建。',
         preview: '预检',
         previewTitle: '预检结果（只读，不写入账号）',
+        previewHint: '预检为只读操作，可能需要 1–2 分钟。',
         previewActive: '在职员工',
         previewInactive: '离职员工',
         previewTenantDefault: '默认空间员工',

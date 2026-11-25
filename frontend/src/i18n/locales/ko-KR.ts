@@ -4467,6 +4467,7 @@ export default {
         unblockConfirm: '{name}의 재생성 금지를 해제하시겠습니까? 계정은 다음 동기화에서 다시 생성됩니다.',
         preview: '미리보기',
         previewTitle: '미리보기 결과(읽기 전용, 계정을 쓰지 않음)',
+        previewHint: '미리보기는 읽기 전용이며 1~2분 정도 걸릴 수 있습니다.',
         previewActive: '재직 직원',
         previewInactive: '퇴직 직원',
         previewTenantDefault: '기본 공간 직원',

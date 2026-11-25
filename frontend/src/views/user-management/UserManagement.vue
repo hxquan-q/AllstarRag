@@ -19,6 +19,12 @@
           <t-tab-panel value="members" :label="t('userManagement.invites.tabMembers')" />
           <t-tab-panel v-if="canSeeInvites" value="invites" :label="t('userManagement.invites.tabInvites')" />
           <t-tab-panel v-if="canSeeOperations" value="operations" :label="t('userManagement.operations.tab')" />
+          <!-- 云之家同步：仅系统管理员可见，不新增菜单（C6 例外）；后端逐接口校验（C4）。 -->
+          <t-tab-panel
+            v-if="isSystemAdmin"
+            value="sync"
+            :label="t('system.globalSettings.yunzhijiaSync.title')"
+          />
         </t-tabs>
 
         <div v-show="activeTab === 'members'" class="user-management__toolbar">
@@ -93,9 +99,13 @@
         />
       </KeepAlive>
 
-      <!-- 页脚插槽：调用方传入的区块放在用户管理滚动容器内、内容之后，
-           随页面一起滚动，避免作为兄弟节点被外层 overflow:hidden 裁掉。 -->
-      <slot name="footer" />
+      <!-- 云之家同步 Tab：与其它 Tab 一样 KeepAlive 保状态，未选中时不挂载。 -->
+      <KeepAlive>
+        <YunzhijiaSyncPanel
+          v-if="isSystemAdmin && activeTab === 'sync'"
+          class="user-management__sync"
+        />
+      </KeepAlive>
     </template>
 
     <UserActionDialogs
@@ -142,6 +152,7 @@ import AddUserDialog from './AddUserDialog.vue'
 import ResetPasswordDialog from './ResetPasswordDialog.vue'
 import InviteManagement from './InviteManagement.vue'
 import OperationLog from './OperationLog.vue'
+import YunzhijiaSyncPanel from '@/views/system/YunzhijiaSyncPanel.vue'
 import { useUserManagement } from './useUserManagement'
 import {
   usesPlatformAccountActions,
@@ -199,7 +210,7 @@ const canAddUser = computed(() => canCreateUser.value || canInviteUser.value)
 const canSeeInvites = computed(() => can('user.invite'))
 // 操作记录 Tab 与用户管理同门槛（user.view 能力）；数据仍由后端按空间过滤。
 const canSeeOperations = computed(() => can('user.view'))
-type ManagementTab = 'members' | 'invites' | 'operations'
+type ManagementTab = 'members' | 'invites' | 'operations' | 'sync'
 const activeTab = ref<ManagementTab>('members')
 
 const actionMode = ref<UserActionMode | null>(null)
@@ -333,6 +344,12 @@ async function onRevokeSystemAdmin(row: UserRow) {
   gap: 12px;
   min-width: 0;
   min-height: 0;
+}
+
+// 同步面板按自然高度展开，不参与 flex 压缩；超出时随页面一起滚动。
+.user-management__sync {
+  flex: 0 0 auto;
+  padding-bottom: 8px;
 }
 
 .user-management__tabs {

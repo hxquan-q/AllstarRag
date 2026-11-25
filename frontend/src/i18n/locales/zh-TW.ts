@@ -4469,6 +4469,7 @@ export default {
         unblockConfirm: '確定解除「{name}」的禁止重建？帳號將於下一輪同步重建。',
         preview: '預檢',
         previewTitle: '預檢結果（唯讀，不寫入帳號）',
+        previewHint: '預檢為唯讀操作，可能需要 1–2 分鐘。',
         previewActive: '在職員工',
         previewInactive: '離職員工',
         previewTenantDefault: '預設空間員工',
