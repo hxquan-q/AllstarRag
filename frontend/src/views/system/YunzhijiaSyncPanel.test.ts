@@ -6,7 +6,8 @@
  * - 异常清单、blocked 清单；不渲染手机号 / ticket / token；
  * - enabled=false 提示；加载态、空态、错误态；
  * - 预检（只读结果、loading、失败提示）；
- * - 手动同步（120s 由 API 用例钉住；409 / 403 / 网络提示、成功后刷新状态、请求中禁用）；
+ * - 手动同步（120s 由 API 用例钉住；409 / 403 / 网络 / 500 / 超时提示；
+ *   成功、失败、超时、409 后都刷新状态卡，不乐观显示成功；请求中禁用）；
  * - 解除 blocked（二次确认、成功刷新、失败提示）。
  *
  * t() 打桩返回 key（带参数时附参数串），断言「哪个文案键 / 哪个值」被渲染；
@@ -426,16 +427,70 @@ test('manual sync shows a success toast and refreshes the status without optimis
   assert.equal(buttons(root)[SYNC_BUTTON]!.props.loading, false)
 })
 
-test('a 409 during manual sync shows the running hint and does not refresh', async (t) => {
-  const { root, calls, messages } = mountPanel(t, { sync: statusError(409) })
+/** 构造一份把最近运行状态改成指定值的状态响应（用于验证 finally 刷新后的卡片）。 */
+function statusWithRunStatus(runStatus: 'running' | 'failed'): Record<string, unknown> {
+  return statusPayload({
+    latest: { ...(statusPayload().latest as object), status: runStatus },
+  })
+}
+
+test('a 409 during manual sync shows the running hint and still refreshes the status card', async (t) => {
+  const { root, calls, messages } = mountPanel(t, {
+    statuses: [async () => statusPayload(), async () => statusWithRunStatus('running')],
+    sync: statusError(409),
+  })
   await settle()
 
   await click(buttons(root)[SYNC_BUTTON])
   await settle()
 
-  assert.deepEqual(messages.success, [])
-  assert.ok(alerts(root).includes(`${NS}.messages.running`))
-  assert.equal(calls.status, 1)
+  assert.deepEqual(messages.success, [], '409 不提示成功')
+  assert.ok(alerts(root).includes(`${NS}.messages.running`), '409 运行中提示仍在')
+  assert.equal(calls.status, 2, '409 后 finally 仍刷新一次状态')
+  const text = textOf(root)
+  assert.ok(text.includes(`${NS}.statuses.running`), '状态卡显示后端返回的运行中')
+  assert.ok(!text.includes(`${NS}.statuses.success`), '不保留上一轮的成功态')
+  assert.equal(buttons(root)[SYNC_BUTTON]!.props.loading, false)
+})
+
+/**
+ * 手动同步失败（500 / 网络 / 120s 超时）：finally 都刷新一次状态卡，
+ * 卡片显示后端最新状态（failed），且不乐观提示成功。
+ */
+async function assertSyncFailureRefreshes(
+  t: TestContext,
+  responder: Responder,
+  expectedAlert: string,
+): Promise<void> {
+  const { root, calls, messages } = mountPanel(t, {
+    statuses: [async () => statusPayload(), async () => statusWithRunStatus('failed')],
+    sync: responder,
+  })
+  await settle()
+
+  await click(buttons(root)[SYNC_BUTTON])
+  await settle()
+
+  assert.deepEqual(messages.success, [], '失败不提示成功')
+  assert.ok(alerts(root).includes(expectedAlert), `expected ${expectedAlert}`)
+  assert.equal(calls.status, 2, '失败后 finally 仍刷新一次状态')
+  const text = textOf(root)
+  assert.ok(text.includes(`${NS}.statuses.failed`), '状态卡显示失败的运行状态')
+  assert.ok(!text.includes(`${NS}.statuses.success`), '不显示上一轮的成功态')
+  assert.equal(buttons(root)[SYNC_BUTTON]!.props.loading, false)
+}
+
+test('a 500 during manual sync refreshes the status card and shows the failure', async (t) => {
+  await assertSyncFailureRefreshes(t, statusError(500), `${NS}.messages.syncFailed`)
+})
+
+test('a network error during manual sync refreshes the status card and shows the failure', async (t) => {
+  await assertSyncFailureRefreshes(t, () => Promise.reject(new Error('offline')), `${NS}.messages.syncFailed`)
+})
+
+test('a 120s timeout during manual sync refreshes the status card and shows the failure', async (t) => {
+  const timeout = Object.assign(new Error('timeout of 120000ms exceeded'), { code: 'ECONNABORTED' })
+  await assertSyncFailureRefreshes(t, () => Promise.reject(timeout), `${NS}.messages.syncFailed`)
 })
 
 test('manual sync maps 403 and network/unknown failures to localized messages', async (t) => {
