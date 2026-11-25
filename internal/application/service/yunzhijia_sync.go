@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/config"
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/sso/yunzhijia"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -101,6 +102,9 @@ func (s *YunzhijiaSyncService) Run(
 	if err != nil {
 		return nil, err
 	}
+	// AC-20：开始日志只记录触发方式与运行 id，不打印员工姓名/名单/ticket；
+	// 完成日志由调度器带计数与耗时。
+	logger.Infof(ctx, "[Yunzhijia] 同步开始（trigger=%s, run=%d）", trigger, run.ID)
 	fetched, err := s.fetchAll(ctx)
 	if err != nil {
 		return s.failRun(ctx, run, err)
@@ -199,10 +203,16 @@ func (s *YunzhijiaSyncService) Preview(
 
 // applyActive upsert 在职员工，重新读出库内行后判断 blocked 并交给生命周期。
 // 单条失败只记异常，不影响其他人。
+//
+// blocked 记录整条跳过：先按 open_id 读取现有行，已 blocked 时不做 upsert，
+// 避免同步字段写回被禁止重建的行（AC-10 / AC-11）。
 func (s *YunzhijiaSyncService) applyActive(
 	ctx context.Context, employee yunzhijia.Employee, now time.Time,
 	counters *yzjRunCounters,
 ) []types.YunzhijiaSyncAnomaly {
+	if anomaly, skip := s.blockedBeforeUpsert(ctx, employee); skip {
+		return []types.YunzhijiaSyncAnomaly{*anomaly}
+	}
 	row := s.employeeRow(employee, types.YunzhijiaEmployeeStatusActive, now)
 	persisted, anomaly := s.persistAndReload(ctx, row)
 	if anomaly != nil {
@@ -219,11 +229,15 @@ func (s *YunzhijiaSyncService) applyActive(
 	return nil
 }
 
-// applyInactive 同样先 upsert 再读库内行，然后交给生命周期的离职处理。
+// applyInactive 同样先看现有行：blocked 记录不 upsert、不收敛状态，直接
+// 记 blocked_skipped。missing-active 收敛也走这里，因此不会改写 blocked 行。
 func (s *YunzhijiaSyncService) applyInactive(
 	ctx context.Context, employee yunzhijia.Employee, now time.Time,
 	counters *yzjRunCounters,
 ) []types.YunzhijiaSyncAnomaly {
+	if anomaly, skip := s.blockedBeforeUpsert(ctx, employee); skip {
+		return []types.YunzhijiaSyncAnomaly{*anomaly}
+	}
 	row := s.employeeRow(employee, types.YunzhijiaEmployeeStatusInactive, now)
 	persisted, anomaly := s.persistAndReload(ctx, row)
 	if anomaly != nil {
@@ -238,6 +252,26 @@ func (s *YunzhijiaSyncService) applyInactive(
 	}
 	counters.add(result)
 	return nil
+}
+
+// blockedBeforeUpsert 读取现有员工行，判断是否必须在 upsert 之前整条跳过。
+// 查询失败返回 provision_failed 异常；已 blocked 返回 blocked_skipped。
+func (s *YunzhijiaSyncService) blockedBeforeUpsert(
+	ctx context.Context, employee yunzhijia.Employee,
+) (*types.YunzhijiaSyncAnomaly, bool) {
+	existing, err := s.employeeRepo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		anomaly := provisionFailedAnomaly(&types.YunzhijiaEmployee{
+			OpenID: employee.OpenID,
+			Name:   employee.Name,
+		}, err.Error())
+		return &anomaly, true
+	}
+	if existing != nil && existing.Blocked {
+		anomaly := blockedSkippedAnomaly(existing)
+		return &anomaly, true
+	}
+	return nil, false
 }
 
 // applyMissingActive 处理「本地 active、但本轮上游 active/inactive 两批

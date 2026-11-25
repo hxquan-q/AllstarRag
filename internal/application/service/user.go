@@ -126,8 +126,6 @@ type userService struct {
 	config           *config.Config
 	systemSettingSvc interfaces.SystemSettingService
 	sandboxReleaser  SandboxOwnerReleaser
-	// yunzhijiaEmployeeLookup 可选：未注入时为 nil，密码路径保持旧行为。
-	yunzhijiaEmployeeLookup interfaces.YunzhijiaEmployeeLookup
 	// yunzhijiaState 可选：人工停用后反向标记员工目录。nil 时保持旧行为。
 	yunzhijiaState interfaces.YunzhijiaEmployeeState
 }
@@ -140,20 +138,14 @@ func NewUserService(
 	tenantService interfaces.TenantService,
 	memberService interfaces.TenantMemberService,
 	systemSettingSvc interfaces.SystemSettingService,
-	lookup ...interfaces.YunzhijiaEmployeeLookup,
 ) interfaces.UserService {
-	var employeeLookup interfaces.YunzhijiaEmployeeLookup
-	if len(lookup) > 0 {
-		employeeLookup = lookup[0]
-	}
 	return &userService{
-		userRepo:                userRepo,
-		tokenRepo:               tokenRepo,
-		tenantService:           tenantService,
-		memberService:           memberService,
-		config:                  configInfo,
-		systemSettingSvc:        systemSettingSvc,
-		yunzhijiaEmployeeLookup: employeeLookup,
+		userRepo:         userRepo,
+		tokenRepo:        tokenRepo,
+		tenantService:    tenantService,
+		memberService:    memberService,
+		config:           configInfo,
+		systemSettingSvc: systemSettingSvc,
 	}
 }
 
@@ -305,7 +297,7 @@ func (s *userService) Login(ctx context.Context, req *types.LoginRequest) (*type
 
 	// 云之家员工账号只能免登录，密码入口统一按凭证错误处理。
 	// 放在启停检查之前，避免员工账号从 "Account is disabled" 泄漏状态。
-	if s.isYunzhijiaEmployee(ctx, user.ID) {
+	if isYunzhijiaEmployeeUser(user) {
 		logger.Warn(ctx, "Password login rejected for yunzhijia employee")
 		return &types.LoginResponse{
 			Success: false,
@@ -685,19 +677,38 @@ var (
 
 // SetUserActive changes status and revokes sessions atomically with the
 // repository's self-disable and last-active-admin guards.
+//
+// 人工停用与同步生命周期共享按用户串行锁（与 ProvisionOwnerSpace 同一把
+// 锁）：锁覆盖「读员工标记 → 清 disabled_by_sync → SetUserActive」，避免
+// 同步的离职/再入职分支并发写入把管理员停用覆盖掉。锁在仓储调用返回后
+// 释放，内部不会再触发成员服务，不会自锁。
 func (s *userService) SetUserActive(ctx context.Context, userID, actorID string, active bool) (*types.User, error) {
-	// 人工停用（system.go 用户状态入口）必须先清 disabled_by_sync：标记
-	// 失败就不停用，避免留下「已停用、标记仍为 true」的账号被再入职
-	// 时的同步自动恢复。同步侧直接调仓储，不走这里。
+	release, err := acquireUserProvisionLock(ctx, s.userRepo, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	var wasSyncDisabled bool
 	if !active && s.yunzhijiaState != nil {
-		if err := s.yunzhijiaState.MarkAdminDisabled(ctx, userID); err != nil {
-			logger.Warnf(ctx,
-				"yunzhijia: 人工停用前标记 disabled_by_sync 失败（未停用）: user=%s err=%v",
-				userID, err)
-			return nil, fmt.Errorf("yunzhijia: 标记员工管理员停用失败: %w", err)
+		// 先看目标 users 行的员工标记：非员工直接跳过员工目录，
+		// 迁移缺失/员工表不可用都不影响普通账号管理。
+		target, loadErr := s.userRepo.GetUserByID(ctx, userID)
+		if loadErr != nil {
+			return nil, loadErr
+		}
+		wasSyncDisabled, err = notifyYunzhijiaAdminDisabled(ctx, s.yunzhijiaState, target)
+		if err != nil {
+			return nil, err
 		}
 	}
-	return s.userRepo.SetUserActive(ctx, userID, actorID, active)
+
+	user, err := s.userRepo.SetUserActive(ctx, userID, actorID, active)
+	if err != nil {
+		restoreYunzhijiaAdminDisabled(ctx, s.yunzhijiaState, userID, wasSyncDisabled)
+		return nil, err
+	}
+	return user, nil
 }
 
 // ListAllUsers lists every platform user newest-first for the system-admin
@@ -894,15 +905,14 @@ func (s *userService) RemoveNewlyCreatedUser(ctx context.Context, id string) err
 // registration / admin reset allow. On success every outstanding session
 // is revoked so a stolen token cannot survive the rotation.
 func (s *userService) ChangePassword(ctx context.Context, userID, oldPassword, newPassword string) error {
-	// 员工账号没有可用密码，连旧密码校验都不做，避免任何写入或 token 吊销。
-	if s.isYunzhijiaEmployee(ctx, userID) {
-		logger.Warnf(ctx, "ChangePassword denied for yunzhijia employee user=%s", userID)
-		return ErrYunzhijiaEmployeePasswordDisabled
-	}
-
 	user, err := s.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return err
+	}
+	// 员工账号没有可用密码，连旧密码校验都不做，避免任何写入或 token 吊销。
+	if isYunzhijiaEmployeeUser(user) {
+		logger.Warnf(ctx, "ChangePassword denied for yunzhijia employee user=%s", userID)
+		return ErrYunzhijiaEmployeePasswordDisabled
 	}
 
 	// Verify old password before policy checks so callers with a wrong
@@ -949,18 +959,17 @@ func (s *userService) ChangePassword(ctx context.Context, userID, oldPassword, n
 // 生产仓储实现 passwordResetTx 时，「特权目标 / 跨空间 owner 复核 + 写密码」
 // 在同一事务内完成（用户行锁 + 事务内复核），消除 T30 与 R4b 发现的 TOCTOU。
 func (s *userService) AdminResetPassword(ctx context.Context, userID, newPassword string) error {
+	user, err := s.userRepo.GetUserByID(ctx, userID)
+	if err != nil {
+		return err
+	}
 	// 员工账号禁止任何管理员设置密码；先于策略/事务路径拒绝，保证零写入。
-	if s.isYunzhijiaEmployee(ctx, userID) {
+	if isYunzhijiaEmployeeUser(user) {
 		logger.Warnf(ctx, "AdminResetPassword denied for yunzhijia employee user=%s", userID)
 		return ErrYunzhijiaEmployeePasswordDisabled
 	}
 
 	if err := ValidatePasswordPolicy(newPassword, s.complexPasswordEnabled(ctx)); err != nil {
-		return err
-	}
-
-	user, err := s.userRepo.GetUserByID(ctx, userID)
-	if err != nil {
 		return err
 	}
 	// F1（R1 修复，fail-closed）：目标持有平台级特权（IsSystemAdmin /

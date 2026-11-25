@@ -15,6 +15,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/Tencent/WeKnora/internal/config"
 	"github.com/Tencent/WeKnora/internal/types"
@@ -47,6 +48,11 @@ func NewYunzhijiaLifecycle(
 }
 
 // ApplyEmployee 处理在职员工：开号、再入职恢复或调岗。
+//
+// 已有账号时与管理员封禁/解封/停用/删除共享按用户串行锁（复用
+// LockUserProvision）。锁内重读员工行与 users 行，覆盖「读标记/IsActive →
+// 写标记/状态」；成员关系的 Add/Remove 在释放锁后执行，避免与成员服务
+// 的同一把用户锁重入死锁。
 func (l *YunzhijiaLifecycle) ApplyEmployee(
 	ctx context.Context, employee *types.YunzhijiaEmployee,
 ) (types.YunzhijiaAccountResult, error) {
@@ -60,30 +66,50 @@ func (l *YunzhijiaLifecycle) ApplyEmployee(
 		return types.YunzhijiaAccountResultCreated, nil
 	}
 
-	user, err := l.loadEmployeeUser(ctx, *employee.UserID)
+	userID := *employee.UserID
+	release, err := acquireUserProvisionLock(ctx, l.userRepo, userID)
 	if err != nil {
 		return types.YunzhijiaAccountResultNone, err
+	}
+	user, err := l.loadEmployeeUser(ctx, userID)
+	if err != nil {
+		release()
+		return types.YunzhijiaAccountResultNone, err
+	}
+	// 锁内重读员工行：管理员可能刚在锁内标记 blocked 或改了标记。
+	employee, err = l.reloadEmployee(ctx, employee.OpenID)
+	if err != nil {
+		release()
+		return types.YunzhijiaAccountResultNone, err
+	}
+	if employee.Blocked {
+		release()
+		return types.YunzhijiaAccountResultNone, nil
 	}
 	// 先看同步停用标记：再入职、管理员先手动解封等场景会留下「在职但
 	// 标记仍为 true」，登录侧会因此永久拒绝。标记为 true 一律走恢复。
 	if employee.DisabledBySync {
 		if _, err := l.userRepo.SetUserActive(ctx, user.ID, "", true); err != nil {
+			release()
 			return types.YunzhijiaAccountResultNone, err
 		}
-		// 复用调岗逻辑清理其他空间的残留成员关系，并补上目标空间。
+		if err := l.employeeRepo.SetDisabledBySync(ctx, employee.OpenID, false); err != nil {
+			release()
+			return types.YunzhijiaAccountResultNone, err
+		}
+		release()
+		// 成员写入在锁外进行：复用调岗逻辑清理其他空间的残留成员关系，
+		// 并补上目标空间。
 		if _, err := l.applyActiveUser(ctx, user, employee); err != nil {
-			return types.YunzhijiaAccountResultNone, err
-		}
-		if err := l.employeeRepo.SetDisabledBySync(
-			ctx, employee.OpenID, false,
-		); err != nil {
 			return types.YunzhijiaAccountResultNone, err
 		}
 		return types.YunzhijiaAccountResultUpdated, nil
 	}
 	if !user.IsActive {
+		release()
 		return types.YunzhijiaAccountResultNone, ErrYunzhijiaAccountBanned
 	}
+	release()
 	migrated, err := l.applyActiveUser(ctx, user, employee)
 	if err != nil {
 		return types.YunzhijiaAccountResultNone, err
@@ -95,6 +121,9 @@ func (l *YunzhijiaLifecycle) ApplyEmployee(
 }
 
 // ApplyInactive 处理离职员工：先写同步停用标记，再停用账号、移除成员关系。
+//
+// 与 ApplyEmployee 相同：用户锁覆盖标记/状态写入，成员关系移除在释放锁后
+// 执行。
 func (l *YunzhijiaLifecycle) ApplyInactive(
 	ctx context.Context, employee *types.YunzhijiaEmployee,
 ) (types.YunzhijiaAccountResult, error) {
@@ -102,12 +131,28 @@ func (l *YunzhijiaLifecycle) ApplyInactive(
 		return types.YunzhijiaAccountResultNone, nil
 	}
 
-	user, err := l.loadEmployeeUser(ctx, *employee.UserID)
+	userID := *employee.UserID
+	release, err := acquireUserProvisionLock(ctx, l.userRepo, userID)
 	if err != nil {
 		return types.YunzhijiaAccountResultNone, err
 	}
+	user, err := l.loadEmployeeUser(ctx, userID)
+	if err != nil {
+		release()
+		return types.YunzhijiaAccountResultNone, err
+	}
+	employee, err = l.reloadEmployee(ctx, employee.OpenID)
+	if err != nil {
+		release()
+		return types.YunzhijiaAccountResultNone, err
+	}
+	if employee.Blocked {
+		release()
+		return types.YunzhijiaAccountResultNone, nil
+	}
 	// 管理员封禁或已停用：同步不复用、不改写任何状态。
 	if !user.IsActive {
+		release()
 		return types.YunzhijiaAccountResultNone, nil
 	}
 	// 先写同步停用标记：若后续停用/移除成员关系失败，账号仍是 active，
@@ -116,20 +161,64 @@ func (l *YunzhijiaLifecycle) ApplyInactive(
 	if err := l.employeeRepo.SetDisabledBySync(
 		ctx, employee.OpenID, true,
 	); err != nil {
+		release()
 		return types.YunzhijiaAccountResultNone, err
 	}
 	if _, err := l.userRepo.SetUserActive(ctx, user.ID, "", false); err != nil {
+		release()
 		return types.YunzhijiaAccountResultNone, err
 	}
+	release()
 	if err := l.removeAllMemberships(ctx, user.ID); err != nil {
 		return types.YunzhijiaAccountResultNone, err
 	}
 	return types.YunzhijiaAccountResultDisabled, nil
 }
 
-// MarkAdminDisabled 清除员工的 disabled_by_sync 标记。员工目录没有该
-// 用户时直接返回，不影响封禁/停用主流程。
-func (l *YunzhijiaLifecycle) MarkAdminDisabled(ctx context.Context, userID string) error {
+// reloadEmployee 在用户锁内重读员工行，避免使用加锁前的旧快照决定
+// blocked / disabled_by_sync。行缺失视为数据不一致，记同步异常而不是
+// 中断整轮。
+func (l *YunzhijiaLifecycle) reloadEmployee(
+	ctx context.Context, openID string,
+) (*types.YunzhijiaEmployee, error) {
+	employee, err := l.employeeRepo.GetByOpenID(ctx, openID)
+	if err != nil {
+		return nil, err
+	}
+	if employee == nil {
+		return nil, fmt.Errorf("yunzhijia: 员工 %s 记录不存在", openID)
+	}
+	return employee, nil
+}
+
+// MarkAdminDisabled 清除员工的 disabled_by_sync 标记，并返回清除前的值。
+// 员工目录没有该用户时直接返回，不影响封禁/停用主流程。返回值供调用方
+// 在封禁事务失败时补偿。
+func (l *YunzhijiaLifecycle) MarkAdminDisabled(
+	ctx context.Context, userID string,
+) (bool, error) {
+	employee, err := l.employeeRepo.GetByUserID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if employee == nil {
+		return false, nil
+	}
+	wasDisabled := employee.DisabledBySync
+	if err := l.employeeRepo.SetDisabledBySync(ctx, employee.OpenID, false); err != nil {
+		return false, err
+	}
+	return wasDisabled, nil
+}
+
+// RestoreAdminDisabled 把 disabled_by_sync 恢复为封禁前的值，仅用于封禁
+// 事务失败后的补偿。wasDisabled=false 时为空操作。
+func (l *YunzhijiaLifecycle) RestoreAdminDisabled(
+	ctx context.Context, userID string, wasDisabled bool,
+) error {
+	if !wasDisabled {
+		return nil
+	}
 	employee, err := l.employeeRepo.GetByUserID(ctx, userID)
 	if err != nil {
 		return err
@@ -137,7 +226,7 @@ func (l *YunzhijiaLifecycle) MarkAdminDisabled(ctx context.Context, userID strin
 	if employee == nil {
 		return nil
 	}
-	return l.employeeRepo.SetDisabledBySync(ctx, employee.OpenID, false)
+	return l.employeeRepo.SetDisabledBySync(ctx, employee.OpenID, true)
 }
 
 // MarkBlockedAfterPurge 在墓碑化之前把员工置为禁止重建。没有员工记录时

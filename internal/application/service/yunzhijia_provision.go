@@ -191,8 +191,10 @@ func (p *YunzhijiaProvisioner) createWithUniqueUsername(
 	return lastErr
 }
 
-// ensureViewerMembership 确保用户是目标空间的 viewer；已有成员关系时
-// 不改角色。并发插入冲突视为成功（另一路已完成入组）。
+// ensureViewerMembership 确保用户是目标空间的 viewer；已有 active 成员
+// 关系时不改角色。suspended 等非 active 行交给 AddMember：其内部会走
+// ReactivateSuspended 恢复，不能把「有行」误当成「已补齐」（AC-6/AC-10）。
+// 并发插入冲突视为成功（另一路已完成入组）。
 func (p *YunzhijiaProvisioner) ensureViewerMembership(
 	ctx context.Context, userID string, tenantID uint64,
 ) error {
@@ -200,7 +202,7 @@ func (p *YunzhijiaProvisioner) ensureViewerMembership(
 	if err != nil {
 		return err
 	}
-	if member != nil {
+	if member != nil && member.Status == types.TenantMemberStatusActive {
 		return nil
 	}
 	_, err = p.memberService.AddMember(ctx, userID, tenantID, types.TenantRoleViewer, nil)

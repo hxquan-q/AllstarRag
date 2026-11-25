@@ -10,8 +10,8 @@ import (
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
 )
 
-// provideUserService 构造 UserService，并把云之家员工判定注入密码路径。
-// lookup 是可选依赖的显式接线，interfaces.UserService 公共契约不变。
+// provideUserService 构造 UserService，并接线云之家员工目录反向钩子。
+// R4 起密码守卫只看已加载 users 行的员工标记，不再需要员工仓储 lookup。
 func provideUserService(
 	configInfo *config.Config,
 	userRepo interfaces.UserRepository,
@@ -19,12 +19,10 @@ func provideUserService(
 	tenantService interfaces.TenantService,
 	memberService interfaces.TenantMemberService,
 	systemSettingSvc interfaces.SystemSettingService,
-	employeeRepo interfaces.YunzhijiaEmployeeRepository,
 	yzjLifecycle *service.YunzhijiaLifecycle,
 ) interfaces.UserService {
 	svc := service.NewUserService(
 		configInfo, userRepo, tokenRepo, tenantService, memberService, systemSettingSvc,
-		service.NewYunzhijiaEmployeeLookup(employeeRepo),
 	)
 	// 接线不对时启动直接 panic，避免云之家登录钩子静默失效。
 	svc.(interface {

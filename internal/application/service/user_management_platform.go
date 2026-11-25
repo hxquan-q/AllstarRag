@@ -61,9 +61,20 @@ func (s *userManagementService) PlatformBanUser(
 	if err != nil {
 		return nil, err
 	}
+	// 与同步生命周期共享按用户串行锁；锁内重读 users 行判断员工标记。
+	release, err := acquireUserProvisionLock(ctx, s.userRepo, target.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	target, err = s.reloadUser(ctx, target.ID)
+	if err != nil {
+		return nil, err
+	}
 	// 先清 disabled_by_sync 再封禁：标记失败就不封禁，避免再入职时被同步
 	// 当成同步停用自动解封（INV-4）。
-	if err := s.notifyYunzhijiaAdminDisabled(ctx, target.ID); err != nil {
+	wasSyncDisabled, err := notifyYunzhijiaAdminDisabled(ctx, s.yunzhijiaState, target)
+	if err != nil {
 		return nil, err
 	}
 
@@ -77,6 +88,7 @@ func (s *userManagementService) PlatformBanUser(
 		// 平台级封禁不依赖成员关系，传空角色跳过事务内成员快照复核。
 		user, err := s.banRepo.BanUserTx(ctx, 0, target.ID, auditActor(ctx), "", audit)
 		if err != nil {
+			restoreYunzhijiaAdminDisabled(ctx, s.yunzhijiaState, target.ID, wasSyncDisabled)
 			return nil, mapUserStatusError(err)
 		}
 		return user, nil
@@ -86,6 +98,7 @@ func (s *userManagementService) PlatformBanUser(
 	wasActive := target.IsActive
 	user, err := s.userRepo.SetUserActive(ctx, target.ID, auditActor(ctx), false)
 	if err != nil {
+		restoreYunzhijiaAdminDisabled(ctx, s.yunzhijiaState, target.ID, wasSyncDisabled)
 		return nil, mapUserStatusError(err)
 	}
 	// 只有真正发生 active→inactive 才写审计，重复 ban 保持幂等，也不会
@@ -115,6 +128,12 @@ func (s *userManagementService) PlatformUnbanUser(
 	if target.ID == auditActor(ctx) {
 		return nil, apperrors.NewForbiddenError("you cannot unban your own account")
 	}
+	// 与同步生命周期共享按用户串行锁，避免同步的停用/恢复分支并发覆盖。
+	release, err := acquireUserProvisionLock(ctx, s.userRepo, target.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	user, err := s.userRepo.SetUserActive(ctx, target.ID, auditActor(ctx), true)
 	if err != nil {
 		return nil, mapUserStatusError(err)
@@ -168,7 +187,19 @@ func (s *userManagementService) PlatformPurgeUser(
 	if s.purgeRepo == nil {
 		return apperrors.NewInternalServerError("user purge is not available")
 	}
-	if err := s.markYunzhijiaBlockedBeforePurge(ctx, target.ID, auditActor(ctx)); err != nil {
+	// 与同步生命周期共享按用户串行锁；锁内重读 users 行判断员工标记。
+	release, err := acquireUserProvisionLock(ctx, s.userRepo, target.ID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	target, err = s.reloadUser(ctx, target.ID)
+	if err != nil {
+		return err
+	}
+	if err := markYunzhijiaBlockedBeforePurge(
+		ctx, s.yunzhijiaState, target, auditActor(ctx),
+	); err != nil {
 		return err
 	}
 	audit := platformAuditEntry(ctx, target.ID, types.AuditActionMemberPurged, reason)

@@ -50,14 +50,6 @@ type YunzhijiaEmployeeRepository interface {
 	SetDisabledBySync(ctx context.Context, openID string, disabled bool) error
 }
 
-// YunzhijiaEmployeeLookup 判断本地用户是否由云之家开通。
-//
-// 员工账号只能走云之家免登录，密码登录、自行改密、管理员重置都要拒绝。
-// 查询失败时调用方必须按员工处理（fail-closed），不能放行密码路径。
-type YunzhijiaEmployeeLookup interface {
-	IsYunzhijiaEmployee(ctx context.Context, userID string) (bool, error)
-}
-
 // YunzhijiaAccountLifecycle 承接一轮同步后的账号动作。
 //
 // T05 只定义窄接口并用测试替身驱动同步编排；真实的开号/停用/恢复/
@@ -85,9 +77,13 @@ type YunzhijiaAccountLifecycle interface {
 // 账号当成「同步停用」自动恢复；删除授权通过后必须先标 blocked，再执行
 // 墓碑化，防止同步重建账号。实现为空依赖时调用方保持旧行为。
 type YunzhijiaEmployeeState interface {
-	// MarkAdminDisabled 清除员工的 disabled_by_sync 标记；员工目录没有
-	// 对应用户时视为无需处理。
-	MarkAdminDisabled(ctx context.Context, userID string) error
+	// MarkAdminDisabled 清除员工的 disabled_by_sync 标记，并返回清除前的
+	// 值；员工目录没有对应用户时按未标记处理。返回值供封禁失败时补偿，
+	// 避免留下「已同步停用但标记已清」的不可恢复态。
+	MarkAdminDisabled(ctx context.Context, userID string) (wasDisabled bool, err error)
+	// RestoreAdminDisabled 把 disabled_by_sync 恢复为封禁前的值。仅在
+	// 封禁事务失败时用于补偿；wasDisabled=false 时为空操作。
+	RestoreAdminDisabled(ctx context.Context, userID string, wasDisabled bool) error
 	// MarkBlockedAfterPurge 在墓碑化之前把员工置为禁止重建。
 	MarkBlockedAfterPurge(ctx context.Context, userID, actorID string) error
 }

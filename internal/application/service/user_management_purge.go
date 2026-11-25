@@ -55,9 +55,22 @@ func (s *userManagementService) PurgeUser(
 	if s.purgeRepo == nil {
 		return apperrors.NewInternalServerError("user purge is not available")
 	}
-	// 授权已通过：先让员工目录进入禁止重建状态，再执行墓碑化。标记失败
-	// 直接返回，不留下「账号已删但下一轮同步会重建」的窗口。
-	if err := s.markYunzhijiaBlockedBeforePurge(ctx, target.user.ID, auditActor(ctx)); err != nil {
+	// 与同步生命周期共享按用户串行锁：锁内重读 users 行后判断员工标记，
+	// 锁覆盖「标记 blocked → PurgeUserTx」，避免同步并发补号/恢复。
+	release, err := acquireUserProvisionLock(ctx, s.userRepo, target.user.ID)
+	if err != nil {
+		return err
+	}
+	defer release()
+	target.user, err = s.reloadUser(ctx, target.user.ID)
+	if err != nil {
+		return err
+	}
+	// 授权已通过、锁已持有：先让员工目录进入禁止重建状态，再执行墓碑化。
+	// 标记失败直接返回，不留下「账号已删但下一轮同步会重建」的窗口。
+	if err := markYunzhijiaBlockedBeforePurge(
+		ctx, s.yunzhijiaState, target.user, auditActor(ctx),
+	); err != nil {
 		return err
 	}
 	audit := purgeAuditEntry(ctx, tenantID, target, reason)
