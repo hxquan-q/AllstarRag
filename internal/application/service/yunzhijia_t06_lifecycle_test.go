@@ -549,6 +549,7 @@ func yzjT06RequireNoMutations(
 	require.Empty(t, members.addCalls, "不应加入空间")
 	require.Empty(t, members.removeCalls, "不应移除空间")
 	require.Empty(t, employees.setDisabledCalls, "不应改 disabled_by_sync")
+	require.Empty(t, employees.setUserIDCalls, "不应回填 user_id")
 	require.Empty(t, employees.markBlockedCalls, "不应标记 blocked")
 }
 
@@ -590,6 +591,8 @@ func TestYunzhijiaT06ApplyEmployeeExistingActiveEnsuresViewer(t *testing.T) {
 
 	userID := "u-t06-existing"
 	user := yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(user)
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 	employee := yzjT06Employee("open-existing-0001", "占位员工乙", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
@@ -612,7 +615,8 @@ func TestYunzhijiaT06ApplyEmployeeActiveWithoutMembershipAddsViewer(t *testing.T
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-t06-no-membership"
-	yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(yzjT06SeedActiveUser(users, userID))
 	employee := yzjT06Employee("open-no-membership-0001", "占位员工午", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	yzjT06SeedEmployeeRow(employees, employee)
@@ -634,7 +638,10 @@ func TestYunzhijiaT06ApplyEmployeeRehireRestoresAccount(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-t06-rehire"
-	yzjT06SeedActiveUser(users, userID).IsActive = false
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	user := yzjT06SeedActiveUser(users, userID)
+	user.IsActive = false
+	yzjT06MarkUserEmployee(user)
 	employee := yzjT06Employee("open-rehire-0001", "占位员工丙", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	employee.DisabledBySync = true
@@ -670,7 +677,10 @@ func TestYunzhijiaT06R4RehireWritesUnderLockThenMembership(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-t06-r4-order"
-	yzjT06SeedActiveUser(users, userID).IsActive = false
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	user := yzjT06SeedActiveUser(users, userID)
+	user.IsActive = false
+	yzjT06MarkUserEmployee(user)
 	employee := yzjT06Employee("open-r4-order-0001", "占位员工锁序", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	employee.DisabledBySync = true
@@ -696,6 +706,8 @@ func TestYunzhijiaT06ApplyEmployeeActiveRehireClearsDisabledFlag(t *testing.T) {
 
 	userID := "u-t06-rehire-flag"
 	user := yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(user)
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 	employee := yzjT06Employee("open-rehire-flag-0001", "占位员工未", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
@@ -727,7 +739,8 @@ func TestYunzhijiaT06ApplyEmployeeTransferMovesSpace(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-t06-transfer"
-	yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(yzjT06SeedActiveUser(users, userID))
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 
 	employee := yzjT06Employee("open-transfer-0001", "占位员工丁", yzjT06TenantHR)
@@ -769,7 +782,10 @@ func TestYunzhijiaT06ApplyEmployeeAdminBannedNotUnbanned(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-t06-banned"
-	yzjT06SeedActiveUser(users, userID).IsActive = false
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	user := yzjT06SeedActiveUser(users, userID)
+	user.IsActive = false
+	yzjT06MarkUserEmployee(user)
 	employee := yzjT06Employee("open-banned-0001", "占位员工己", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	employee.DisabledBySync = false
@@ -799,6 +815,64 @@ func TestYunzhijiaT06ApplyEmployeeMissingLocalUser(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// F10（R6）：在职收敛路径（授权方向）必须先过与开号/登录相同的标记/密码闸门
+// ---------------------------------------------------------------------------
+
+// F10：已链接（UserID != nil）账号缺少员工标记时，ApplyEmployee 必须
+// fail-closed，且在此前零账号/成员/标记写入。
+func TestYunzhijiaT06R6ApplyEmployeeLinkedAccountWithoutMarkerFailsClosed(
+	t *testing.T,
+) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
+
+	userID := "u-t06-f10-active-no-marker"
+	user := yzjT06SeedActiveUser(users, userID)
+	employee := yzjT06Employee(
+		"open-f10-active-no-marker", "占位员工闸门甲", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+	yzjT06SeedEmployeeRow(employees, employee)
+
+	_, err := lifecycle.ApplyEmployee(context.Background(), employee)
+	require.ErrorIs(t, err, ErrYunzhijiaEmployeeMarkerMissing,
+		"已链接账号缺少员工标记必须 fail-closed")
+	yzjT06RequireNoMutations(t, users, members, employees)
+	require.True(t, user.IsActive, "闸门失败后账号必须保持原状态")
+	require.Nil(t, user.Preferences.YunzhijiaEmployee, "零写入：员工标记保持缺失")
+}
+
+// F10：已链接账号带密码时仍按 L3 拒绝收编（先过标记闸），且零写入。
+func TestYunzhijiaT06R6ApplyEmployeeLinkedAccountWithPasswordRejected(
+	t *testing.T,
+) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
+
+	userID := "u-t06-f10-active-password"
+	user := yzjT06SeedActiveUser(users, userID)
+	yzjT06MarkUserEmployee(user)
+	user.PasswordHash = "existing-hash-placeholder"
+	employee := yzjT06Employee(
+		"open-f10-active-password", "占位员工闸门乙", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+	yzjT06SeedEmployeeRow(employees, employee)
+
+	_, err := lifecycle.ApplyEmployee(context.Background(), employee)
+	require.Error(t, err, "有密码的已链接账号不得被同步收编")
+	require.Contains(t, err.Error(), "已设置密码")
+	require.False(t, errors.Is(err, ErrYunzhijiaEmployeeMarkerMissing),
+		"有标记的账号应先过标记闸，再被密码闸拒绝")
+	yzjT06RequireNoMutations(t, users, members, employees)
+	require.Equal(t, "existing-hash-placeholder", user.PasswordHash,
+		"已有密码不得被修改")
+	require.True(t, user.IsActive)
+}
+
+// ---------------------------------------------------------------------------
 // ApplyInactive
 // ---------------------------------------------------------------------------
 
@@ -809,7 +883,8 @@ func TestYunzhijiaT06ApplyInactiveDisablesAndRevokes(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-t06-leave"
-	yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(yzjT06SeedActiveUser(users, userID))
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 	employee := yzjT06Employee("open-leave-0001", "占位员工辛", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
@@ -858,7 +933,10 @@ func TestYunzhijiaT06ApplyInactiveAdminBannedUnchanged(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-t06-banned-leave"
-	yzjT06SeedActiveUser(users, userID).IsActive = false
+	// R6/F10：已链接账号必须带员工标记，否则锁内闸门 fail-closed。
+	user := yzjT06SeedActiveUser(users, userID)
+	user.IsActive = false
+	yzjT06MarkUserEmployee(user)
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 	employee := yzjT06Employee("open-banned-leave-0001", "占位员工癸", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
@@ -887,6 +965,74 @@ func TestYunzhijiaT06ApplyInactiveMissingLocalUser(t *testing.T) {
 	_, err := lifecycle.ApplyInactive(context.Background(), employee)
 	require.ErrorIs(t, err, ErrYunzhijiaLocalUserMissing)
 	yzjT06RequireNoMutations(t, users, members, employees)
+}
+
+// F10（方向修正）：离职路径不做标记/密码 fail-closed。已链接账号缺少员工
+// 标记时，ApplyInactive 仍必须停用账号、写 disabled_by_sync、移除成员，
+// 不能把离职员工留在 active。
+func TestYunzhijiaT06R6ApplyInactiveLinkedAccountWithoutMarkerStillDeactivates(
+	t *testing.T,
+) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
+
+	userID := "u-t06-f10-leave-no-marker"
+	user := yzjT06SeedActiveUser(users, userID)
+	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
+	employee := yzjT06Employee(
+		"open-f10-leave-no-marker", "占位员工闸门丙", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+	employee.Status = types.YunzhijiaEmployeeStatusInactive
+	yzjT06SeedEmployeeRow(employees, employee)
+
+	yzjT06ApplyInactiveOK(t, lifecycle, employee)
+
+	require.Len(t, users.setActiveCalls, 1, "离职必须停用账号（清权方向不受标记闸影响）")
+	require.False(t, users.setActiveCalls[0].Active)
+	require.False(t, user.IsActive)
+	require.Len(t, employees.setDisabledCalls, 1,
+		"离职必须写 disabled_by_sync=true")
+	require.True(t, employees.setDisabledCalls[0].Disabled)
+	require.Len(t, members.removeCalls, 1, "离职必须移除成员关系")
+	require.Equal(t, yzjT06TenantDefault, members.removeCalls[0].TenantID)
+	require.False(t, members.hasMembership(userID, yzjT06TenantDefault))
+	require.Nil(t, user.Preferences.YunzhijiaEmployee,
+		"离职路径不负责回填标记，仍保持缺失")
+}
+
+// F10（方向修正）：有密码的已链接账号离职同样照常停用/移除成员，
+// 密码不构成拒绝离职的理由。
+func TestYunzhijiaT06R6ApplyInactiveLinkedAccountWithPasswordStillDeactivates(
+	t *testing.T,
+) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
+
+	userID := "u-t06-f10-leave-password"
+	user := yzjT06SeedActiveUser(users, userID)
+	yzjT06MarkUserEmployee(user)
+	user.PasswordHash = "existing-hash-placeholder"
+	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
+	employee := yzjT06Employee(
+		"open-f10-leave-password", "占位员工闸门丁", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+	employee.Status = types.YunzhijiaEmployeeStatusInactive
+	yzjT06SeedEmployeeRow(employees, employee)
+
+	yzjT06ApplyInactiveOK(t, lifecycle, employee)
+
+	require.Len(t, users.setActiveCalls, 1, "有密码也必须停用离职账号")
+	require.False(t, users.setActiveCalls[0].Active)
+	require.Len(t, employees.setDisabledCalls, 1)
+	require.True(t, employees.setDisabledCalls[0].Disabled)
+	require.Len(t, members.removeCalls, 1, "有密码也必须移除成员关系")
+	require.False(t, members.hasMembership(userID, yzjT06TenantDefault))
+	require.Equal(t, "existing-hash-placeholder", user.PasswordHash,
+		"离职不改写密码")
 }
 
 // ---------------------------------------------------------------------------

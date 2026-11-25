@@ -130,7 +130,8 @@ func TestYunzhijiaR2ApplyInactiveCallOrder(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-r2-order"
-	yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则生命周期锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(yzjT06SeedActiveUser(users, userID))
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 	employee := yzjT06Employee("open-r2-order-001", "占位员工顺", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
@@ -161,7 +162,8 @@ func TestYunzhijiaR2ApplyInactiveStopsWhenMarkerWriteFails(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
 
 	userID := "u-r2-order-fail"
-	yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则生命周期锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(yzjT06SeedActiveUser(users, userID))
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 	employee := yzjT06Employee("open-r2-order-fail", "占位员工败", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
@@ -294,7 +296,8 @@ func TestYunzhijiaR2MembershipConflictDoesNotRecordProvisionFailed(t *testing.T)
 	})
 
 	users := newYZJT06UserRepo()
-	yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则生命周期锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(yzjT06SeedActiveUser(users, userID))
 	members := newYZJT06MemberService()
 	// 模拟登录侧已并发完成入组：同步这轮 AddMember 撞唯一约束。
 	members.addErr = ErrMembershipAlreadyExists

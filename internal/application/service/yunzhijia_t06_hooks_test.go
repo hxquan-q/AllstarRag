@@ -382,7 +382,8 @@ func TestYunzhijiaT06SyncPathBypassesUserServiceHook(t *testing.T) {
 	lifecycle := yzjT06NewLifecycle(cfg, users, members, employees)
 
 	userID := "u-t06-sync-leave"
-	yzjT06SeedActiveUser(users, userID)
+	// R6/F10：已链接账号必须带员工标记，否则生命周期锁内闸门 fail-closed。
+	yzjT06MarkUserEmployee(yzjT06SeedActiveUser(users, userID))
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 	employee := yzjT06Employee("open-sync-leave-0001", "占位员工辰", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
