@@ -176,11 +176,8 @@ func (l *YunzhijiaLifecycle) lockInactiveUser(
 	if err != nil {
 		return nil, false, err
 	}
-	// 同在职路径：标记缺失或有密码的已绑定账号不得被同步停用/移除成员，
-	// 失败零写入，由同步记异常。
-	if err := checkReusableEmployeeAccount(user); err != nil {
-		return nil, false, err
-	}
+	// 离职是收权方向，闸门只拦授权路径：不得因标记缺失或有密码而
+	// fail-closed，把离职员工留在 active；停用/移除成员/吊销会话照常执行。
 	if employee.Blocked {
 		return nil, false, nil
 	}
