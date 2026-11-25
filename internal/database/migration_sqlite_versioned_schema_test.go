@@ -47,6 +47,10 @@ var versionedSQLiteTables = []string{
 	"notifications",
 	"session_sandbox_assignments",
 	"sandbox_user_machines",
+	// 000055：云之家员工目录与同步运行记录。新增表随迁移落地，
+	// 版本断言同步推进到 55。
+	"yunzhijia_employees",
+	"yunzhijia_sync_runs",
 }
 
 // versionedSQLiteColumns maps each existing table to the columns that the
@@ -90,7 +94,8 @@ var versionedSQLiteColumns = map[string][]string{
 	}, // 000028
 }
 
-const expectedSQLiteMigrationVersion = 54
+// 000055_yunzhijia_employees 之后 SQLite 最新版本为 55。
+const expectedSQLiteMigrationVersion = 55
 
 func TestSQLiteMigrationsCreateVersionedSchema(t *testing.T) {
 	repoRoot := sqliteRepoRoot(t)
