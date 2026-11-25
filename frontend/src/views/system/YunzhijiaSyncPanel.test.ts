@@ -1,28 +1,58 @@
 /**
- * T10：云之家同步面板（YunzhijiaSyncPanel.vue）渲染与交互。
+ * T10 / H2：云之家同步面板（YunzhijiaSyncPanel.vue）渲染与交互。
  *
- * 覆盖票面验收：
- * - 状态卡（enabled / 最近运行 / 触发 / 状态 / 耗时 / 计数，updated 文案「已核对」）；
- * - 异常清单、blocked 清单；不渲染手机号 / ticket / token；
- * - enabled=false 提示；加载态、空态、错误态；
- * - 预检（只读结果、loading、失败提示）；
+ * H2 按「操作记录/邀请管理」的 TDesign 规范重做视觉后，覆盖：
+ * - 顶部状态 tag + 最近一次摘要（时间 · 触发 · 状态 · 耗时）与失败摘要；
+ * - 预检 / 立即同步 / 刷新三个工具栏按钮；
+ * - 一排统计项；异常 / 禁止重建用 t-radio-group 切换，两张表都用 t-table，
+ *   空态用 t-empty；
+ * - 预检结果放进 t-dialog（单独的 YunzhijiaPreviewDialog 组件）；
+ * - enabled=false 的 info 提示；加载态、错误态（内联 alert + 重试）；
+ * - 反馈收敛：预检 / 同步 / 解除失败走 MessagePlugin.error；
  * - 手动同步（120s 由 API 用例钉住；409 / 403 / 网络 / 500 / 超时提示；
- *   成功、失败、超时、409 后都刷新状态卡，不乐观显示成功；请求中禁用）；
- * - 解除 blocked（二次确认、成功刷新、失败提示）。
+ *   成功、失败、超时、409 后都刷新状态，不乐观显示成功；请求中禁用）；
+ * - 解除 blocked（popconfirm 二次确认、成功刷新、失败提示）；
+ * - 操作人 user_id → email/username 回填，未命中回退原始 id，空值显示 —。
  *
  * t() 打桩返回 key（带参数时附参数串），断言「哪个文案键 / 哪个值」被渲染；
  * 真实中文文案与 6 locale 键集由 i18n 用例与 check-i18n 保证。
+ *
+ * t-table 是全局注册组件，测试里用 TABLE_STUB 执行各列的 scoped slot，
+ * 这样单元格内容（含操作人映射）才能进入渲染树被断言。
  */
 import assert from 'node:assert/strict'
 import test, { type TestContext } from 'node:test'
+import { h } from 'vue'
 
 import { flush } from '../../test-utils/vueFixture.ts'
 import { findByTag, mountRendered, settle, textOf, type T46Node } from '../user-management/t46SfcMount.ts'
 
 const PANEL = new URL('./YunzhijiaSyncPanel.vue', import.meta.url)
+const PREVIEW_DIALOG = new URL('./YunzhijiaPreviewDialog.vue', import.meta.url)
 const NS = 'system.globalSettings.yunzhijiaSync'
 
 const usedContexts = new WeakSet<object>()
+
+/** 执行 t-table 各列 scoped slot 的替身，把单元格真实渲染进结构树。 */
+const TABLE_STUB = {
+  name: 'TableStub',
+  props: { data: { type: Array, default: () => [] } },
+  render(this: any) {
+    const slots = this.$slots as Record<string, (props: { row: unknown; index: number }) => unknown>
+    const cellSlots = Object.keys(slots).filter(
+      (name) => name !== 'default' && typeof slots[name] === 'function',
+    )
+    const rows = (this.data as unknown[]).map((row, index) =>
+      h(
+        'tr-stub',
+        cellSlots.map((name) =>
+          h('td-stub', { slotName: name }, slots[name]!({ row, index }) as any),
+        ),
+      ),
+    )
+    return h('table-stub', rows)
+  },
+}
 
 function makeI18n() {
   return {
@@ -92,6 +122,10 @@ interface PanelOptions {
   preview?: Responder
   sync?: Responder
   unblock?: Responder
+  /** listUsers 返回的成员列表；操作人映射用。 */
+  users?: Array<Record<string, unknown>>
+  listUsersError?: Error
+  tenantId?: number | null
 }
 
 function mountPanel(t: TestContext, options: PanelOptions = {}) {
@@ -99,12 +133,21 @@ function mountPanel(t: TestContext, options: PanelOptions = {}) {
   if (usedContexts.has(t)) t.mock.timers.reset()
   usedContexts.add(t)
 
-  const calls = { status: 0, preview: 0, sync: 0, unblock: [] as string[] }
+  const calls = {
+    status: 0,
+    preview: 0,
+    sync: 0,
+    unblock: [] as string[],
+    listUsers: [] as Array<{ tenantId: number; params: unknown }>,
+  }
   const messages = { success: [] as string[], error: [] as string[] }
   const statuses = options.statuses ?? [async () => statusPayload()]
 
   const { root } = mountRendered(t, {
     component: PANEL,
+    componentFiles: { './YunzhijiaPreviewDialog.vue': PREVIEW_DIALOG },
+    components: { 't-table': TABLE_STUB },
+    props: options.tenantId === undefined ? {} : { tenantId: options.tenantId },
     dependencies: {
       'vue-i18n': makeI18n(),
       'tdesign-vue-next': {
@@ -132,6 +175,13 @@ function mountPanel(t: TestContext, options: PanelOptions = {}) {
           return (options.unblock ?? (async () => ({ success: true })))()
         },
       },
+      '@/api/user-management': {
+        listUsers: async (tenantId: number, params: unknown) => {
+          calls.listUsers.push({ tenantId, params })
+          if (options.listUsersError) throw options.listUsersError
+          return { success: true, data: { items: options.users ?? [], total: options.users?.length ?? 0 } }
+        },
+      },
     },
   })
 
@@ -144,6 +194,28 @@ function alerts(root: T46Node): string[] {
 
 function buttons(root: T46Node): T46Node[] {
   return findByTag(root, 't-button')
+}
+
+/** 空态 t-empty 的 description（t-empty 未注册，文案在 props 上）。 */
+function emptyDescriptions(root: T46Node): string[] {
+  return findByTag(root, 't-empty').map((node) => String(node.props.description ?? ''))
+}
+
+/** 取某一列所有单元格的文本（TABLE_STUB 渲染的 td-stub）。 */
+function columnTexts(root: T46Node, slotName: string): string[] {
+  return findByTag(root, 'td-stub')
+    .filter((node) => node.props.slotName === slotName)
+    .map((node) => textOf(node))
+}
+
+/** 切换异常 / 禁止重建分段。 */
+async function setTableMode(root: T46Node, mode: 'anomalies' | 'blocked'): Promise<void> {
+  const group = findByTag(root, 't-radio-group')[0]
+  assert.ok(group, '分段切换必须存在')
+  const update = group.props['onUpdate:modelValue'] as ((value: string) => void) | undefined
+  assert.equal(typeof update, 'function', 't-radio-group 必须支持 v-model')
+  update!(mode)
+  await settle(2)
 }
 
 /** header 三个按钮的固定顺序：预检、立即同步、刷新。 */
@@ -168,35 +240,39 @@ function deferred<T = unknown>() {
   return { promise, resolve, reject }
 }
 
+function statusError(status: number, message = '') {
+  return () => Promise.reject(Object.assign(new Error(message), { status }))
+}
+
 // ---------------------------------------------------------------------------
-// 状态卡 / 清单 / 空态 / enabled
+// 状态 tag / 最近摘要 / 统计 / 两张表
 // ---------------------------------------------------------------------------
 
-test('renders the enabled status card, counts, anomalies and blocked list', async (t) => {
+test('renders the status tag, latest summary, stats and the anomalies table by default', async (t) => {
   const { root, calls } = mountPanel(t)
   await settle()
   const text = textOf(root)
 
   assert.equal(calls.status, 1, '挂载即拉取状态')
 
-  // 标题 / 说明 / enabled 标签
-  assert.ok(text.includes(`${NS}.title`))
+  // 说明压成一行 muted 小字；不再有 h3 大标题。
   assert.ok(text.includes(`${NS}.description`))
-  assert.ok(text.includes(`${NS}.enabled`))
+  assert.equal(findByTag(root, 'h3').length, 0, 'H2 不再渲染 h3 大标题')
+
+  // 状态 tag：enabled 用 success，disabled 不出现。
+  const tags = findByTag(root, 't-tag')
+  assert.ok(tags.some((tag) => textOf(tag).includes(`${NS}.enabled`)))
   assert.ok(!text.includes(`${NS}.disabled`))
 
-  // 最近运行：时间 / 触发 / 状态 / 耗时
+  // 最近一次：时间 · 触发 · 状态 · 耗时；失败摘要单列。
   assert.ok(text.includes(`${NS}.latestTitle`))
-  for (const field of ['startedAt', 'trigger', 'status', 'duration']) {
-    assert.ok(text.includes(`${NS}.fields.${field}`), `missing field ${field}`)
-  }
   assert.ok(text.includes(`${NS}.triggers.manual`))
   assert.ok(text.includes(`${NS}.statuses.success`))
   assert.ok(text.includes(`${NS}.durationValue|{"seconds":"12.3"}`), '耗时按秒保留一位小数')
   assert.ok(text.includes(`${NS}.errorSummary`))
   assert.ok(text.includes('上游超时一次'))
 
-  // 计数：标签 + 值
+  // 统计项：标签 + 值，0 不是这里的分支（值都非 0）。
   for (const field of [
     'activeCount', 'inactiveCount', 'createdCount', 'updatedCount',
     'disabledCount', 'migratedCount', 'anomalyCount',
@@ -207,21 +283,36 @@ test('renders the enabled status card, counts, anomalies and blocked list', asyn
     assert.ok(text.includes(value), `missing count value ${value}`)
   }
 
-  // 异常清单：已知 kind 翻译、未知 kind 回退原值、姓名与说明原样展示
+  // 默认展示异常表；分段标签带数量。
   assert.ok(text.includes(`${NS}.anomaliesTitle`))
+  assert.ok(text.includes(`${NS}.blockedTitle`))
+  assert.equal(findByTag(root, 'table-stub').length, 1, '同一时间只展示一张表')
   assert.ok(text.includes(`${NS}.anomalyKinds.duplicate_name`))
   assert.ok(text.includes('weird_kind'), '未知异常类型回退原始 kind')
   assert.ok(text.includes('张三') && text.includes('同名 2 人'))
+})
 
-  // blocked 清单：列头 + 行数据（open_id 也用于解除操作）
-  assert.ok(text.includes(`${NS}.blockedTitle`))
-  for (const column of ['openId', 'name', 'department', 'blockedAt', 'blockedBy', 'actions']) {
-    assert.ok(text.includes(`${NS}.blockedColumns.${column}`), `missing blocked column ${column}`)
-  }
+test('the radio group switches between the anomalies and blocked tables', async (t) => {
+  const { root } = mountPanel(t)
+  await settle()
+
+  // 异常表默认选中。
+  assert.deepEqual(columnTexts(root, 'kind').length, 2)
+
+  await setTableMode(root, 'blocked')
+  const text = textOf(root)
   assert.ok(text.includes('oid-blocked-1'))
   assert.ok(text.includes('王五'))
   assert.ok(text.includes('人力资源部'))
-  assert.ok(text.includes('u-admin-1'))
+  assert.deepEqual(columnTexts(root, 'blocked_by'), ['u-admin-1'])
+  // 姓名列下挂 muted open_id。
+  const nameCell = columnTexts(root, 'name').find((cell) => cell.includes('王五'))
+  assert.ok(nameCell && nameCell.includes('oid-blocked-1'))
+  assert.equal(columnTexts(root, 'kind').length, 0, '切到禁止重建后不再渲染异常表')
+  assert.equal(findByTag(root, 'table-stub').length, 1)
+
+  await setTableMode(root, 'anomalies')
+  assert.equal(columnTexts(root, 'kind').length, 2)
 })
 
 test('the updated count label is rendered as 已核对, never 更新', async (t) => {
@@ -229,7 +320,7 @@ test('the updated count label is rendered as 已核对, never 更新', async (t)
   await settle()
   const text = textOf(root)
 
-  assert.ok(text.includes(`${NS}.fields.updatedCount`), '计数卡使用 updatedCount 标签')
+  assert.ok(text.includes(`${NS}.fields.updatedCount`), '计数项使用 updatedCount 标签')
   assert.ok(!text.includes('更新'), '面板不得出现「更新」文案')
 })
 
@@ -245,12 +336,16 @@ test('never renders mobile numbers, tickets or tokens even if the payload carrie
 
   const { root } = mountPanel(t, { statuses: [async () => leaky] })
   await settle()
-  const text = textOf(root)
-
+  let text = textOf(root)
   for (const secret of ['13800000000', '13800000001', '13800000002', 'T-SECRET-TICKET-1', 'T-SECRET-TICKET-2', 'tok-secret-1', 'tok-secret-2']) {
     assert.ok(!text.includes(secret), `must not render ${secret}`)
   }
-  assert.ok(!/ticket/i.test(text), '界面不出现 ticket 字样')
+
+  await setTableMode(root, 'blocked')
+  text = textOf(root)
+  for (const secret of ['13800000002', 'T-SECRET-TICKET-2', 'tok-secret-2']) {
+    assert.ok(!text.includes(secret), `must not render ${secret} in blocked table`)
+  }
 })
 
 test('enabled=false shows the 「登录未启用」 hint but keeps preview and manual sync usable', async (t) => {
@@ -265,9 +360,11 @@ test('enabled=false shows the 「登录未启用」 hint but keeps preview and m
   const headerButtons = buttons(root)
   assert.equal(headerButtons[PREVIEW_BUTTON]!.props.disabled, false)
   assert.equal(headerButtons[SYNC_BUTTON]!.props.disabled, false)
+  assert.equal(headerButtons[PREVIEW_BUTTON]!.props.loading, false, '预检按钮在空闲态不转圈')
+  assert.equal(headerButtons[REFRESH_BUTTON]!.props.variant, 'outline', '刷新按钮为 outline 带文字')
 })
 
-test('shows empty states when there is no run and no blocked employee', async (t) => {
+test('shows t-empty states for no run, no anomalies and no blocked employee', async (t) => {
   const { root } = mountPanel(t, {
     statuses: [async () => ({ enabled: true, blocked: [] })],
   })
@@ -275,9 +372,14 @@ test('shows empty states when there is no run and no blocked employee', async (t
   const text = textOf(root)
 
   assert.ok(text.includes(`${NS}.noRuns`))
-  assert.ok(text.includes(`${NS}.anomaliesEmpty`))
-  assert.ok(text.includes(`${NS}.blockedEmpty`))
-  assert.equal(findByTag(root, 'tbody').length, 0, '空态不渲染异常/blocked 表格')
+  assert.equal(findByTag(root, 'table-stub').length, 0, '无最近运行时不建表')
+  assert.deepEqual(emptyDescriptions(root), [`${NS}.anomaliesEmpty`])
+  // 7 个统计项在没有最近运行时都显示占位 —。
+  assert.equal(findByTag(root, 'dd').filter((node) => textOf(node) === '—').length, 7)
+
+  await setTableMode(root, 'blocked')
+  assert.deepEqual(emptyDescriptions(root), [`${NS}.blockedEmpty`])
+  assert.equal(findByTag(root, 'table-stub').length, 0)
 })
 
 test('shows the loading state before the status request resolves', async (t) => {
@@ -297,15 +399,12 @@ test('shows the loading state before the status request resolves', async (t) => 
 // 错误提示：403 / 网络 / 未知
 // ---------------------------------------------------------------------------
 
-function statusError(status: number, message = '') {
-  return () => Promise.reject(Object.assign(new Error(message), { status }))
-}
-
-test('a 403 on load shows the admin-permission hint', async (t) => {
+test('a 403 on load shows the admin-permission hint inline', async (t) => {
   const { root } = mountPanel(t, { statuses: [statusError(403)] })
   await settle()
 
   assert.ok(alerts(root).includes(`${NS}.messages.forbidden`))
+  assert.ok(findByTag(root, 't-alert').length >= 1, '加载失败走内联 alert')
 })
 
 test('a network/unknown load error falls back to the localized loadFailed message', async (t) => {
@@ -320,19 +419,25 @@ test('a network/unknown load error falls back to the localized loadFailed messag
 })
 
 // ---------------------------------------------------------------------------
-// 预检
+// 预检（t-dialog）
 // ---------------------------------------------------------------------------
 
-test('preview posts once, renders the read-only counts and its anomaly list', async (t) => {
+test('preview posts once and opens a t-dialog with read-only counts and its anomaly list', async (t) => {
   const { root, calls } = mountPanel(t)
   await settle()
+
+  const dialogBefore = findByTag(root, 't-dialog')[0]
+  assert.ok(dialogBefore, '预检结果用 t-dialog 承载')
+  assert.equal(dialogBefore!.props.visible, false)
 
   await click(buttons(root)[PREVIEW_BUTTON])
   await settle()
 
   assert.equal(calls.preview, 1)
-  const text = textOf(root)
-  assert.ok(text.includes(`${NS}.previewTitle`))
+  const dialog = findByTag(root, 't-dialog')[0]!
+  assert.equal(dialog.props.visible, true)
+  assert.equal(dialog.props.header, `${NS}.previewTitle`)
+  const text = textOf(dialog)
   for (const key of ['previewActive', 'previewInactive', 'previewTenantDefault', 'previewTenantHR']) {
     assert.ok(text.includes(`${NS}.${key}`), `missing preview field ${key}`)
   }
@@ -340,9 +445,11 @@ test('preview posts once, renders the read-only counts and its anomaly list', as
   assert.ok(text.includes(`${NS}.previewAnomalies`))
   assert.ok(text.includes(`${NS}.anomalyKinds.duplicate_open_id`))
   assert.ok(text.includes('赵六'))
+  assert.equal(findByTag(dialog, 'td-stub').filter((node) => node.props.slotName === 'kind').length, 1)
+  assert.equal(emptyDescriptions(dialog).length, 0)
 })
 
-test('preview with no anomalies shows the empty hint instead of a table', async (t) => {
+test('preview with no anomalies shows t-empty inside the dialog', async (t) => {
   const { root } = mountPanel(t, {
     preview: async () => ({ ...previewPayload(), anomalies: [] }),
   })
@@ -350,14 +457,16 @@ test('preview with no anomalies shows the empty hint instead of a table', async 
 
   await click(buttons(root)[PREVIEW_BUTTON])
   await settle()
-  const text = textOf(root)
 
-  assert.ok(text.includes(`${NS}.previewTitle`))
-  assert.ok(text.includes(`${NS}.anomaliesEmpty`))
-  assert.equal(findByTag(root, 'tbody').length, 2, '仅最近运行异常表与 blocked 表存在，预检异常为空不建表')
+  const dialog = findByTag(root, 't-dialog')[0]!
+  assert.equal(dialog.props.visible, true)
+  assert.deepEqual(emptyDescriptions(dialog), [`${NS}.anomaliesEmpty`])
+  assert.equal(findByTag(dialog, 'td-stub').length, 0)
+  // 面板本身仍显示最近一次运行的异常表，不受预检影响。
+  assert.equal(findByTag(root, 'table-stub').length, 1)
 })
 
-test('preview disables the action buttons while running and re-enables afterwards', async (t) => {
+test('preview shows the hint and disables the action buttons while running, then re-enables', async (t) => {
   const pending = deferred()
   const { root } = mountPanel(t, { preview: () => pending.promise })
   await settle()
@@ -365,6 +474,7 @@ test('preview disables the action buttons while running and re-enables afterward
   const previewClick = click(buttons(root)[PREVIEW_BUTTON])
   await flush()
   let header = buttons(root)
+  assert.ok(textOf(root).includes(`${NS}.previewHint`), '预检进行中显示 1–2 分钟提示')
   assert.equal(header[PREVIEW_BUTTON]!.props.loading, true)
   assert.equal(header[SYNC_BUTTON]!.props.disabled, true, '预检中禁用立即同步')
   assert.equal(header[REFRESH_BUTTON]!.props.disabled, true, '预检中禁用刷新')
@@ -375,20 +485,21 @@ test('preview disables the action buttons while running and re-enables afterward
   header = buttons(root)
   assert.equal(header[PREVIEW_BUTTON]!.props.loading, false)
   assert.equal(header[SYNC_BUTTON]!.props.disabled, false)
+  assert.ok(!textOf(root).includes(`${NS}.previewHint`))
 })
 
-test('a 403 on preview shows the admin-permission hint; other errors show previewFailed', async (t) => {
+test('preview failures go through MessagePlugin.error and never open the dialog', async (t) => {
   for (const [responder, expected] of [
     [statusError(403), `${NS}.messages.forbidden`],
     [statusError(500), `${NS}.messages.previewFailed`],
     [() => Promise.reject(new Error('offline')), `${NS}.messages.previewFailed`],
   ] as const) {
-    const { root } = mountPanel(t, { preview: responder })
+    const { root, messages } = mountPanel(t, { preview: responder })
     await settle()
     await click(buttons(root)[PREVIEW_BUTTON])
     await settle()
-    assert.ok(alerts(root).includes(expected), `expected ${expected}`)
-    assert.ok(!textOf(root).includes(`${NS}.previewTitle`), '失败时不展示预检结果')
+    assert.deepEqual(messages.error, [expected])
+    assert.equal(findByTag(root, 't-dialog')[0]!.props.visible, false, '失败时不展示预检结果')
   }
 })
 
@@ -427,14 +538,14 @@ test('manual sync shows a success toast and refreshes the status without optimis
   assert.equal(buttons(root)[SYNC_BUTTON]!.props.loading, false)
 })
 
-/** 构造一份把最近运行状态改成指定值的状态响应（用于验证 finally 刷新后的卡片）。 */
+/** 构造一份把最近运行状态改成指定值的状态响应（用于验证 finally 刷新后的摘要）。 */
 function statusWithRunStatus(runStatus: 'running' | 'failed'): Record<string, unknown> {
   return statusPayload({
     latest: { ...(statusPayload().latest as object), status: runStatus },
   })
 }
 
-test('a 409 during manual sync shows the running hint and still refreshes the status card', async (t) => {
+test('a 409 during manual sync shows the running hint and still refreshes the status', async (t) => {
   const { root, calls, messages } = mountPanel(t, {
     statuses: [async () => statusPayload(), async () => statusWithRunStatus('running')],
     sync: statusError(409),
@@ -445,22 +556,23 @@ test('a 409 during manual sync shows the running hint and still refreshes the st
   await settle()
 
   assert.deepEqual(messages.success, [], '409 不提示成功')
-  assert.ok(alerts(root).includes(`${NS}.messages.running`), '409 运行中提示仍在')
+  assert.deepEqual(messages.error, [`${NS}.messages.running`], '409 运行中提示走 MessagePlugin.error')
   assert.equal(calls.status, 2, '409 后 finally 仍刷新一次状态')
   const text = textOf(root)
-  assert.ok(text.includes(`${NS}.statuses.running`), '状态卡显示后端返回的运行中')
+  assert.ok(text.includes(`${NS}.statuses.running`), '摘要显示后端返回的运行中')
   assert.ok(!text.includes(`${NS}.statuses.success`), '不保留上一轮的成功态')
   assert.equal(buttons(root)[SYNC_BUTTON]!.props.loading, false)
+  assert.equal(findByTag(root, 't-loading').length, 1, '运行中显示 loading')
 })
 
 /**
- * 手动同步失败（500 / 网络 / 120s 超时）：finally 都刷新一次状态卡，
- * 卡片显示后端最新状态（failed），且不乐观提示成功。
+ * 手动同步失败（500 / 网络 / 120s 超时）：finally 都刷新一次状态，
+ * 摘要显示后端最新状态（failed），且不乐观提示成功。
  */
 async function assertSyncFailureRefreshes(
   t: TestContext,
   responder: Responder,
-  expectedAlert: string,
+  expected: string,
 ): Promise<void> {
   const { root, calls, messages } = mountPanel(t, {
     statuses: [async () => statusPayload(), async () => statusWithRunStatus('failed')],
@@ -472,23 +584,23 @@ async function assertSyncFailureRefreshes(
   await settle()
 
   assert.deepEqual(messages.success, [], '失败不提示成功')
-  assert.ok(alerts(root).includes(expectedAlert), `expected ${expectedAlert}`)
+  assert.deepEqual(messages.error, [expected], `expected ${expected}`)
   assert.equal(calls.status, 2, '失败后 finally 仍刷新一次状态')
   const text = textOf(root)
-  assert.ok(text.includes(`${NS}.statuses.failed`), '状态卡显示失败的运行状态')
+  assert.ok(text.includes(`${NS}.statuses.failed`), '摘要显示失败的运行状态')
   assert.ok(!text.includes(`${NS}.statuses.success`), '不显示上一轮的成功态')
   assert.equal(buttons(root)[SYNC_BUTTON]!.props.loading, false)
 }
 
-test('a 500 during manual sync refreshes the status card and shows the failure', async (t) => {
+test('a 500 during manual sync refreshes the status and shows the failure toast', async (t) => {
   await assertSyncFailureRefreshes(t, statusError(500), `${NS}.messages.syncFailed`)
 })
 
-test('a network error during manual sync refreshes the status card and shows the failure', async (t) => {
+test('a network error during manual sync refreshes the status and shows the failure toast', async (t) => {
   await assertSyncFailureRefreshes(t, () => Promise.reject(new Error('offline')), `${NS}.messages.syncFailed`)
 })
 
-test('a 120s timeout during manual sync refreshes the status card and shows the failure', async (t) => {
+test('a 120s timeout during manual sync refreshes the status and shows the failure toast', async (t) => {
   const timeout = Object.assign(new Error('timeout of 120000ms exceeded'), { code: 'ECONNABORTED' })
   await assertSyncFailureRefreshes(t, () => Promise.reject(timeout), `${NS}.messages.syncFailed`)
 })
@@ -504,7 +616,7 @@ test('manual sync maps 403 and network/unknown failures to localized messages', 
     await click(buttons(root)[SYNC_BUTTON])
     await settle()
     assert.deepEqual(messages.success, [])
-    assert.ok(alerts(root).includes(expected), `expected ${expected}`)
+    assert.deepEqual(messages.error, [expected])
   }
 })
 
@@ -517,6 +629,7 @@ test('unblock requires the popconfirm step and only calls the API on confirm', a
     statuses: [async () => statusPayload(), async () => statusPayload({ blocked: [] })],
   })
   await settle()
+  await setTableMode(root, 'blocked')
 
   const popconfirms = findByTag(root, 't-popconfirm')
   assert.equal(popconfirms.length, 1, '每个 blocked 行一个二次确认')
@@ -526,7 +639,7 @@ test('unblock requires the popconfirm step and only calls the API on confirm', a
   assert.ok(String(pop.props.content).includes(`${NS}.unblockConfirm`))
 
   // 行内按钮本身没有点击处理器：必须先经过 popconfirm。
-  const rowButton = buttons(root)[3]
+  const rowButton = findByTag(pop, 't-button')[0]
   assert.ok(rowButton, 'blocked 行内有解除按钮')
   assert.equal(rowButton!.props.onClick, undefined)
   assert.deepEqual(calls.unblock, [])
@@ -539,7 +652,7 @@ test('unblock requires the popconfirm step and only calls the API on confirm', a
   assert.equal(calls.status, 2, '解除成功后刷新状态')
 })
 
-test('unblock failure reports 403 or a localized fallback and does not refresh', async (t) => {
+test('unblock failure reports 403 or a localized fallback via MessagePlugin.error and does not refresh', async (t) => {
   for (const [responder, expected] of [
     [statusError(403), `${NS}.messages.forbidden`],
     [statusError(500), `${NS}.messages.unblockFailed`],
@@ -547,6 +660,7 @@ test('unblock failure reports 403 or a localized fallback and does not refresh',
   ] as const) {
     const { root, calls, messages } = mountPanel(t, { unblock: responder })
     await settle()
+    await setTableMode(root, 'blocked')
 
     const pop = findByTag(root, 't-popconfirm')[0]!
     await (pop.props.onConfirm as () => Promise<void>)()
@@ -556,4 +670,62 @@ test('unblock failure reports 403 or a localized fallback and does not refresh',
     assert.deepEqual(messages.error, [expected])
     assert.equal(calls.status, 1, '失败不刷新状态')
   }
+})
+
+// ---------------------------------------------------------------------------
+// 操作人映射（H2）
+// ---------------------------------------------------------------------------
+
+test('blocked_by maps user_id to email/username, falls back to the raw id and shows — when empty', async (t) => {
+  const users = [
+    { user_id: 'u-admin-1', email: 'admin@example.com', username: 'admin' },
+    { user_id: 'u-admin-2', email: '', username: 'ops-user' },
+  ]
+  const blocked = [
+    blockedRow({ open_id: 'oid-email', name: '甲', blocked_by: 'u-admin-1' }),
+    blockedRow({ open_id: 'oid-username', name: '乙', blocked_by: 'u-admin-2' }),
+    blockedRow({ open_id: 'oid-unknown', name: '丙', blocked_by: 'u-unknown' }),
+    blockedRow({ open_id: 'oid-empty', name: '丁', blocked_by: '' }),
+  ]
+  const { root, calls } = mountPanel(t, {
+    tenantId: 7,
+    users,
+    statuses: [async () => statusPayload({ blocked })],
+  })
+  await settle()
+  await setTableMode(root, 'blocked')
+
+  // params 在 vm 内创建，跨 realm 的 deepEqual 会因原型不同失败，逐字段断言。
+  assert.equal(calls.listUsers.length, 1)
+  assert.equal(calls.listUsers[0]!.tenantId, 7)
+  assert.equal((calls.listUsers[0]!.params as { page?: number }).page, 1)
+  assert.equal((calls.listUsers[0]!.params as { page_size?: number }).page_size, 100)
+  assert.deepEqual(columnTexts(root, 'blocked_by'), [
+    'admin@example.com',
+    'ops-user',
+    'u-unknown',
+    '—',
+  ])
+})
+
+test('a failing listUsers does not break the panel and keeps raw ids', async (t) => {
+  const { root } = mountPanel(t, {
+    tenantId: 7,
+    listUsersError: new Error('offline'),
+    statuses: [async () => statusPayload({ blocked: [blockedRow({ blocked_by: 'u-admin-1' })] })],
+  })
+  await settle()
+  await setTableMode(root, 'blocked')
+
+  assert.deepEqual(columnTexts(root, 'blocked_by'), ['u-admin-1'])
+  assert.equal(alerts(root).length, 0, '映射失败不影响面板展示，也不额外弹错')
+})
+
+test('without tenantId the operator map is not requested', async (t) => {
+  const { root, calls } = mountPanel(t)
+  await settle()
+  await setTableMode(root, 'blocked')
+
+  assert.deepEqual(calls.listUsers, [])
+  assert.deepEqual(columnTexts(root, 'blocked_by'), ['u-admin-1'])
 })

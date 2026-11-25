@@ -16,11 +16,14 @@ import test from 'node:test'
 import { LOCALE_BUNDLES, collectLocaleKeys, type LocaleName } from './localeKeyAudit.ts'
 
 const PANEL = new URL('../views/system/YunzhijiaSyncPanel.vue', import.meta.url)
+/** H2 预检结果拆到独立弹窗组件，同样要纳入字面量键扫描。 */
+const PREVIEW_DIALOG = new URL('../views/system/YunzhijiaPreviewDialog.vue', import.meta.url)
+const SOURCES = [PANEL, PREVIEW_DIALOG]
 const PREFIX = 'system.globalSettings.yunzhijiaSync.'
 const LITERAL_KEY_PATTERN = /['"](system\.globalSettings\.yunzhijiaSync\.[A-Za-z0-9_.]+)['"]/g
 
-/** 面板用到的非 yunzhijiaSync 命名空间键。 */
-const EXTERNAL_KEYS = ['common.cancel']
+/** 面板 / 预检弹窗用到的非 yunzhijiaSync 命名空间键（H2 增加重试与关闭）。 */
+const EXTERNAL_KEYS = ['common.cancel', 'common.retry', 'common.close']
 
 const FIELDS = [
   'startedAt', 'trigger', 'status', 'duration',
@@ -62,6 +65,7 @@ const EXPECTED_KEYS = [
   'unblockConfirm',
   'preview',
   'previewTitle',
+  'previewHint',
   'previewActive',
   'previewInactive',
   'previewTenantDefault',
@@ -89,9 +93,11 @@ function valueAtPath(root: unknown, path: string): unknown {
 }
 
 function referencedLiteralKeys(): string[] {
-  const source = readFileSync(PANEL, 'utf8')
   const keys = new Set<string>()
-  for (const match of source.matchAll(LITERAL_KEY_PATTERN)) keys.add(match[1]!)
+  for (const file of SOURCES) {
+    const source = readFileSync(file, 'utf8')
+    for (const match of source.matchAll(LITERAL_KEY_PATTERN)) keys.add(match[1]!)
+  }
   return [...keys].sort()
 }
 

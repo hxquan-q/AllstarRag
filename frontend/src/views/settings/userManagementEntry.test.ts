@@ -22,8 +22,8 @@ test('Settings 的 navItems 与空间分组包含 user-management，并渲染 Us
   // T20/Q31：旧「成员管理」入口隐藏，空间分组不再含 members。
   assert.match(settingsSource, /pickItems\(\['tenant', 'user-management', 'defaults'/)
   assert.doesNotMatch(settingsSource, /pickItems\(\[[^\]]*'members'/)
-  // H1：面板改走 #footer 后 UserManagement 展开为开/闭标签。
-  assert.match(settingsSource, /currentSection === 'user-management'[\s\S]*?<UserManagement\b[^>]*>[\s\S]*?<\/UserManagement>/)
+  // H2：面板移入 UserManagement 的 Tab 后，页面恢复为自闭合 <UserManagement />。
+  assert.match(settingsSource, /currentSection === 'user-management'[\s\S]*?<UserManagement\s*\/>/)
 })
 
 test('UserMenu「成员管理」指向 user-management 分区（T09/T08）', () => {
