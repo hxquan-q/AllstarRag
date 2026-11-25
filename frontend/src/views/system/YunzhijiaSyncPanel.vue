@@ -292,11 +292,13 @@ async function onSync() {
   try {
     await runYunzhijiaSync()
     MessagePlugin.success(t('system.globalSettings.yunzhijiaSync.messages.syncSuccess'))
-    await loadStatus()
   } catch (error) {
     syncError.value = resolveError(error, 'system.globalSettings.yunzhijiaSync.messages.syncFailed')
   } finally {
     syncing.value = false
+    // 成功、失败、超时、409 都刷新一次状态卡：后端同步可能已在后台完成，
+    // 刷新后如实显示 running/failed，而不是停在上一轮。
+    await loadStatus()
   }
 }
 
