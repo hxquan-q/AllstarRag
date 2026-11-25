@@ -83,30 +83,11 @@
 
       <!-- 异常 / 禁止重建 分段切换，同一时间只展示一张表。 -->
       <div class="yzj-sync__section">
-        <div class="yzj-sync__mode" role="tablist" :aria-label="t('system.globalSettings.yunzhijiaSync.title')">
-          <button
-            type="button"
-            role="tab"
-            class="yzj-sync__mode-tab"
-            :class="{ 'is-active': tableMode === 'anomalies' }"
-            :aria-selected="tableMode === 'anomalies'"
-            data-testid="yzj-sync-mode-anomalies"
-            @click="tableMode = 'anomalies'"
-          >
-            {{ t('system.globalSettings.yunzhijiaSync.anomaliesTitle') }}（{{ anomalies.length }}）
-          </button>
-          <button
-            type="button"
-            role="tab"
-            class="yzj-sync__mode-tab"
-            :class="{ 'is-active': tableMode === 'blocked' }"
-            :aria-selected="tableMode === 'blocked'"
-            data-testid="yzj-sync-mode-blocked"
-            @click="tableMode = 'blocked'"
-          >
-            {{ t('system.globalSettings.yunzhijiaSync.blockedTitle') }}（{{ blocked.length }}）
-          </button>
-        </div>
+        <YunzhijiaModeTabs
+          v-model="tableMode"
+          :anomalies="anomalies.length"
+          :blocked="blocked.length"
+        />
 
         <template v-if="tableMode === 'anomalies'">
           <t-table
@@ -114,8 +95,7 @@
             class="yzj-sync__table"
             :data="anomalies"
             :columns="anomalyColumns"
-            :row-key="anomalyRowKey"
-            :pagination="{ defaultPageSize: 10 }"
+            :pagination="anomalyPagination"
             size="medium"
             hover
           >
@@ -139,7 +119,7 @@
             :data="blocked"
             :columns="blockedColumns"
             row-key="open_id"
-            :pagination="{ defaultPageSize: 10 }"
+            :pagination="blockedPagination"
             size="medium"
             hover
           >
@@ -198,9 +178,9 @@ import {
   type YunzhijiaAdminStatus,
   type YunzhijiaBlockedEmployee,
   type YunzhijiaPreviewResult,
-  type YunzhijiaSyncAnomaly,
 } from '@/api/system/yunzhijia'
 import YunzhijiaPreviewDialog from './YunzhijiaPreviewDialog.vue'
+import YunzhijiaModeTabs from './YunzhijiaModeTabs.vue'
 
 const props = defineProps<{ tenantId?: number | null }>()
 
@@ -219,6 +199,16 @@ const tableMode = ref<'anomalies' | 'blocked'>('anomalies')
 const latest = computed(() => status.value?.latest ?? null)
 const anomalies = computed(() => latest.value?.anomalies ?? [])
 const blocked = computed(() => status.value?.blocked ?? [])
+const anomalyPagination = computed(() => ({
+  defaultCurrent: 1,
+  defaultPageSize: 10,
+  total: anomalies.value.length,
+}))
+const blockedPagination = computed(() => ({
+  defaultCurrent: 1,
+  defaultPageSize: 10,
+  total: blocked.value.length,
+}))
 const busy = computed(() => loading.value || previewing.value || syncing.value)
 const isRunning = computed(() => latest.value?.status === 'running')
 
@@ -245,10 +235,6 @@ const blockedColumns = computed(() => [
   { colKey: 'blocked_by', title: t('system.globalSettings.yunzhijiaSync.blockedColumns.blockedBy'), width: 160, ellipsis: true },
   { colKey: 'actions', title: t('system.globalSettings.yunzhijiaSync.blockedColumns.actions'), width: 90 },
 ])
-
-function anomalyRowKey(row: YunzhijiaSyncAnomaly, index: number): string {
-  return `${row.kind}-${row.open_id || row.name || index}`
-}
 
 function anomalyTagTheme(kind: string): 'warning' | 'default' {
   return kind === 'duplicate_name' || kind === 'provision_failed' ? 'warning' : 'default'
@@ -463,43 +449,6 @@ onMounted(loadStatus)
   flex-direction: column;
   gap: var(--app-space-3);
   min-width: 0;
-}
-
-/* 与成员列表的 Tab 一致：文字 + 蓝色下划线，不用填充胶囊/白底方块。 */
-.yzj-sync__mode {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  border-bottom: 1px solid var(--td-component-stroke);
-}
-
-.yzj-sync__mode-tab {
-  appearance: none;
-  margin: 0 0 -1px;
-  padding: 8px 0 10px;
-  border: 0;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  font: inherit;
-  font-size: var(--app-text-sm);
-  color: var(--td-text-color-secondary);
-  cursor: pointer;
-  transition: color 0.2s, border-color 0.2s;
-
-  &:hover {
-    color: var(--td-text-color-primary);
-  }
-
-  &.is-active {
-    color: var(--td-brand-color);
-    border-bottom-color: var(--td-brand-color);
-    font-weight: 500;
-  }
-
-  &:focus-visible {
-    outline: 2px solid var(--td-brand-color);
-    outline-offset: 2px;
-  }
 }
 
 .yzj-sync__table {

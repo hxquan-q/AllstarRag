@@ -29,6 +29,7 @@ import { findByTag, mountRendered, settle, textOf, type T46Node } from '../user-
 
 const PANEL = new URL('./YunzhijiaSyncPanel.vue', import.meta.url)
 const PREVIEW_DIALOG = new URL('./YunzhijiaPreviewDialog.vue', import.meta.url)
+const MODE_TABS = new URL('./YunzhijiaModeTabs.vue', import.meta.url)
 const NS = 'system.globalSettings.yunzhijiaSync'
 
 const usedContexts = new WeakSet<object>()
@@ -148,7 +149,10 @@ function mountPanel(t: TestContext, options: PanelOptions = {}) {
 
   const { root } = mountRendered(t, {
     component: PANEL,
-    componentFiles: { './YunzhijiaPreviewDialog.vue': PREVIEW_DIALOG },
+    componentFiles: {
+      './YunzhijiaPreviewDialog.vue': PREVIEW_DIALOG,
+      './YunzhijiaModeTabs.vue': MODE_TABS,
+    },
     components: { 't-table': TABLE_STUB },
     props: options.tenantId === undefined ? {} : { tenantId: options.tenantId },
     dependencies: {
@@ -317,6 +321,8 @@ test('renders the status tag, latest summary, stats and the anomalies table by d
   assert.ok(text.includes(`${NS}.blockedTitle`))
   assert.equal(findByTag(root, 'table-stub').length, 1, '同一时间只展示一张表')
   assert.equal(tablePagination(root)[0]!.defaultPageSize, 10, '异常表前端分页 10 条')
+  assert.equal(tablePagination(root)[0]!.defaultCurrent, 1, '异常表分页从第 1 页开始')
+  assert.equal(tablePagination(root)[0]!.total, 2, '异常表分页 total 必须与行数一致')
   assert.ok(text.includes(`${NS}.anomalyKinds.duplicate_name`))
   assert.ok(text.includes('weird_kind'), '未知异常类型回退原始 kind')
   assert.ok(text.includes('张三') && text.includes('同名 2 人'))
@@ -341,6 +347,8 @@ test('the mode tabs switch between the anomalies and blocked tables', async (t) 
   assert.equal(columnTexts(root, 'kind').length, 0, '切到禁止重建后不再渲染异常表')
   assert.equal(findByTag(root, 'table-stub').length, 1)
   assert.equal(tablePagination(root)[0]!.defaultPageSize, 10, '禁止重建表前端分页 10 条')
+  assert.equal(tablePagination(root)[0]!.defaultCurrent, 1, '禁止重建表分页从第 1 页开始')
+  assert.equal(tablePagination(root)[0]!.total, 1, '禁止重建表分页 total 必须与行数一致')
 
   await setTableMode(root, 'anomalies')
   assert.equal(columnTexts(root, 'kind').length, 2)

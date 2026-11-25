@@ -22,7 +22,6 @@
         v-if="result.anomalies.length > 0"
         :data="result.anomalies"
         :columns="columns"
-        :row-key="rowKey"
         size="medium"
         hover
         max-height="360"
@@ -51,7 +50,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { YunzhijiaPreviewResult, YunzhijiaSyncAnomaly } from '@/api/system/yunzhijia'
+import type { YunzhijiaPreviewResult } from '@/api/system/yunzhijia'
 
 defineProps<{
   visible: boolean
@@ -74,10 +73,6 @@ const columns = computed(() => [
   { colKey: 'name', title: t('system.globalSettings.yunzhijiaSync.anomalyColumns.name'), width: 160, ellipsis: true },
   { colKey: 'detail', title: t('system.globalSettings.yunzhijiaSync.anomalyColumns.detail'), ellipsis: true },
 ])
-
-function rowKey(row: YunzhijiaSyncAnomaly, index: number): string {
-  return `${row.kind}-${row.open_id || row.name || index}`
-}
 
 function tagTheme(kind: string): 'warning' | 'default' {
   return kind === 'duplicate_name' || kind === 'provision_failed' ? 'warning' : 'default'

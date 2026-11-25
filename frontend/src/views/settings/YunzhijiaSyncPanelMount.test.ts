@@ -39,7 +39,7 @@ test('UserManagement renders the sync panel as a system-admin-only fourth tab (H
     'Tab 标题复用现有 i18n 键，不新增标题键',
   )
 
-  // 面板内容在 Tab 内，未选中不挂载（KeepAlive + v-if）。
+  // 面板内容在 Tab 内，未选中不挂载（直接 v-if，无 KeepAlive）。
   const mount = userManagementSource.match(/<YunzhijiaSyncPanel\b[\s\S]*?\/>/)
   assert.ok(mount, 'UserManagement 必须挂载同步面板')
   assert.match(
