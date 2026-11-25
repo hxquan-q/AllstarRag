@@ -66,9 +66,9 @@ func TestYunzhijiaValidateRejectsBadBaseURL(t *testing.T) {
 
 func TestYunzhijiaValidateRejectsPathWithQueryOrFragment(t *testing.T) {
 	cases := []struct {
-		name  string
-		mut   func(*YunzhijiaSSOConfig)
-		want  string
+		name string
+		mut  func(*YunzhijiaSSOConfig)
+		want string
 	}{
 		{"employee_path 带 ?", func(c *YunzhijiaSSOConfig) {
 			c.EmployeePath = "/employees?status=active"

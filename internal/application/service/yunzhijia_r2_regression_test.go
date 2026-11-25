@@ -149,7 +149,7 @@ func TestYunzhijiaR2ApplyInactiveStopsWhenMarkerWriteFails(t *testing.T) {
 
 	_, err := lifecycle.ApplyInactive(context.Background(), employee)
 	require.ErrorIs(t, err, boom)
-	require.Equal(t, []string{"set-disabled:true"}, order,
+	require.Empty(t, order,
 		"标记写入失败后不得继续停用账号或移除成员关系")
 	require.Empty(t, users.setActiveCalls)
 	require.Empty(t, members.removeCalls)
