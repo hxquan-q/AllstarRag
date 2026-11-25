@@ -9578,6 +9578,15 @@ definitions:
           UI hides self-service password rotation until the user sets a known
           password via ChangePassword (which clears this flag).
         type: boolean
+      yunzhijia_employee:
+        description: |-
+          YunzhijiaEmployee is set server-side when the account is provisioned
+          by the Yunzhijia employee sync. Yunzhijia employees have no local
+          password and must sign in through Yunzhijia, so the profile UI hides
+          the password-rotation entry for these accounts. It is never accepted
+          from client preference updates (no merge branch in
+          UpdateUserPreferences by design).
+        type: boolean
     type: object
   github_com_Tencent_WeKnora_internal_types.UserResourceFavorite:
     properties:

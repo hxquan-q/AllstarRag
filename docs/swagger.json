@@ -37639,6 +37639,10 @@
                 "oidc_only_login": {
                     "description": "OidcOnlyLogin is set server-side when an account is auto-provisioned\nvia OIDC with a random password the user never received. The profile\nUI hides self-service password rotation until the user sets a known\npassword via ChangePassword (which clears this flag).",
                     "type": "boolean"
+                },
+                "yunzhijia_employee": {
+                    "description": "YunzhijiaEmployee is set server-side when the account is provisioned\nby the Yunzhijia employee sync. Yunzhijia employees have no local\npassword and must sign in through Yunzhijia, so the profile UI hides\nthe password-rotation entry for these accounts. It is never accepted\nfrom client preference updates (no merge branch in\nUpdateUserPreferences by design).",
+                    "type": "boolean"
                 }
             }
         },
