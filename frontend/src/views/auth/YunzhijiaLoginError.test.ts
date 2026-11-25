@@ -57,6 +57,18 @@ test('a server message is shown verbatim and wins over the status fallback', (t)
   }
 })
 
+test('a 429 rate-limit response shows the localized hint, not the English server message', (t) => {
+  // L2：后端限速中间件返回英文文案；中文界面必须优先本地化提示。
+  const text = renderedText(t, {
+    status: 429,
+    message: 'too many requests, please try again later',
+  })
+
+  assert.match(text, /auth\.yunzhijia\.errorRateLimited/)
+  assert.doesNotMatch(text, /too many requests/i,
+    '英文限速文案不得覆盖本地化提示')
+})
+
 test('without a server message, the status code selects the localized fallback', (t) => {
   const cases: Array<[unknown, string]> = [
     [{ status: 400 }, 'errorInvalidTicket'],

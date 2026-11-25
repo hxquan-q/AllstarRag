@@ -43,7 +43,7 @@ func TestYunzhijiaT06MarkBlockedKeepsUserIDUnblockClearsIt(t *testing.T) {
 		UserID:     &userID,
 		Status:     types.YunzhijiaEmployeeStatusInactive,
 	}
-	if err := repo.Create(ctx, employee); err != nil {
+	if err := repo.UpsertByOpenID(ctx, employee); err != nil {
 		t.Fatalf("创建员工: %v", err)
 	}
 
@@ -108,7 +108,7 @@ func TestYunzhijiaT08UnblockClearsDisabledBySyncAndAllowsRebuild(t *testing.T) {
 		DisabledBySync: true,
 		Status:         types.YunzhijiaEmployeeStatusInactive,
 	}
-	if err := repo.Create(ctx, employee); err != nil {
+	if err := repo.UpsertByOpenID(ctx, employee); err != nil {
 		t.Fatalf("创建员工: %v", err)
 	}
 

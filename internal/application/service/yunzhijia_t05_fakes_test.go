@@ -335,19 +335,6 @@ func (r *yzjT05EmployeeRepo) Unblock(_ context.Context, openID string) error {
 	return nil
 }
 
-func (r *yzjT05EmployeeRepo) UpdateSyncedFields(
-	_ context.Context, employee *types.YunzhijiaEmployee,
-) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	cur, ok := r.byOpenID[employee.OpenID]
-	if !ok {
-		return repository.ErrYunzhijiaEmployeeNotFound
-	}
-	r.applySyncedLocked(cur, employee)
-	return nil
-}
-
 func (r *yzjT05EmployeeRepo) SetDisabledBySync(
 	_ context.Context, openID string, disabled bool,
 ) error {
@@ -358,18 +345,6 @@ func (r *yzjT05EmployeeRepo) SetDisabledBySync(
 		return repository.ErrYunzhijiaEmployeeNotFound
 	}
 	row.DisabledBySync = disabled
-	return nil
-}
-
-func (r *yzjT05EmployeeRepo) Create(
-	_ context.Context, employee *types.YunzhijiaEmployee,
-) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, ok := r.byOpenID[employee.OpenID]; ok {
-		return repository.ErrYunzhijiaEmployeeExists
-	}
-	r.byOpenID[employee.OpenID] = yzjT05CloneEmployee(employee)
 	return nil
 }
 

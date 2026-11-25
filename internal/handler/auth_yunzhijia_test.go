@@ -72,10 +72,12 @@ func yzjT03HandlerSuccessResponse() *types.LoginResponse {
 
 // yzjT03EnabledConfig 返回一份能通过 Validate 的完整配置。
 // handler 在入口对配置做全量校验（配置非法即 503），夹具必须给齐必填项；
-// BaseURL 由客户端解析，不在 Validate 校验范围内，这里不填。
+// R2 起 Validate 也校验 base_url（scheme/host/无 query/fragment），
+// 夹具必须提供合法地址，否则所有用例只会拿到 503。
 func yzjT03EnabledConfig() *config.YunzhijiaSSOConfig {
 	return &config.YunzhijiaSSOConfig{
 		Enabled:             true,
+		BaseURL:             "https://yunzhijia.invalid",
 		EmployeePath:        "/@asd_rd/api/public/employees",
 		TicketUserPath:      "/@asd_rd/api/public/ticket/user",
 		AppID:               "placeholder-app-id",

@@ -50,6 +50,7 @@ func newYZJT03RoutesEngine(t *testing.T) *gin.Engine {
 	// handler 入口会全量校验配置，夹具需给齐必填项，否则路由用例只会拿到 503。
 	cfg := &config.YunzhijiaSSOConfig{
 		Enabled:             true,
+		BaseURL:             "https://yunzhijia.invalid",
 		EmployeePath:        "/@asd_rd/api/public/employees",
 		TicketUserPath:      "/@asd_rd/api/public/ticket/user",
 		AppID:               "placeholder-app-id",

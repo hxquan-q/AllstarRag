@@ -88,7 +88,6 @@ type yzjT03EmployeeRepo struct {
 	mu             sync.Mutex
 	byOpenID       map[string]*types.YunzhijiaEmployee
 	setUserIDCalls []yzjT03SetUserIDCall
-	syncedCalls    int
 }
 
 func newYZJT03EmployeeRepo(employees ...*types.YunzhijiaEmployee) *yzjT03EmployeeRepo {
@@ -146,13 +145,6 @@ func (r *yzjT03EmployeeRepo) SetUserID(_ context.Context, openID string, userID 
 	id := userID
 	e.UserID = &id
 	r.setUserIDCalls = append(r.setUserIDCalls, yzjT03SetUserIDCall{OpenID: openID, UserID: userID})
-	return nil
-}
-
-func (r *yzjT03EmployeeRepo) UpdateSyncedFields(context.Context, *types.YunzhijiaEmployee) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.syncedCalls++
 	return nil
 }
 

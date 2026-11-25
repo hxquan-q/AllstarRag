@@ -130,6 +130,8 @@ interface MountOptions {
   component: URL
   dependencies: Record<string, unknown>
   props?: Record<string, unknown>
+  /** 模板用 $t 的组件（未把 t 暴露到 setup 返回值）需要在这里注入。 */
+  globalProperties?: Record<string, unknown>
 }
 
 /** 卸载前先排干调度队列：避免断言失败提前结束后，残留的微任务在卸载后继续 patch。 */
@@ -149,6 +151,7 @@ export function mountRendered(t: TestContext, options: MountOptions) {
   const comp = compileSfcComponent(f, options.component, options.dependencies)
   const root = node('root')
   const app = createStructRenderer(root).createApp(comp, options.props ?? {})
+  Object.assign(app.config.globalProperties, options.globalProperties ?? {})
   app.config.warnHandler = () => {}
   const vm = app.mount(root)
   t.after(() => unmountQuietly(app))

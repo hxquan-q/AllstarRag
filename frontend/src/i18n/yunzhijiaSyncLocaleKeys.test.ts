@@ -37,9 +37,7 @@ const ANOMALY_KINDS = [
   'provision_failed',
   'blocked_skipped',
   'banned_skipped',
-  'membership_failed',
   'local_user_missing',
-  'upstream_failed',
   'local_active_missing',
 ] as const
 

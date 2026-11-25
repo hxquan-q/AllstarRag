@@ -26,6 +26,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -116,6 +117,9 @@ type yzjT06UserRepo struct {
 	createCalls    []*types.User
 	setActiveCalls []yzjT06SetActiveCall
 	updateCalls    []*types.User
+
+	// order 非 nil 时记录跨替身的调用顺序（L1 顺序断言用）。
+	order *[]string
 }
 
 func newYZJT06UserRepo() *yzjT06UserRepo {
@@ -154,6 +158,13 @@ func (r *yzjT06UserRepo) SetUserActive(
 		Actor:  actorID,
 		Active: active,
 	})
+	if r.order != nil {
+		state := "false"
+		if active {
+			state = "true"
+		}
+		*r.order = append(*r.order, "set-active:"+state)
+	}
 	user, ok := r.users[userID]
 	if !ok {
 		return &types.User{ID: userID, IsActive: active}, nil
@@ -185,6 +196,9 @@ type yzjT06MemberService struct {
 	addCalls    []yzjT06MemberCall
 	removeCalls []yzjT06MemberCall
 	events      []string
+
+	// order 非 nil 时记录跨替身的调用顺序（L1 顺序断言用）。
+	order *[]string
 
 	getMembershipErr error
 	addErr           error
@@ -252,6 +266,9 @@ func (m *yzjT06MemberService) RemoveMember(
 		UserID: userID, TenantID: tenantID,
 	})
 	m.events = append(m.events, "remove")
+	if m.order != nil {
+		*m.order = append(*m.order, fmt.Sprintf("remove:%d", tenantID))
+	}
 	kept := m.members[:0]
 	for _, member := range m.members {
 		if member.UserID == userID && member.TenantID == tenantID {
@@ -302,6 +319,9 @@ type yzjT06EmployeeRepo struct {
 	getByUserErr     error
 	setDisabledErr   error
 	markBlockedErr   error
+
+	// order 非 nil 时记录跨替身的调用顺序（L1 顺序断言用）。
+	order *[]string
 }
 
 func newYZJT06EmployeeRepo(rows ...*types.YunzhijiaEmployee) *yzjT06EmployeeRepo {
@@ -341,6 +361,13 @@ func (r *yzjT06EmployeeRepo) SetDisabledBySync(
 	r.setDisabledCalls = append(r.setDisabledCalls, yzjT06DisabledCall{
 		OpenID: openID, Disabled: disabled,
 	})
+	if r.order != nil {
+		state := "false"
+		if disabled {
+			state = "true"
+		}
+		*r.order = append(*r.order, "set-disabled:"+state)
+	}
 	if row := r.byOpenID[openID]; row != nil {
 		row.DisabledBySync = disabled
 	}
