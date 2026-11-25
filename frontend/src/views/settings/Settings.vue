@@ -204,9 +204,13 @@
 
         <!-- 用户管理：owner / 系统管理员的角色目录 + 账号操作主入口 -->
         <div v-if="currentSection === 'user-management'" class="section">
-          <UserManagement />
-          <!-- 云之家同步区块：仅系统管理员可见；不新增菜单（C6 例外）。 -->
-          <YunzhijiaSyncPanel v-if="authStore.isSystemAdmin" />
+          <UserManagement>
+            <!-- 云之家同步区块：仅系统管理员可见；不新增菜单（C6 例外）。
+                 经 #footer 插槽放进用户管理的滚动容器，避免被外层裁剪。 -->
+            <template #footer>
+              <YunzhijiaSyncPanel v-if="authStore.isSystemAdmin" />
+            </template>
+          </UserManagement>
         </div>
 
         <!-- 发布集成 -->

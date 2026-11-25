@@ -92,6 +92,10 @@
           :tenant-id="tenantId"
         />
       </KeepAlive>
+
+      <!-- 页脚插槽：调用方传入的区块放在用户管理滚动容器内、内容之后，
+           随页面一起滚动，避免作为兄弟节点被外层 overflow:hidden 裁掉。 -->
+      <slot name="footer" />
     </template>
 
     <UserActionDialogs
