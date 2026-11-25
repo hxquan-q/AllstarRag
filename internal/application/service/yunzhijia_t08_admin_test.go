@@ -8,13 +8,16 @@ package service
 // 所有数据均为占位符，不使用真实员工信息。
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/sso/yunzhijia"
 	"github.com/Tencent/WeKnora/internal/types"
 	"github.com/Tencent/WeKnora/internal/types/interfaces"
@@ -216,6 +219,58 @@ func TestYunzhijiaT08EnabledFalseAllowsPreviewAndManualSync(t *testing.T) {
 	}
 	if len(entry.Details) == 0 {
 		t.Fatal("审计应带运行摘要 details")
+	}
+}
+
+// TestYunzhijiaT08ManualSyncLogsCompletionWithoutEmployeeIdentity 覆盖 F9/AC-20：
+// 手动同步成功时输出与调度器一致的完成日志（trigger/run/计数/耗时），
+// 且不含员工姓名、open_id、ticket 或本地 user_id。
+func TestYunzhijiaT08ManualSyncLogsCompletionWithoutEmployeeIdentity(t *testing.T) {
+	var logs bytes.Buffer
+	logger.SetOutput(&logs)
+	logger.SetLogLevel(logger.LevelInfo)
+	t.Cleanup(func() { logger.ConfigureFromEnv() })
+
+	const employeeName = "敏感员工姓名占位T08"
+	const openID = "open-sensitive-t08-placeholder"
+
+	repo := newYZJT05EmployeeRepo()
+	client := newYZJT05Client()
+	yzjT08SetPage(client, yunzhijia.StatusActive, yzjT05Page(1, 10, 1,
+		yzjT05Employee(openID, employeeName, "金蝶社区"),
+	))
+	life := newYZJT05Lifecycle()
+	life.setEmployeeResult(openID, types.YunzhijiaAccountResultCreated)
+	runs := &yzjT05RunRepo{}
+	svc := yzjT08NewAdmin(false, client, repo, runs, life, &yzjT08Audit{})
+
+	run, err := svc.ManualSync(context.Background())
+	if err != nil {
+		t.Fatalf("手动同步返回错误: %v", err)
+	}
+	if run == nil {
+		t.Fatal("手动同步未返回运行记录")
+	}
+
+	out := logs.String()
+	for _, want := range []string{
+		"同步完成",
+		"trigger=manual",
+		fmt.Sprintf("run=%d", run.ID),
+		"active=1",
+		"inactive=0",
+		"created=1",
+		"anomalies=0",
+		"耗时=",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("手动同步完成日志缺少 %q；日志=%q", want, out)
+		}
+	}
+	for _, forbidden := range []string{employeeName, openID, "ticket", "user_id"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("手动同步完成日志不得包含 %q；日志=%q", forbidden, out)
+		}
 	}
 }
 

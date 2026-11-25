@@ -4,7 +4,7 @@ package service
 //
 // 只验证 R2 改动的可观测行为，不重复 T03–T07 已覆盖的既有矩阵：
 //   - AC-7：服务端开号写入 preferences.yunzhijia_employee=true，登录响应可见；
-//           已有账号（普通 viewer/owner/超管）不带该标记。
+//           已有账号缺少该标记时登录 fail-closed（不补成员、不回填、不签 token）。
 //   - L1：ApplyInactive 顺序 SetDisabledBySync(true) → SetUserActive(false) → RemoveMember；
 //         标记写入失败时不得继续停用/移除。
 //   - L3：合成邮箱被有密码账号占用时开号失败，不写成员、不回填 user_id、不签 token。
@@ -73,7 +73,10 @@ func TestYunzhijiaR2ProvisionedEmployeeCarriesPreferenceMarker(t *testing.T) {
 		"/auth/me 的 preferences 必须带出员工标记")
 }
 
-func TestYunzhijiaR2ExistingAccountHasNoEmployeeMarker(t *testing.T) {
+// TestYunzhijiaR2ExistingAccountWithoutMarkerFailsClosed 验证 AC-7/F6：
+// 已绑定员工但 users 行缺少员工标记时，登录必须 fail-closed，不得静默当普通
+// 账号复用（否则密码守卫/管理钩子全部失效）。
+func TestYunzhijiaR2ExistingAccountWithoutMarkerFailsClosed(t *testing.T) {
 	ctx := context.Background()
 	userID := "u-r2-ordinary-viewer"
 	employee := yzjT03Employee("openid-r2-ordinary", "占位普通员工", yzjT03TenantDefault)
@@ -97,11 +100,19 @@ func TestYunzhijiaR2ExistingAccountHasNoEmployeeMarker(t *testing.T) {
 	env.client.name = employee.Name
 
 	resp, err := env.login.Login(ctx, "ticket-placeholder-r2-ordinary")
-	require.NoError(t, err)
-	require.True(t, resp.Success)
-	require.NotNil(t, resp.User)
-	assert.Nil(t, resp.User.Preferences.YunzhijiaEmployee,
-		"普通账号不得被写入员工标记（否则前端会误隐藏改密入口）")
+	require.Error(t, err, "无员工标记的已绑定账号必须 fail-closed")
+	require.ErrorIs(t, err, ErrYunzhijiaEmployeeMarkerMissing)
+	assert.Nil(t, resp)
+	assert.Equal(t, 0, env.members.addCallCount(), "不得补成员关系")
+	assert.Equal(t, 0, env.employees.setUserIDCallCount(), "不得回填 user_id")
+	assert.Equal(t, 0, env.tokens.createCalls, "不得签发 token")
+	assert.Equal(t, 0, env.users.created(), "不得新建账号")
+	assert.Equal(t, 0, env.users.updateCalls, "不得静默回写员工标记")
+
+	stored, getErr := env.users.GetUserByID(ctx, userID)
+	require.NoError(t, getErr)
+	assert.Nil(t, stored.Preferences.YunzhijiaEmployee,
+		"零写入：员工标记保持缺失，由部署巡检/管理员回填")
 }
 
 // ---------------------------------------------------------------------------
@@ -184,6 +195,7 @@ func TestYunzhijiaR2RejectsSyntheticEmailOwnedByPasswordAccount(t *testing.T) {
 		PasswordHash: "existing-hash-placeholder",
 		TenantID:     yzjT03TenantDefault,
 		IsActive:     true,
+		Preferences:  yzjT03EmployeePreferences(),
 	}
 
 	env := newYZJT03Env(yzjT03Config(), employee)
@@ -199,6 +211,10 @@ func TestYunzhijiaR2RejectsSyntheticEmailOwnedByPasswordAccount(t *testing.T) {
 	resp, err := env.login.Login(ctx, "ticket-placeholder-r2-l3")
 	require.Error(t, err, "有密码账号占用合成邮箱时必须 fail-closed")
 	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "已设置密码",
+		"账号带员工标记时应先过标记闸，再被 L3 密码闸拦截")
+	assert.False(t, errors.Is(err, ErrYunzhijiaEmployeeMarkerMissing),
+		"该用例的账号带员工标记，错误不应是标记缺失")
 
 	assert.Equal(t, 0, env.members.addCallCount(), "不得把抢注账号拉进员工空间")
 	assert.Equal(t, 0, env.employees.setUserIDCallCount(), "不得回填 user_id")

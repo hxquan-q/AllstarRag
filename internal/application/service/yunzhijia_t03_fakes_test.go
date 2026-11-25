@@ -500,3 +500,11 @@ func yzjT03Employee(openID, name string, tenantID uint64) *types.YunzhijiaEmploy
 		LastSyncedAt: time.Now(),
 	}
 }
+
+// yzjT03EmployeePreferences 返回带员工标记 true 的 preferences。
+// AC-7 起标记是密码守卫/管理钩子的唯一判据，已有员工账号夹具必须显式 seed，
+// 否则开号/登录路径会按 fail-closed 拒绝。
+func yzjT03EmployeePreferences() types.UserPreferences {
+	marker := true
+	return types.UserPreferences{YunzhijiaEmployee: &marker}
+}

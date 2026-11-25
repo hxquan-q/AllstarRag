@@ -413,6 +413,28 @@ func TestYunzhijiaT05RunReconcilesLocalActiveMissing(t *testing.T) {
 		t.Fatalf("封禁缺席员工应记 blocked_skipped；实际 %+v", anomalies)
 	}
 
+	// F8：blocked 缺席行不再同时产生 local_active_missing，每轮只留一条
+	// blocked_skipped，避免 anomaly_count 虚高。
+	if got := yzjT05AnomalyCount(anomalies, types.YunzhijiaAnomalyLocalActiveMissing, "open-blocked"); got != 0 {
+		t.Fatalf("F8：blocked 缺席行不得记 local_active_missing，实际 %d 条；全部异常 %+v",
+			got, anomalies)
+	}
+	if got := yzjT05AnomalyCount(anomalies, types.YunzhijiaAnomalyBlockedSkipped, "open-blocked"); got != 1 {
+		t.Fatalf("F8：blocked 缺席行应恰好记 1 条 blocked_skipped，实际 %d 条", got)
+	}
+	if got := yzjT05AnomalyCount(anomalies, types.YunzhijiaAnomalyLocalActiveMissing, "open-missing"); got != 1 {
+		t.Fatalf("非 blocked 缺席行仍应记 1 条 local_active_missing，实际 %d 条", got)
+	}
+	// 预期异常总数：open-missing 的 local_active_missing + open-blocked 的
+	// blocked_skipped，各一条。
+	const wantAnomalies = 2
+	if len(anomalies) != wantAnomalies {
+		t.Fatalf("F8：异常总数=%d，期望 %d；实际 %+v", len(anomalies), wantAnomalies, anomalies)
+	}
+	if run.AnomalyCount != wantAnomalies {
+		t.Fatalf("F8：run.AnomalyCount=%d，期望 %d", run.AnomalyCount, wantAnomalies)
+	}
+
 	row := repo.snapshot("open-missing")
 	if row == nil || row.Status != types.YunzhijiaEmployeeStatusInactive {
 		t.Fatalf("缺席员工应收敛为 inactive，实际 %+v", row)

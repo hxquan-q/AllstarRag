@@ -227,7 +227,8 @@ func TestYunzhijiaT03LoginReusesExistingAccount(t *testing.T) {
 	env.client.name = employee.Name
 	env.users = newYZJT03UserRepo(&types.User{
 		ID: userID, Username: "测试员工壬", Email: "existing-login@example.invalid",
-		PasswordHash: "keep-this-hash", TenantID: yzjT03TenantDefault, IsActive: true,
+		TenantID: yzjT03TenantDefault, IsActive: true,
+		Preferences: yzjT03EmployeePreferences(),
 	})
 	_, err := env.members.AddMember(ctx, userID, yzjT03TenantDefault, types.TenantRoleViewer, nil)
 	require.NoError(t, err)
@@ -243,9 +244,53 @@ func TestYunzhijiaT03LoginReusesExistingAccount(t *testing.T) {
 	assert.True(t, resp.Success)
 	require.NotNil(t, resp.User)
 	assert.Equal(t, userID, resp.User.ID)
-	assert.Equal(t, "keep-this-hash", resp.User.PasswordHash, "登录不得改动已有密码")
+	assert.Empty(t, resp.User.PasswordHash, "员工账号密码保持为空，登录不得写入密码")
 	assert.Equal(t, 0, env.users.created(), "已有账号不得重复建号")
 	assert.Equal(t, 0, env.tenants.createCallCount())
+}
+
+// TestYunzhijiaT03LoginRejectsSyntheticAccountWithoutMarker 覆盖 F6 的
+// reuseExistingAccount 面：合成邮箱命中的已有账号缺少员工标记时登录
+// fail-closed，不补成员、不回填、不签 token、不新建账号。
+func TestYunzhijiaT03LoginRejectsSyntheticAccountWithoutMarker(t *testing.T) {
+	ctx := context.Background()
+	employee := yzjT03Employee("openid-reuse-no-marker-001", "测试员工复用", yzjT03TenantDefault)
+	const syntheticEmail = "yzj_openid-reuse-no-marker-001@yunzhijia.local"
+	existing := &types.User{
+		ID:       "existing-reuse-no-marker",
+		Username: "历史占位账号",
+		Email:    syntheticEmail,
+		TenantID: yzjT03TenantDefault,
+		IsActive: true,
+	}
+
+	env := newYZJT03Env(yzjT03Config(), employee)
+	env.client.name = employee.Name
+	env.users = newYZJT03UserRepo(existing)
+	env.remover = &yzjT03Remover{repo: env.users}
+	env.userService = NewUserService(&config.Config{}, env.users, env.tokens, env.tenants, env.members, nil)
+	env.provisioner = NewYunzhijiaProvisioner(
+		env.cfg, env.users, env.members, env.employees, env.remover)
+	env.login = NewYunzhijiaLoginService(
+		env.cfg, env.client, env.employees, env.provisioner, env.userService, env.tenants)
+
+	resp, err := env.login.Login(ctx, "ticket-placeholder-reuse-no-marker")
+	require.Error(t, err, "无员工标记的合成邮箱账号必须 fail-closed")
+	require.ErrorIs(t, err, ErrYunzhijiaEmployeeMarkerMissing)
+	assert.Nil(t, resp)
+	assert.Equal(t, 0, env.members.addCallCount(), "不得把无标记账号拉进员工空间")
+	assert.Equal(t, 0, env.employees.setUserIDCallCount(), "不得回填 user_id")
+	assert.Equal(t, 0, env.tokens.createCalls, "不得签发 token")
+	assert.Equal(t, 0, env.users.created(), "不得新建账号")
+	assert.Equal(t, 0, env.users.updateCalls, "不得回写用户行")
+
+	stored, getErr := env.users.GetUserByID(ctx, existing.ID)
+	require.NoError(t, getErr)
+	assert.Nil(t, stored.Preferences.YunzhijiaEmployee, "零写入：员工标记保持缺失")
+	storedEmployee, getErr := env.employees.GetByOpenID(ctx, employee.OpenID)
+	require.NoError(t, getErr)
+	require.NotNil(t, storedEmployee)
+	assert.Nil(t, storedEmployee.UserID, "员工行不得回填 user_id")
 }
 
 func TestYunzhijiaT03LoginFailsClosedWhenTargetTenantMissing(t *testing.T) {
