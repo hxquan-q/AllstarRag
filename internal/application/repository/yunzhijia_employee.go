@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/Tencent/WeKnora/internal/types"
@@ -12,14 +11,9 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-var (
-	// ErrYunzhijiaEmployeeExists 由 Create 在 open_id 唯一键冲突时返回，
-	// 服务层据此走开号冲突分支。
-	ErrYunzhijiaEmployeeExists = errors.New("repository: yunzhijia employee already exists")
-	// ErrYunzhijiaEmployeeNotFound 由写操作（MarkBlocked/Unblock/
-	// SetDisabledBySync/UpdateSyncedFields）在目标行不存在时返回。
-	ErrYunzhijiaEmployeeNotFound = errors.New("repository: yunzhijia employee not found")
-)
+// ErrYunzhijiaEmployeeNotFound 由写操作（MarkBlocked/Unblock/
+// SetDisabledBySync）在目标行不存在时返回。
+var ErrYunzhijiaEmployeeNotFound = errors.New("repository: yunzhijia employee not found")
 
 // yunzhijiaEmployeeRepository 实现 interfaces.YunzhijiaEmployeeRepository。
 type yunzhijiaEmployeeRepository struct {
@@ -29,33 +23,6 @@ type yunzhijiaEmployeeRepository struct {
 // NewYunzhijiaEmployeeRepository 构造员工目录仓储。
 func NewYunzhijiaEmployeeRepository(db *gorm.DB) interfaces.YunzhijiaEmployeeRepository {
 	return &yunzhijiaEmployeeRepository{db: db}
-}
-
-// isYunzhijiaDuplicate 判断底层错误是否为唯一键冲突。
-// Postgres 报 "duplicate key value violates unique constraint"，
-// SQLite 报 "UNIQUE constraint failed"；GORM 开启 TranslateError 时
-// 还会给出 ErrDuplicatedKey。
-func isYunzhijiaDuplicate(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, gorm.ErrDuplicatedKey) {
-		return true
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "duplicate") ||
-		strings.Contains(msg, "unique constraint")
-}
-
-// Create 插入一行员工目录记录。
-func (r *yunzhijiaEmployeeRepository) Create(ctx context.Context, employee *types.YunzhijiaEmployee) error {
-	if err := r.db.WithContext(ctx).Create(employee).Error; err != nil {
-		if isYunzhijiaDuplicate(err) {
-			return ErrYunzhijiaEmployeeExists
-		}
-		return err
-	}
-	return nil
 }
 
 // UpsertByOpenID 按 open_id 插入或更新上游同步字段。
@@ -244,31 +211,5 @@ func (r *yunzhijiaEmployeeRepository) SetDisabledBySync(
 	if res.RowsAffected == 0 {
 		return ErrYunzhijiaEmployeeNotFound
 	}
-	return nil
-}
-
-// UpdateSyncedFields 更新来自上游的同步字段。
-func (r *yunzhijiaEmployeeRepository) UpdateSyncedFields(
-	ctx context.Context, employee *types.YunzhijiaEmployee,
-) error {
-	now := time.Now()
-	res := r.db.WithContext(ctx).Model(&types.YunzhijiaEmployee{}).
-		Where("open_id = ?", employee.OpenID).
-		Updates(map[string]interface{}{
-			"name":           employee.Name,
-			"department":     employee.Department,
-			"mobile":         employee.Mobile,
-			"tenant_id":      employee.TenantID,
-			"status":         employee.Status,
-			"last_synced_at": employee.LastSyncedAt,
-			"updated_at":     now,
-		})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return ErrYunzhijiaEmployeeNotFound
-	}
-	employee.UpdatedAt = now
 	return nil
 }

@@ -115,6 +115,7 @@ func (p *YunzhijiaProvisioner) ensureNewAccount(
 		return p.reuseExistingAccount(ctx, existing, employee)
 	}
 
+	isEmployee := true
 	user := &types.User{
 		ID:                  uuid.New().String(),
 		Username:            yunzhijiaUsername(employee.Name, employee.OpenID, 1),
@@ -124,6 +125,9 @@ func (p *YunzhijiaProvisioner) ensureNewAccount(
 		IsActive:            true,
 		IsSystemAdmin:       false,
 		CanAccessAllTenants: false,
+		// 员工标记只由服务端写入：前端据此隐藏改密入口（AC-7），
+		// 密码守卫与 purge 钩子走员工目录，不依赖它。
+		Preferences: types.UserPreferences{YunzhijiaEmployee: &isEmployee},
 	}
 	if err := p.createWithUniqueUsername(ctx, user, employee); err != nil {
 		// 并发 race 的另一种表现：创建失败但邮箱行已存在。
@@ -147,9 +151,16 @@ func (p *YunzhijiaProvisioner) ensureNewAccount(
 
 // reuseExistingAccount 复用按合成邮箱命中的账号：停用时原样返回（不写
 // 成员关系，由登录侧拒绝），否则补齐成员关系并回填 user_id。
+//
+// 安全闸：只有从未设置过密码的账号才允许收编。合成邮箱可被猜到，注册
+// 模式开放时有人可能抢先用它注册；把有密码的账号拉进员工空间会绕过
+// AC-15「不按邮箱匹配已有密码账号」。命中时按开号失败返回。
 func (p *YunzhijiaProvisioner) reuseExistingAccount(
 	ctx context.Context, user *types.User, employee *types.YunzhijiaEmployee,
 ) (*types.User, error) {
+	if user.PasswordHash != "" {
+		return nil, fmt.Errorf("yunzhijia: 合成邮箱已被有密码账号占用，拒绝收编")
+	}
 	if !user.IsActive {
 		return user, nil
 	}

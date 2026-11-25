@@ -28,12 +28,13 @@ const serverMessage = computed(() => {
   return typeof value === 'string' ? value : ''
 })
 
-// 后端文案直接展示；没有文案才按状态码兜底本地化提示。
+// 限速响应体是英文（后端中间件文案），中文界面优先用本地化提示；
+// 其余状态仍优先展示后端文案，没有文案才按状态码兜底本地化提示。
 // 不用后端中文文案当逻辑判别键（PITFALLS G-20）。
 const message = computed(() => {
+  if (status.value === 429) return t('auth.yunzhijia.errorRateLimited')
   if (serverMessage.value) return serverMessage.value
   if (status.value === 400) return t('auth.yunzhijia.errorInvalidTicket')
-  if (status.value === 429) return t('auth.yunzhijia.errorRateLimited')
   if (status.value === 503) return t('auth.yunzhijia.errorUnavailable')
   return t('auth.yunzhijia.errorGeneric')
 })

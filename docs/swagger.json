@@ -21713,7 +21713,7 @@
         },
         "/system/admin/yunzhijia/sync": {
             "get": {
-                "description": "返回 enabled、最近一次真实同步运行摘要与 blocked 清单。\n不返回全量员工名单、手机号或 user_id。",
+                "description": "返回 enabled、最近一次真实同步运行摘要与 blocked 清单。\n不返回全量员工名单或手机号；异常清单随状态一并返回给系统管理员，\n其中可能包含异常员工的 user_id（仅超管可见）。",
                 "produces": [
                     "application/json"
                 ],

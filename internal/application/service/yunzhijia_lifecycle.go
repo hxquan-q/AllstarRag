@@ -94,7 +94,7 @@ func (l *YunzhijiaLifecycle) ApplyEmployee(
 	return types.YunzhijiaAccountResultUpdated, nil
 }
 
-// ApplyInactive 处理离职员工：停用账号、移除成员关系并写同步停用标记。
+// ApplyInactive 处理离职员工：先写同步停用标记，再停用账号、移除成员关系。
 func (l *YunzhijiaLifecycle) ApplyInactive(
 	ctx context.Context, employee *types.YunzhijiaEmployee,
 ) (types.YunzhijiaAccountResult, error) {
@@ -110,15 +110,18 @@ func (l *YunzhijiaLifecycle) ApplyInactive(
 	if !user.IsActive {
 		return types.YunzhijiaAccountResultNone, nil
 	}
+	// 先写同步停用标记：若后续停用/移除成员关系失败，账号仍是 active，
+	// 下一轮 ApplyInactive 会重试，语义不会退化成「管理员封禁」。反过来
+	// （先停用后标记）中途失败会把账号永久当成管理员封禁，再入职不恢复。
+	if err := l.employeeRepo.SetDisabledBySync(
+		ctx, employee.OpenID, true,
+	); err != nil {
+		return types.YunzhijiaAccountResultNone, err
+	}
 	if _, err := l.userRepo.SetUserActive(ctx, user.ID, "", false); err != nil {
 		return types.YunzhijiaAccountResultNone, err
 	}
 	if err := l.removeAllMemberships(ctx, user.ID); err != nil {
-		return types.YunzhijiaAccountResultNone, err
-	}
-	if err := l.employeeRepo.SetDisabledBySync(
-		ctx, employee.OpenID, true,
-	); err != nil {
 		return types.YunzhijiaAccountResultNone, err
 	}
 	return types.YunzhijiaAccountResultDisabled, nil
@@ -188,25 +191,14 @@ func (l *YunzhijiaLifecycle) applyActiveUser(
 		}
 		migrated = true
 	}
-	if err := l.ensureViewerMembership(ctx, user.ID, employee.TenantID); err != nil {
+	// 复用 provisioner 的入组实现：它把并发插入冲突（成员关系已存在）
+	// 视为成功，避免登录与同步并发补成员时误记 provision_failed。
+	if err := l.provisioner.ensureViewerMembership(
+		ctx, user.ID, employee.TenantID,
+	); err != nil {
 		return false, err
 	}
 	return migrated, nil
-}
-
-// ensureViewerMembership 仅在目标空间缺少成员关系时加入 viewer。
-func (l *YunzhijiaLifecycle) ensureViewerMembership(
-	ctx context.Context, userID string, tenantID uint64,
-) error {
-	current, err := l.memberService.GetMembership(ctx, userID, tenantID)
-	if err != nil {
-		return err
-	}
-	if current != nil {
-		return nil
-	}
-	_, err = l.memberService.AddMember(ctx, userID, tenantID, types.TenantRoleViewer, nil)
-	return err
 }
 
 // removeAllMemberships 逐一移除用户当前所有 active 成员关系。

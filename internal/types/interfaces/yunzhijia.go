@@ -11,10 +11,6 @@ import (
 // 查询“不存在”返回 (nil, nil)，由服务层决定是“账号开通中”还是其它口径；
 // 写操作找不到目标行时返回 repository.ErrYunzhijiaEmployeeNotFound。
 type YunzhijiaEmployeeRepository interface {
-	// Create 插入一行员工记录。open_id 冲突返回
-	// repository.ErrYunzhijiaEmployeeExists。
-	Create(ctx context.Context, employee *types.YunzhijiaEmployee) error
-
 	// UpsertByOpenID 按 open_id 插入或更新同步字段。
 	// 不覆盖本地状态：user_id、disabled_by_sync、blocked、blocked_at、
 	// blocked_by 由本地流程维护。
@@ -52,10 +48,6 @@ type YunzhijiaEmployeeRepository interface {
 
 	// SetDisabledBySync 设置 disabled_by_sync 标记（不修改 status）。
 	SetDisabledBySync(ctx context.Context, openID string, disabled bool) error
-
-	// UpdateSyncedFields 更新来自上游的同步字段（name、department、mobile、
-	// tenant_id、status、last_synced_at）；不碰 user_id/disabled_by_sync/blocked。
-	UpdateSyncedFields(ctx context.Context, employee *types.YunzhijiaEmployee) error
 }
 
 // YunzhijiaEmployeeLookup 判断本地用户是否由云之家开通。

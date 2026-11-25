@@ -37,7 +37,8 @@ func NewYunzhijiaAdminHandler(
 // GetSyncStatus godoc
 // @Summary      云之家同步状态
 // @Description  返回 enabled、最近一次真实同步运行摘要与 blocked 清单。
-// @Description  不返回全量员工名单、手机号或 user_id。
+// @Description  不返回全量员工名单或手机号；异常清单随状态一并返回给系统管理员，
+// @Description  其中可能包含异常员工的 user_id（仅超管可见）。
 // @Tags         系统管理
 // @Produce      json
 // @Success      200  {object}  service.YunzhijiaAdminStatus

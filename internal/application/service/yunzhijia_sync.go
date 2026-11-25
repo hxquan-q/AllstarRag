@@ -329,7 +329,7 @@ func blockedSkippedAnomaly(row *types.YunzhijiaEmployee) types.YunzhijiaSyncAnom
 		OpenID: row.OpenID,
 		Name:   row.Name,
 		UserID: derefString(row.UserID),
-		Detail: "员工已封禁，同步跳过",
+		Detail: "员工已删除并禁止重建，同步跳过",
 	}
 }
 

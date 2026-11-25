@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 	_ "time/tzdata" // 校验 timezone 时不依赖宿主机 tzdata
@@ -43,13 +44,17 @@ type YunzhijiaSSOConfig struct {
 
 // Validate 全量校验配置；任何缺失或非法都返回错误（fail-closed）。
 // 是否启用由调用方自行判断，这里不因 enabled=false 跳过校验。
-// base_url 的格式校验只在客户端的 parseBaseURL 做一处。
+// base_url 与路径的格式口径与客户端 parseBaseURL/joinURLPath 一致：
+// 这里通过即保证客户端一定能构造。
 func (c *YunzhijiaSSOConfig) Validate() error {
 	if c == nil {
 		return fmt.Errorf("yunzhijia_sso: 配置段缺失")
 	}
 
 	var problems []string
+	if err := validateYunzhijiaBaseURL(c.BaseURL); err != nil {
+		problems = append(problems, err.Error())
+	}
 	if err := validateYunzhijiaPath("employee_path", c.EmployeePath); err != nil {
 		problems = append(problems, err.Error())
 	}
@@ -97,7 +102,31 @@ func (c *YunzhijiaSSOConfig) Validate() error {
 	return nil
 }
 
-// validateYunzhijiaPath 要求非空且以 / 开头的绝对路径。
+// validateYunzhijiaBaseURL 与客户端 parseBaseURL 同口径：非空、url.Parse
+// 成功、scheme 为 http/https、host 非空、不带 query/fragment。
+func validateYunzhijiaBaseURL(value string) error {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fmt.Errorf("base_url 不能为空")
+	}
+	base, err := url.Parse(value)
+	if err != nil {
+		return fmt.Errorf("base_url 非法")
+	}
+	if base.Scheme != "http" && base.Scheme != "https" {
+		return fmt.Errorf("base_url 必须以 http:// 或 https:// 开头")
+	}
+	if base.Host == "" {
+		return fmt.Errorf("base_url 缺少主机名")
+	}
+	if base.RawQuery != "" || base.Fragment != "" {
+		return fmt.Errorf("base_url 不能包含查询串或片段")
+	}
+	return nil
+}
+
+// validateYunzhijiaPath 要求非空、以 / 开头、不含 ? 或 #（与客户端
+// joinURLPath 同口径，避免在配置里夹带查询串）。
 func validateYunzhijiaPath(name, value string) error {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -105,6 +134,9 @@ func validateYunzhijiaPath(name, value string) error {
 	}
 	if !strings.HasPrefix(value, "/") {
 		return fmt.Errorf("%s 必须以 / 开头", name)
+	}
+	if strings.ContainsAny(value, "?#") {
+		return fmt.Errorf("%s 不能包含查询串或片段", name)
 	}
 	return nil
 }
