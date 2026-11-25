@@ -114,3 +114,22 @@ extract:
 tenant:
   # Enable cross-tenant access (can be enabled for intranet environments)
   enable_cross_tenant_access: false
+
+# 云之家免登录与员工同步配置
+# enabled=false 是首次部署的安全默认：入口提示未启用，不自动开号/同步；
+# 管理员可在同步面板做只读预检和手动导入，确认后再单独开启。
+# 密钥/API Key 不进这里，只放 .env。
+yunzhijia_sso:
+  enabled: false
+  base_url: "https://pj.szonesoft.com"
+  employee_path: "/@asd_rd/api/public/employees"
+  ticket_user_path: "/@project/api/plugin-api/ProjectAndCloud/queryUserName"
+  app_id: "500995523"
+  tenant_default: 10024
+  tenant_hr: 10022
+  hr_department_keyword: "人力资源部"
+  sync_cron: "0 3 * * *"
+  timezone: "Asia/Shanghai"
+  page_size: 500
+  http_timeout_seconds: 10
+  startup_catchup_hours: 24
