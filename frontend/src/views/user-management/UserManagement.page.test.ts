@@ -24,7 +24,16 @@ assert.ok(PAGE_DESCRIPTOR.template)
 const { code: PAGE_RENDER_CODE } = compile(PAGE_DESCRIPTOR.template.content, {
   mode: 'function', prefixIdentifiers: true, filename: 'UserManagement.vue',
 })
-const renderPage = new Function('Vue', PAGE_RENDER_CODE)(vue) as (ctx: any, cache: unknown[]) => unknown
+// H1：模板新增 `<slot name="footer" />`。这里直接执行 SFC render 函数，没有
+// Vue 的 currentRenderingInstance，`renderSlot` 会读空实例而抛错。页面测试只
+// 关心工具栏文本，页脚插槽位置由 YunzhijiaSyncPanelMount.test.ts 源码断言覆盖，
+// 故此桩只需渲染 fallback（无 fallback 时为空）。
+const pageRuntime = {
+  ...vue,
+  renderSlot: (_slots: unknown, _name: string, _props?: unknown, fallback?: () => unknown) =>
+    fallback ? fallback() : null,
+}
+const renderPage = new Function('Vue', PAGE_RENDER_CODE)(pageRuntime) as (ctx: any, cache: unknown[]) => unknown
 
 type VNode = { type: unknown; props?: Record<string, any> | null; children: unknown }
 

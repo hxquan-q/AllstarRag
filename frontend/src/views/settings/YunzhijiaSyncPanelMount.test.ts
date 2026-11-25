@@ -12,25 +12,71 @@ import test from 'node:test'
 
 const FRONTEND_SRC = new URL('../../', import.meta.url)
 const SETTINGS = new URL('./Settings.vue', import.meta.url)
+const USER_MANAGEMENT = new URL('../user-management/UserManagement.vue', import.meta.url)
 const SYSTEM_SETTINGS = new URL('../system/SystemSettings.vue', import.meta.url)
 const ROUTER = new URL('../../router/index.ts', import.meta.url)
 
 const settingsSource = readFileSync(SETTINGS, 'utf8')
+const userManagementSource = readFileSync(USER_MANAGEMENT, 'utf8')
 
-test('the panel is mounted inside the user-management section, right after UserManagement', () => {
+/**
+ * 找到 `openAt` 处 `<div>` 的配对 `</div>` 位置。只数 div 开闭标签，
+ * 用于确认插槽确实落在根 `.user-management` 内部而不是 root 之后/之外。
+ */
+function findMatchingDivClose(source: string, openAt: number): number {
+  const tag = /<div\b|<\/div>/g
+  tag.lastIndex = openAt
+  let depth = 0
+  for (let match = tag.exec(source); match !== null; match = tag.exec(source)) {
+    if (match[0] === '</div>') {
+      depth -= 1
+      if (depth === 0) return match.index
+    } else {
+      depth += 1
+    }
+  }
+  return -1
+}
+
+test('the panel is mounted through the UserManagement #footer slot (H1)', () => {
   const section = settingsSource.match(
     /<div v-if="currentSection === 'user-management'" class="section">([\s\S]*?)<\/div>/,
   )
   assert.ok(section, 'user-management section must exist')
   const body = section![1]!
-  const userManagementAt = body.indexOf('<UserManagement />')
-  const panelAt = body.indexOf('<YunzhijiaSyncPanel')
-  assert.ok(userManagementAt >= 0, 'UserManagement must stay in the section')
-  assert.ok(panelAt > userManagementAt, 'panel must follow UserManagement')
+  const userManagement = body.match(/<UserManagement\b[^>]*>([\s\S]*?)<\/UserManagement>/)
+  assert.ok(userManagement, 'UserManagement must stay in the section')
+  const inner = userManagement![1]!
+  const footer = inner.match(/<template #footer>([\s\S]*?)<\/template>/)
+  assert.ok(footer, 'UserManagement must receive a #footer slot')
   assert.match(
-    body,
+    footer![1]!,
     /<YunzhijiaSyncPanel v-if="authStore\.isSystemAdmin" \/>/,
-    'panel is gated by authStore.isSystemAdmin',
+    'panel is mounted in #footer and gated by authStore.isSystemAdmin',
+  )
+  // 面板不得再作为 UserManagement 的兄弟节点出现在分区里（H1 根因）。
+  assert.doesNotMatch(
+    body.replace(userManagement![0], ''),
+    /<YunzhijiaSyncPanel\b/,
+    'panel must not be mounted outside UserManagement',
+  )
+})
+
+test('UserManagement.vue forwards the footer slot inside the .user-management root (H1)', () => {
+  const template = userManagementSource.match(/<template>([\s\S]*)<\/template>/)
+  assert.ok(template, 'UserManagement.vue must have a template block')
+  const source = template![1]!
+
+  const slotAt = source.indexOf('<slot name="footer" />')
+  assert.ok(slotAt >= 0, 'UserManagement.vue must declare <slot name="footer" />')
+
+  const rootAt = source.indexOf('<div class="user-management">')
+  assert.ok(rootAt >= 0, 'root .user-management element must exist')
+  const rootCloseAt = findMatchingDivClose(source, rootAt)
+  assert.ok(rootCloseAt > rootAt, 'root .user-management element must be balanced')
+  assert.ok(
+    slotAt > rootAt && slotAt < rootCloseAt,
+    'footer slot must live inside the .user-management root (not after/outside it)',
   )
 })
 
