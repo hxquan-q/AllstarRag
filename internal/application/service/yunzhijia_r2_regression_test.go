@@ -62,6 +62,15 @@ func TestYunzhijiaR2ProvisionedEmployeeCarriesPreferenceMarker(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(body), `"yunzhijia_employee":true`,
 		"登录 JSON 必须带出员工标记")
+
+	// /auth/me 复用 ToUserInfo：标记必须同样出现在用户信息里。
+	info := user.ToUserInfo()
+	require.NotNil(t, info.Preferences.YunzhijiaEmployee)
+	assert.True(t, *info.Preferences.YunzhijiaEmployee)
+	infoBody, err := json.Marshal(info)
+	require.NoError(t, err)
+	assert.Contains(t, string(infoBody), `"yunzhijia_employee":true`,
+		"/auth/me 的 preferences 必须带出员工标记")
 }
 
 func TestYunzhijiaR2ExistingAccountHasNoEmployeeMarker(t *testing.T) {
