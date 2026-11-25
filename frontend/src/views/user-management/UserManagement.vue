@@ -99,14 +99,12 @@
         />
       </KeepAlive>
 
-      <!-- 云之家同步 Tab：与其它 Tab 一样 KeepAlive 保状态，未选中时不挂载。 -->
-      <KeepAlive>
-        <YunzhijiaSyncPanel
-          v-if="isSystemAdmin && activeTab === 'sync'"
-          :tenant-id="tenantId"
-          class="user-management__sync"
-        />
-      </KeepAlive>
+      <!-- 云之家同步 Tab：每次进入重新拉状态，避免夜间同步后切回看到旧数据。 -->
+      <YunzhijiaSyncPanel
+        v-if="isSystemAdmin && activeTab === 'sync'"
+        :tenant-id="tenantId"
+        class="user-management__sync"
+      />
     </template>
 
     <UserActionDialogs

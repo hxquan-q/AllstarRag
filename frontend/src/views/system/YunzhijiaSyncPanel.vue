@@ -42,11 +42,12 @@
         <t-button variant="outline" :loading="loading" :disabled="busy" @click="loadStatus">
           {{ t('system.globalSettings.yunzhijiaSync.refresh') }}
         </t-button>
-        <p v-if="previewing" class="yzj-sync__muted yzj-sync__hint">
-          {{ t('system.globalSettings.yunzhijiaSync.previewHint') }}
-        </p>
       </div>
     </div>
+
+    <p v-if="previewing" class="yzj-sync__muted yzj-sync__hint">
+      {{ t('system.globalSettings.yunzhijiaSync.previewHint') }}
+    </p>
 
     <t-alert
       v-if="status && !status.enabled"
@@ -98,6 +99,7 @@
             :data="anomalies"
             :columns="anomalyColumns"
             :row-key="anomalyRowKey"
+            :pagination="{ defaultPageSize: 10 }"
             size="medium"
             hover
           >
@@ -121,6 +123,7 @@
             :data="blocked"
             :columns="blockedColumns"
             row-key="open_id"
+            :pagination="{ defaultPageSize: 10 }"
             size="medium"
             hover
           >
@@ -396,11 +399,6 @@ onMounted(loadStatus)
   align-items: center;
   justify-content: flex-end;
   gap: var(--app-space-2);
-}
-
-.yzj-sync__actions .yzj-sync__hint {
-  flex-basis: 100%;
-  text-align: right;
 }
 
 .yzj-sync__state {
