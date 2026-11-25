@@ -48,10 +48,16 @@ test('UserManagement renders the sync panel as a system-admin-only fourth tab (H
     '面板受系统管理员与 sync Tab 双重门控',
   )
   assert.match(mount![0], /:tenant-id="tenantId"/, '面板接收当前空间 tenantId')
-  assert.match(
+  // H2 收尾：去掉 KeepAlive，每次进入 sync Tab 重新挂载并拉取最新状态。
+  assert.doesNotMatch(
     userManagementSource,
     /<KeepAlive>\s*<YunzhijiaSyncPanel\b/,
-    '面板与其它 Tab 一样用 KeepAlive 保状态',
+    '面板不得再用 KeepAlive 包裹',
+  )
+  assert.match(
+    userManagementSource,
+    /<\/KeepAlive>\s*<!--[^>]*-->\s*<YunzhijiaSyncPanel\b/,
+    '面板直接挂在操作记录 Tab 的 KeepAlive 之后，未选中时不挂载',
   )
 })
 

@@ -36,7 +36,10 @@ const usedContexts = new WeakSet<object>()
 /** 执行 t-table 各列 scoped slot 的替身，把单元格真实渲染进结构树。 */
 const TABLE_STUB = {
   name: 'TableStub',
-  props: { data: { type: Array, default: () => [] } },
+  props: {
+    data: { type: Array, default: () => [] },
+    pagination: { type: [Object, Boolean], default: undefined },
+  },
   render(this: any) {
     const slots = this.$slots as Record<string, (props: { row: unknown; index: number }) => unknown>
     const cellSlots = Object.keys(slots).filter(
@@ -50,7 +53,7 @@ const TABLE_STUB = {
         ),
       ),
     )
-    return h('table-stub', rows)
+    return h('table-stub', { pagination: this.pagination }, rows)
   },
 }
 
@@ -208,6 +211,25 @@ function columnTexts(root: T46Node, slotName: string): string[] {
     .map((node) => textOf(node))
 }
 
+/** 工具条右侧按钮行。 */
+function toolbarActions(root: T46Node): T46Node | undefined {
+  return findByTag(root, 'div').find((node) =>
+    String(node.props.class ?? '').includes('yzj-sync__actions'),
+  )
+}
+
+/** 预检提示行（工具条下方的独立一行）。 */
+function previewHintNode(root: T46Node): T46Node | undefined {
+  return findByTag(root, 'p').find((node) => textOf(node).includes(`${NS}.previewHint`))
+}
+
+/** 两张表的 pagination 配置（每个表一个）。 */
+function tablePagination(root: T46Node): Array<Record<string, unknown>> {
+  return findByTag(root, 'table-stub').map(
+    (node) => (node.props.pagination ?? {}) as Record<string, unknown>,
+  )
+}
+
 /** 切换异常 / 禁止重建分段。 */
 async function setTableMode(root: T46Node, mode: 'anomalies' | 'blocked'): Promise<void> {
   const group = findByTag(root, 't-radio-group')[0]
@@ -287,6 +309,7 @@ test('renders the status tag, latest summary, stats and the anomalies table by d
   assert.ok(text.includes(`${NS}.anomaliesTitle`))
   assert.ok(text.includes(`${NS}.blockedTitle`))
   assert.equal(findByTag(root, 'table-stub').length, 1, '同一时间只展示一张表')
+  assert.equal(tablePagination(root)[0]!.defaultPageSize, 10, '异常表前端分页 10 条')
   assert.ok(text.includes(`${NS}.anomalyKinds.duplicate_name`))
   assert.ok(text.includes('weird_kind'), '未知异常类型回退原始 kind')
   assert.ok(text.includes('张三') && text.includes('同名 2 人'))
@@ -310,6 +333,7 @@ test('the radio group switches between the anomalies and blocked tables', async 
   assert.ok(nameCell && nameCell.includes('oid-blocked-1'))
   assert.equal(columnTexts(root, 'kind').length, 0, '切到禁止重建后不再渲染异常表')
   assert.equal(findByTag(root, 'table-stub').length, 1)
+  assert.equal(tablePagination(root)[0]!.defaultPageSize, 10, '禁止重建表前端分页 10 条')
 
   await setTableMode(root, 'anomalies')
   assert.equal(columnTexts(root, 'kind').length, 2)
@@ -474,7 +498,25 @@ test('preview shows the hint and disables the action buttons while running, then
   const previewClick = click(buttons(root)[PREVIEW_BUTTON])
   await flush()
   let header = buttons(root)
-  assert.ok(textOf(root).includes(`${NS}.previewHint`), '预检进行中显示 1–2 分钟提示')
+  const hint = previewHintNode(root)
+  assert.ok(hint, '预检进行中显示 1–2 分钟提示')
+  // H2 收尾：提示移到工具条下方单独一行，不再挤在按钮行里。
+  const actions = toolbarActions(root)
+  assert.ok(actions, '按钮行存在')
+  assert.ok(!textOf(actions!).includes(`${NS}.previewHint`), '提示不得挤进按钮行')
+  const panelRoot = findByTag(root, 'div').find((node) =>
+    String(node.props.class ?? '') === 'yzj-sync',
+  )
+  assert.ok(panelRoot, '面板根节点存在')
+  assert.equal(hint!.parent, panelRoot, '提示必须是面板根节点的直接子元素')
+  const toolbar = panelRoot!.children.find(
+    (node) => node.tag === 'div' && String(node.props.class ?? '').includes('yzj-sync__toolbar'),
+  )
+  assert.ok(toolbar, '工具条存在')
+  assert.ok(
+    panelRoot!.children.indexOf(hint!) > panelRoot!.children.indexOf(toolbar!),
+    '提示行必须排在工具条之后',
+  )
   assert.equal(header[PREVIEW_BUTTON]!.props.loading, true)
   assert.equal(header[SYNC_BUTTON]!.props.disabled, true, '预检中禁用立即同步')
   assert.equal(header[REFRESH_BUTTON]!.props.disabled, true, '预检中禁用刷新')
