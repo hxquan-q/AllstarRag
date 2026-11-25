@@ -1,10 +1,10 @@
 package handler
 
-// T04 TDD 红阶段：两条管理端重置入口对员工账号都必须拒绝。
+// T04：两条管理端重置入口对员工账号都必须拒绝，普通账号保持可用（AC-7）。
 //
-// owner 重置成员（TenantMemberHandler.ResetMemberPassword）与超管重置
-// （SystemHandler.ResetUserPassword）最终都调用 userService.AdminResetPassword；
-// 这里用真实 userService + 员工 lookup 替身，验证两条 HTTP 入口都不会写密码。
+// R4（F1）后员工身份只看 users 行的 preferences.yunzhijia_employee 标记，
+// 不再有 lookup 依赖；这里用真实 userService + 带标记的 users 行验证
+// 两条 HTTP 入口都不会写密码。
 
 import (
 	"bytes"
@@ -24,16 +24,10 @@ import (
 
 const (
 	yzjT04HandlerEmployeeID = "u-emp-0001"
+	yzjT04HandlerNormalID   = "u-normal-0001"
 	yzjT04HandlerEmail      = "emp-placeholder@example.com"
+	yzjT04HandlerNormEmail  = "normal-placeholder@example.com"
 )
-
-type yzjT04HandlerLookup struct {
-	employee bool
-}
-
-func (l *yzjT04HandlerLookup) IsYunzhijiaEmployee(context.Context, string) (bool, error) {
-	return l.employee, nil
-}
 
 type yzjT04HandlerUserRepo struct {
 	interfaces.UserRepository
@@ -90,12 +84,23 @@ func (r *yzjT04HandlerTokenRepo) RevokeTokensByUserID(_ context.Context, userID 
 }
 
 func yzjT04HandlerRepo() *yzjT04HandlerUserRepo {
+	employeeMarker := true
 	return &yzjT04HandlerUserRepo{
 		users: map[string]*types.User{
 			yzjT04HandlerEmployeeID: {
 				ID:           yzjT04HandlerEmployeeID,
 				Username:     yzjT04HandlerEmployeeID,
 				Email:        yzjT04HandlerEmail,
+				PasswordHash: "placeholder-hash",
+				IsActive:     true,
+				Preferences: types.UserPreferences{
+					YunzhijiaEmployee: &employeeMarker,
+				},
+			},
+			yzjT04HandlerNormalID: {
+				ID:           yzjT04HandlerNormalID,
+				Username:     yzjT04HandlerNormalID,
+				Email:        yzjT04HandlerNormEmail,
 				PasswordHash: "placeholder-hash",
 				IsActive:     true,
 			},
@@ -106,9 +111,7 @@ func yzjT04HandlerRepo() *yzjT04HandlerUserRepo {
 func TestYunzhijiaT04OwnerResetMemberPasswordRejectsEmployee(t *testing.T) {
 	repo := yzjT04HandlerRepo()
 	tokenRepo := &yzjT04HandlerTokenRepo{}
-	userSvc := service.NewUserService(
-		nil, repo, tokenRepo, nil, nil, nil, &yzjT04HandlerLookup{employee: true},
-	)
+	userSvc := service.NewUserService(nil, repo, tokenRepo, nil, nil, nil)
 
 	memberSvc := &accountTestMemberService{
 		getMembership: func(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
@@ -142,9 +145,7 @@ func TestYunzhijiaT04OwnerResetMemberPasswordRejectsEmployee(t *testing.T) {
 func TestYunzhijiaT04SystemAdminResetPasswordRejectsEmployee(t *testing.T) {
 	repo := yzjT04HandlerRepo()
 	tokenRepo := &yzjT04HandlerTokenRepo{}
-	userSvc := service.NewUserService(
-		nil, repo, tokenRepo, nil, nil, nil, &yzjT04HandlerLookup{employee: true},
-	)
+	userSvc := service.NewUserService(nil, repo, tokenRepo, nil, nil, nil)
 	h := &SystemHandler{userSvc: userSvc}
 
 	w := performPasswordReset(t, passwordResetRouter(h, "admin-user"), map[string]string{
@@ -164,15 +165,36 @@ func TestYunzhijiaT04SystemAdminResetPasswordRejectsEmployee(t *testing.T) {
 	}
 }
 
+// F1 blast radius：普通账号的管理端重置不受员工标记迁移影响。
+func TestYunzhijiaT04SystemAdminResetPasswordAllowsOrdinaryAccount(t *testing.T) {
+	repo := yzjT04HandlerRepo()
+	tokenRepo := &yzjT04HandlerTokenRepo{}
+	userSvc := service.NewUserService(nil, repo, tokenRepo, nil, nil, nil)
+	h := &SystemHandler{userSvc: userSvc}
+
+	w := performPasswordReset(t, passwordResetRouter(h, "admin-user"), map[string]string{
+		"email":        yzjT04HandlerNormEmail,
+		"new_password": "FreshPass9",
+	})
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("ordinary account reset must succeed, got %d body=%s", w.Code, w.Body.String())
+	}
+	if repo.resets != 1 {
+		t.Fatalf("ordinary account reset must persist once, resets=%d", repo.resets)
+	}
+	if len(tokenRepo.revoked) != 1 || tokenRepo.revoked[0] != yzjT04HandlerNormalID {
+		t.Fatalf("ordinary account reset must revoke sessions, revoked=%v", tokenRepo.revoked)
+	}
+}
+
 // T04 票级复跑补充：员工账号即使知道合成邮箱与密码，HTTP 登录也必须
 // 返回统一的 401 文案且不下发任何 token。
 func TestYunzhijiaT04HandlerLoginEmployeeRejectedWithUnifiedMessage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	repo := yzjT04HandlerRepo()
 	tokenRepo := &yzjT04HandlerTokenRepo{}
-	userSvc := service.NewUserService(
-		nil, repo, tokenRepo, nil, nil, nil, &yzjT04HandlerLookup{employee: true},
-	)
+	userSvc := service.NewUserService(nil, repo, tokenRepo, nil, nil, nil)
 	h := NewAuthHandler(&config.Config{Auth: &config.AuthConfig{}},
 		userSvc, nil, nil, nil, nil, nil, nil)
 

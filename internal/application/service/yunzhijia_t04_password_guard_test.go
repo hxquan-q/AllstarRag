@@ -1,12 +1,13 @@
 package service
 
-// T04 TDD 红阶段：员工账号禁密码（AC-7 / INV-6）。
+// T04：员工账号禁密码（AC-7 / INV-6）。
 //
-// 本轮锁定的实现契约（票面 + 02-plan §7.3）：
-//   - internal/types/interfaces 增加
-//     YunzhijiaEmployeeLookup { IsYunzhijiaEmployee(ctx, userID) (bool, error) }
-//   - NewUserService 增加可选变参 ...YunzhijiaEmployeeLookup；不传时保持旧行为
-//   - Login / ChangePassword / AdminResetPassword 对员工账号统一拒绝
+// R4（F1）后的实现契约：
+//   - 员工身份只看已加载 users 行的 preferences.yunzhijia_employee 标记，
+//     不再查询 yunzhijia_employees 表；
+//   - NewUserService 固定六参构造，没有员工目录 lookup 依赖；
+//   - Login / ChangePassword / AdminResetPassword 对带标记的账号统一拒绝；
+//     普通账号不依赖员工目录，三条路径照旧可用。
 //
 // 所有账号、邮箱、密码均为占位数据，不使用真实员工信息。
 
@@ -33,21 +34,6 @@ const (
 	yzjT04NewPass    = "FreshPass9"
 	yzjT04ResetPass  = "ResetPass9"
 )
-
-// yzjT04Lookup 是 YunzhijiaEmployeeLookup 的测试替身。
-type yzjT04Lookup struct {
-	employeeIDs map[string]bool
-	err         error
-	calls       []string
-}
-
-func (l *yzjT04Lookup) IsYunzhijiaEmployee(_ context.Context, userID string) (bool, error) {
-	l.calls = append(l.calls, userID)
-	if l.err != nil {
-		return false, l.err
-	}
-	return l.employeeIDs[userID], nil
-}
 
 // yzjT04UserRepo 覆盖员工禁密码用例需要的最小用户仓储行为。
 type yzjT04UserRepo struct {
@@ -155,6 +141,9 @@ func yzjT04Hash(t *testing.T, password string) string {
 	return string(hash)
 }
 
+func yzjT04BoolPtr(v bool) *bool { return &v }
+
+// yzjT04User 构造一条普通账号（不带员工标记）。
 func yzjT04User(t *testing.T, id, email string, active bool) *types.User {
 	t.Helper()
 	return &types.User{
@@ -166,6 +155,14 @@ func yzjT04User(t *testing.T, id, email string, active bool) *types.User {
 	}
 }
 
+// yzjT04EmployeeUser 构造一条由同步开号写入员工标记的账号。
+func yzjT04EmployeeUser(t *testing.T, id, email string, active bool) *types.User {
+	t.Helper()
+	user := yzjT04User(t, id, email, active)
+	user.Preferences.YunzhijiaEmployee = yzjT04BoolPtr(true)
+	return user
+}
+
 func yzjT04RepoWith(users ...*types.User) *yzjT04UserRepo {
 	byID := make(map[string]*types.User, len(users))
 	for _, user := range users {
@@ -174,17 +171,8 @@ func yzjT04RepoWith(users ...*types.User) *yzjT04UserRepo {
 	return &yzjT04UserRepo{users: byID}
 }
 
-func yzjT04ServiceWithLookup(
-	t *testing.T,
-	repo interfaces.UserRepository,
-	tokens interfaces.AuthTokenRepository,
-	lookup interfaces.YunzhijiaEmployeeLookup,
-) interfaces.UserService {
-	t.Helper()
-	return NewUserService(nil, repo, tokens, nil, nil, nil, lookup)
-}
-
-func yzjT04ServiceWithoutLookup(
+// yzjT04Service 用六参构造；员工判定只依赖 users 行，没有员工目录可注入。
+func yzjT04Service(
 	t *testing.T,
 	repo interfaces.UserRepository,
 	tokens interfaces.AuthTokenRepository,
@@ -194,10 +182,9 @@ func yzjT04ServiceWithoutLookup(
 }
 
 func TestYunzhijiaT04EmployeePasswordLoginRejected(t *testing.T) {
-	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
+	repo := yzjT04RepoWith(yzjT04EmployeeUser(t, yzjT04EmployeeID, yzjT04Email, true))
 	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{employeeIDs: map[string]bool{yzjT04EmployeeID: true}}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+	svc := yzjT04Service(t, repo, tokens)
 
 	resp, err := svc.Login(context.Background(), &types.LoginRequest{
 		Email:    yzjT04Email,
@@ -215,16 +202,12 @@ func TestYunzhijiaT04EmployeePasswordLoginRejected(t *testing.T) {
 	if tokens.createCalls != 0 {
 		t.Fatalf("employee rejection must not issue tokens, createToken calls=%d", tokens.createCalls)
 	}
-	if len(lookup.calls) == 0 || lookup.calls[0] != yzjT04EmployeeID {
-		t.Fatalf("expected employee lookup for %s, calls=%v", yzjT04EmployeeID, lookup.calls)
-	}
 }
 
 func TestYunzhijiaT04NonEmployeePasswordLoginStillWorks(t *testing.T) {
 	repo := yzjT04RepoWith(yzjT04User(t, yzjT04NormalID, yzjT04Email, true))
 	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{employeeIDs: map[string]bool{}}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+	svc := yzjT04Service(t, repo, tokens)
 
 	resp, err := svc.Login(context.Background(), &types.LoginRequest{
 		Email:    yzjT04Email,
@@ -241,11 +224,30 @@ func TestYunzhijiaT04NonEmployeePasswordLoginStillWorks(t *testing.T) {
 	}
 }
 
-func TestYunzhijiaT04EmployeeLoginRejectedWhenDisabled(t *testing.T) {
-	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, false))
+// 显式 false 也是普通账号：标记存在但为 false 时不得被当成员工。
+func TestYunzhijiaT04EmployeeMarkerFalseIsOrdinaryAccount(t *testing.T) {
+	user := yzjT04User(t, yzjT04NormalID, yzjT04Email, true)
+	user.Preferences.YunzhijiaEmployee = yzjT04BoolPtr(false)
+	repo := yzjT04RepoWith(user)
 	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{employeeIDs: map[string]bool{yzjT04EmployeeID: true}}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+	svc := yzjT04Service(t, repo, tokens)
+
+	resp, err := svc.Login(context.Background(), &types.LoginRequest{
+		Email:    yzjT04Email,
+		Password: yzjT04OldPass,
+	})
+	if err != nil {
+		t.Fatalf("Login returned unexpected error: %v", err)
+	}
+	if resp == nil || !resp.Success {
+		t.Fatalf("marker=false account must keep password login, got %+v", resp)
+	}
+}
+
+func TestYunzhijiaT04EmployeeLoginRejectedWhenDisabled(t *testing.T) {
+	repo := yzjT04RepoWith(yzjT04EmployeeUser(t, yzjT04EmployeeID, yzjT04Email, false))
+	tokens := &yzjT04TokenRepo{}
+	svc := yzjT04Service(t, repo, tokens)
 
 	resp, err := svc.Login(context.Background(), &types.LoginRequest{
 		Email:    yzjT04Email,
@@ -266,10 +268,9 @@ func TestYunzhijiaT04EmployeeLoginRejectedWhenDisabled(t *testing.T) {
 }
 
 func TestYunzhijiaT04EmployeeChangePasswordRejected(t *testing.T) {
-	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
+	repo := yzjT04RepoWith(yzjT04EmployeeUser(t, yzjT04EmployeeID, yzjT04Email, true))
 	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{employeeIDs: map[string]bool{yzjT04EmployeeID: true}}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+	svc := yzjT04Service(t, repo, tokens)
 
 	err := svc.ChangePassword(context.Background(), yzjT04EmployeeID, yzjT04OldPass, yzjT04NewPass)
 	if err == nil {
@@ -292,8 +293,7 @@ func TestYunzhijiaT04EmployeeChangePasswordRejected(t *testing.T) {
 func TestYunzhijiaT04NonEmployeeChangePasswordStillWorks(t *testing.T) {
 	repo := yzjT04RepoWith(yzjT04User(t, yzjT04NormalID, yzjT04Email, true))
 	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{employeeIDs: map[string]bool{}}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+	svc := yzjT04Service(t, repo, tokens)
 
 	err := svc.ChangePassword(context.Background(), yzjT04NormalID, yzjT04OldPass, yzjT04NewPass)
 	if err != nil {
@@ -308,10 +308,9 @@ func TestYunzhijiaT04NonEmployeeChangePasswordStillWorks(t *testing.T) {
 }
 
 func TestYunzhijiaT04EmployeeAdminResetPasswordRejected(t *testing.T) {
-	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
+	repo := yzjT04RepoWith(yzjT04EmployeeUser(t, yzjT04EmployeeID, yzjT04Email, true))
 	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{employeeIDs: map[string]bool{yzjT04EmployeeID: true}}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+	svc := yzjT04Service(t, repo, tokens)
 
 	err := svc.AdminResetPassword(context.Background(), yzjT04EmployeeID, yzjT04ResetPass)
 	if err == nil {
@@ -331,8 +330,7 @@ func TestYunzhijiaT04EmployeeAdminResetPasswordRejected(t *testing.T) {
 func TestYunzhijiaT04NonEmployeeAdminResetPasswordStillWorks(t *testing.T) {
 	repo := yzjT04RepoWith(yzjT04User(t, yzjT04NormalID, yzjT04Email, true))
 	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{employeeIDs: map[string]bool{}}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
+	svc := yzjT04Service(t, repo, tokens)
 
 	err := svc.AdminResetPassword(context.Background(), yzjT04NormalID, yzjT04ResetPass)
 	if err != nil {
@@ -346,85 +344,32 @@ func TestYunzhijiaT04NonEmployeeAdminResetPasswordStillWorks(t *testing.T) {
 	}
 }
 
-func TestYunzhijiaT04NoLookupKeepsLegacyBehavior(t *testing.T) {
+// F1 blast radius：普通账号的三条密码路径都不依赖员工目录。这些用例的
+// 构造里根本不存在员工仓储/lookup——只要实现还查一次员工表就无法通过。
+func TestYunzhijiaT04OrdinaryAccountPasswordPathsDoNotNeedEmployeeDirectory(t *testing.T) {
+	ctx := context.Background()
 	repo := yzjT04RepoWith(yzjT04User(t, yzjT04NormalID, yzjT04Email, true))
 	tokens := &yzjT04TokenRepo{}
-	svc := yzjT04ServiceWithoutLookup(t, repo, tokens)
+	svc := yzjT04Service(t, repo, tokens)
 
-	resp, err := svc.Login(context.Background(), &types.LoginRequest{
-		Email:    yzjT04Email,
-		Password: yzjT04OldPass,
-	})
+	resp, err := svc.Login(ctx, &types.LoginRequest{Email: yzjT04Email, Password: yzjT04OldPass})
 	if err != nil {
-		t.Fatalf("Login returned unexpected error: %v", err)
+		t.Fatalf("ordinary login: %v", err)
 	}
 	if resp == nil || !resp.Success {
-		t.Fatalf("without lookup the legacy password login must keep working, got %+v", resp)
+		t.Fatalf("ordinary login must succeed without employee directory, got %+v", resp)
 	}
-}
 
-// T04 票级复跑补充：lookup 查询失败必须 fail-closed，不能因为查不到员工
-// 状态就放行密码路径。
-
-func TestYunzhijiaT04EmployeeLoginRejectedWhenLookupErrors(t *testing.T) {
-	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
-	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{err: errors.New("lookup unavailable")}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
-
-	resp, err := svc.Login(context.Background(), &types.LoginRequest{
-		Email:    yzjT04Email,
-		Password: yzjT04OldPass,
-	})
-	if err != nil {
-		t.Fatalf("Login returned unexpected error: %v", err)
+	if err := svc.ChangePassword(ctx, yzjT04NormalID, yzjT04OldPass, yzjT04NewPass); err != nil {
+		t.Fatalf("ordinary ChangePassword must not need employee directory: %v", err)
 	}
-	if resp == nil || resp.Success {
-		t.Fatalf("lookup error must fail closed for login, got %+v", resp)
+	if err := svc.AdminResetPassword(ctx, yzjT04NormalID, yzjT04ResetPass); err != nil {
+		t.Fatalf("ordinary AdminResetPassword must not need employee directory: %v", err)
 	}
-	if resp.Message != "Invalid email or password" {
-		t.Fatalf("lookup error must use the unified message, got %q", resp.Message)
+	if repo.updateCalls != 2 {
+		t.Fatalf("ordinary change+reset must each persist once, updates=%d", repo.updateCalls)
 	}
-	if tokens.createCalls != 0 {
-		t.Fatalf("lookup error must not issue tokens, createToken calls=%d", tokens.createCalls)
-	}
-	if len(lookup.calls) == 0 || lookup.calls[0] != yzjT04EmployeeID {
-		t.Fatalf("expected employee lookup for %s, calls=%v", yzjT04EmployeeID, lookup.calls)
-	}
-}
-
-func TestYunzhijiaT04EmployeeChangePasswordRejectedWhenLookupErrors(t *testing.T) {
-	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
-	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{err: errors.New("lookup unavailable")}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
-
-	err := svc.ChangePassword(context.Background(), yzjT04EmployeeID, yzjT04OldPass, yzjT04NewPass)
-	if !errors.Is(err, ErrYunzhijiaEmployeePasswordDisabled) {
-		t.Fatalf("lookup error must fail closed for ChangePassword, got %v", err)
-	}
-	if repo.updateCalls != 0 {
-		t.Fatalf("lookup error must not write the user, updates=%d", repo.updateCalls)
-	}
-	if len(tokens.revoked) != 0 {
-		t.Fatalf("lookup error must not revoke tokens, revoked=%v", tokens.revoked)
-	}
-}
-
-func TestYunzhijiaT04EmployeeAdminResetPasswordRejectedWhenLookupErrors(t *testing.T) {
-	repo := yzjT04RepoWith(yzjT04User(t, yzjT04EmployeeID, yzjT04Email, true))
-	tokens := &yzjT04TokenRepo{}
-	lookup := &yzjT04Lookup{err: errors.New("lookup unavailable")}
-	svc := yzjT04ServiceWithLookup(t, repo, tokens, lookup)
-
-	err := svc.AdminResetPassword(context.Background(), yzjT04EmployeeID, yzjT04ResetPass)
-	if !errors.Is(err, ErrYunzhijiaEmployeePasswordDisabled) {
-		t.Fatalf("lookup error must fail closed for AdminResetPassword, got %v", err)
-	}
-	if repo.updateCalls != 0 {
-		t.Fatalf("lookup error must not write the user, updates=%d", repo.updateCalls)
-	}
-	if len(tokens.revoked) != 0 {
-		t.Fatalf("lookup error must not revoke tokens, revoked=%v", tokens.revoked)
+	if len(tokens.revoked) != 2 {
+		t.Fatalf("ordinary change+reset must each revoke, revoked=%v", tokens.revoked)
 	}
 }

@@ -6,14 +6,17 @@ package service
 // 所有姓名、open_id 均为占位符。
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/sso/yunzhijia"
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -361,7 +364,7 @@ func TestYunzhijiaT05RunToleratesUpstreamPageSizeEcho(t *testing.T) {
 }
 
 // H1：两批完整抓取后，本地 active 但不在任一上游名单的员工按离职收敛；
-// 已封禁的员工同样收敛状态但只记 blocked_skipped，不调用 ApplyInactive。
+// 已封禁的员工整条跳过（F5：不 upsert、行保持原状），只记 blocked_skipped。
 func TestYunzhijiaT05RunReconcilesLocalActiveMissing(t *testing.T) {
 	ctx := context.Background()
 	cfg := yzjT05Config(10, true)
@@ -415,11 +418,24 @@ func TestYunzhijiaT05RunReconcilesLocalActiveMissing(t *testing.T) {
 		t.Fatalf("缺席员工应收敛为 inactive，实际 %+v", row)
 	}
 	blockedRow := repo.snapshot("open-blocked")
-	blockedOK := blockedRow != nil &&
-		blockedRow.Status == types.YunzhijiaEmployeeStatusInactive &&
-		blockedRow.Blocked
-	if !blockedOK {
-		t.Fatalf("封禁缺席员工应收敛为 inactive 且保留 blocked，实际 %+v", blockedRow)
+	if blockedRow == nil {
+		t.Fatal("封禁员工记录必须保留")
+	}
+	if !blockedRow.Blocked {
+		t.Fatal("同步不得清除 blocked")
+	}
+	if blockedRow.Status != types.YunzhijiaEmployeeStatusActive {
+		t.Fatalf("F5：blocked 的 missing-active 行不得被收敛改写，实际 status=%s",
+			blockedRow.Status)
+	}
+	if blockedRow.Name != "封禁员工" {
+		t.Fatalf("F5：blocked 行字段不得被 upsert 覆盖，实际 name=%q", blockedRow.Name)
+	}
+	if got := repo.upsertCountFor("open-blocked"); got != 0 {
+		t.Fatalf("F5：blocked 员工不得 upsert，实际 %d 次", got)
+	}
+	if got := repo.upsertCountFor("open-missing"); got != 1 {
+		t.Fatalf("缺席的非 blocked 员工应 upsert 收敛一次，实际 %d 次", got)
 	}
 
 	inactive := life.inactiveSnapshot()
@@ -797,16 +813,55 @@ func TestYunzhijiaT05RunUsesPersistedRowForBlockedSkip(t *testing.T) {
 	if row.UserID == nil || *row.UserID != blockedUID {
 		t.Fatalf("同步不得改写 user_id，实际 %v", row.UserID)
 	}
-	if row.Name != "新名" {
-		t.Fatalf("upsert 应更新同步字段 name，实际 %q", row.Name)
+	// F5：blocked 行在 upsert 之前整条跳过，同步字段不得被覆盖。
+	if row.Name != "旧名" || row.Department != "旧部门" {
+		t.Fatalf("F5：blocked 行不得 upsert，实际 name=%q department=%q",
+			row.Name, row.Department)
 	}
-	// 入参不得带本地状态；若实现用入参判断 blocked，本用例会误调生命周期。
-	input := repo.lastUpserted("open-a")
-	if input == nil {
-		t.Fatal("未记录 UpsertByOpenID 入参")
+	if got := repo.upsertCountFor("open-a"); got != 0 {
+		t.Fatalf("F5：blocked 员工不得调用 UpsertByOpenID，实际 %d 次", got)
 	}
-	if input.Blocked || input.UserID != nil {
-		t.Fatalf("upsert 入参不应携带库内 blocked/user_id，实际 %+v", input)
+}
+
+// F4（AC-20）：Run 开始日志只允许 trigger + run id，不得出现员工姓名、
+// open_id/名单或 ticket。
+func TestYunzhijiaR4RunStartLogIsFieldWhitelisted(t *testing.T) {
+	var logs bytes.Buffer
+	logger.SetOutput(&logs)
+	logger.SetLogLevel(logger.LevelInfo)
+	t.Cleanup(func() { logger.ConfigureFromEnv() })
+
+	ctx := context.Background()
+	cfg := yzjT05Config(10, true)
+	client := newYZJT05Client()
+	client.setPage(yunzhijia.StatusActive, 1, yzjT05Page(1, 10, 1,
+		yzjT05Employee("open-log-f4-0001", "占位员工日志甲", "金蝶社区"),
+	))
+	client.setPage(yunzhijia.StatusInactive, 1, yzjT05Page(1, 10, 0))
+
+	runs := &yzjT05RunRepo{}
+	life := newYZJT05Lifecycle()
+	svc := NewYunzhijiaSyncService(cfg, client, newYZJT05EmployeeRepo(), runs, life)
+
+	run, err := svc.Run(ctx, types.YunzhijiaSyncTriggerManual)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	out := logs.String()
+	if !strings.Contains(out, "同步开始") {
+		t.Fatalf("F4：必须记录同步开始日志，实际 %q", out)
+	}
+	if !strings.Contains(out, "trigger=manual") {
+		t.Fatalf("F4：开始日志必须含触发方式，实际 %q", out)
+	}
+	if !strings.Contains(out, fmt.Sprintf("run=%d", run.ID)) {
+		t.Fatalf("F4：开始日志必须含 run id=%d，实际 %q", run.ID, out)
+	}
+	for _, forbidden := range []string{"占位员工日志甲", "open-log-f4-0001", "ticket"} {
+		if strings.Contains(out, forbidden) {
+			t.Fatalf("F4：日志不得包含 %q，实际 %q", forbidden, out)
+		}
 	}
 }
 

@@ -124,16 +124,19 @@ func TestYunzhijiaR2ApplyInactiveCallOrder(t *testing.T) {
 	employee := yzjT06Employee("open-r2-order-001", "占位员工顺", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	employee.Status = types.YunzhijiaEmployeeStatusInactive
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	yzjT06ApplyInactiveOK(t, lifecycle, employee)
 
 	want := []string{
+		"lock:" + userID,
 		"set-disabled:true",
 		"set-active:false",
+		"unlock:" + userID,
 		fmt.Sprintf("remove:%d", yzjT06TenantDefault),
 	}
 	require.Equal(t, want, order,
-		"离职必须先写同步停用标记、再停用账号、最后移除成员关系")
+		"离职必须在用户锁内写标记/停用，释放锁后再移除成员关系")
 }
 
 func TestYunzhijiaR2ApplyInactiveStopsWhenMarkerWriteFails(t *testing.T) {
@@ -152,14 +155,17 @@ func TestYunzhijiaR2ApplyInactiveStopsWhenMarkerWriteFails(t *testing.T) {
 	employee := yzjT06Employee("open-r2-order-fail", "占位员工败", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	employee.Status = types.YunzhijiaEmployeeStatusInactive
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	boom := errors.New("employee repo unavailable")
 	employees.setDisabledErr = boom
 
 	_, err := lifecycle.ApplyInactive(context.Background(), employee)
 	require.ErrorIs(t, err, boom)
-	require.Empty(t, order,
-		"标记写入失败后不得继续停用账号或移除成员关系")
+	require.Equal(t, []string{
+		"lock:" + userID,
+		"unlock:" + userID,
+	}, order, "标记写入失败后不得继续停用账号或移除成员关系")
 	require.Empty(t, users.setActiveCalls)
 	require.Empty(t, members.removeCalls)
 }

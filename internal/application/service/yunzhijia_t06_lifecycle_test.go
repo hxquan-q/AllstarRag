@@ -117,6 +117,7 @@ type yzjT06UserRepo struct {
 	createCalls    []*types.User
 	setActiveCalls []yzjT06SetActiveCall
 	updateCalls    []*types.User
+	setActiveErr   error
 
 	// order 非 nil 时记录跨替身的调用顺序（L1 顺序断言用）。
 	order *[]string
@@ -165,6 +166,9 @@ func (r *yzjT06UserRepo) SetUserActive(
 		}
 		*r.order = append(*r.order, "set-active:"+state)
 	}
+	if r.setActiveErr != nil {
+		return nil, r.setActiveErr
+	}
 	user, ok := r.users[userID]
 	if !ok {
 		return &types.User{ID: userID, IsActive: active}, nil
@@ -177,6 +181,21 @@ func (r *yzjT06UserRepo) UpdateUser(_ context.Context, user *types.User) error {
 	r.updateCalls = append(r.updateCalls, user)
 	r.users[user.ID] = user
 	return nil
+}
+
+// LockUserProvision 让替身参与 R4 的按用户串行锁，order 非 nil 时记录
+// 加锁/释放顺序，用于断言成员动作发生在释放锁之后。
+func (r *yzjT06UserRepo) LockUserProvision(
+	_ context.Context, userID string,
+) (func(), error) {
+	if r.order != nil {
+		*r.order = append(*r.order, "lock:"+userID)
+	}
+	return func() {
+		if r.order != nil {
+			*r.order = append(*r.order, "unlock:"+userID)
+		}
+	}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +265,9 @@ func (m *yzjT06MemberService) AddMember(
 		UserID: userID, TenantID: tenantID, Role: role,
 	})
 	m.events = append(m.events, "add")
+	if m.order != nil {
+		*m.order = append(*m.order, fmt.Sprintf("add:%d", tenantID))
+	}
 	member := &types.TenantMember{
 		UserID:   userID,
 		TenantID: tenantID,
@@ -406,19 +428,40 @@ func (r *yzjT06EmployeeRepo) SetUserID(
 // 员工状态 / 删除钩子替身
 // ---------------------------------------------------------------------------
 
+type yzjT06RestoreCall struct {
+	UserID      string
+	WasDisabled bool
+}
+
 type yzjT06State struct {
 	adminCalls   []string
+	restoreCalls []yzjT06RestoreCall
 	blockedCalls []yzjT06MarkCall
 
 	adminErr   error
+	restoreErr error
 	blockedErr error
+	// wasDisabled 模拟 MarkAdminDisabled 清除前的 disabled_by_sync，供失败补偿断言。
+	wasDisabled bool
 	// onMarkBlocked 在 MarkBlockedAfterPurge 内执行，便于断言「先标记后 purge」。
 	onMarkBlocked func()
 }
 
-func (s *yzjT06State) MarkAdminDisabled(_ context.Context, userID string) error {
+func (s *yzjT06State) MarkAdminDisabled(_ context.Context, userID string) (bool, error) {
 	s.adminCalls = append(s.adminCalls, userID)
-	return s.adminErr
+	if s.adminErr != nil {
+		return false, s.adminErr
+	}
+	return s.wasDisabled, nil
+}
+
+func (s *yzjT06State) RestoreAdminDisabled(
+	_ context.Context, userID string, wasDisabled bool,
+) error {
+	s.restoreCalls = append(s.restoreCalls, yzjT06RestoreCall{
+		UserID: userID, WasDisabled: wasDisabled,
+	})
+	return s.restoreErr
 }
 
 func (s *yzjT06State) MarkBlockedAfterPurge(
@@ -484,6 +527,15 @@ func yzjT06SeedMembership(
 	})
 }
 
+// yzjT06SeedEmployeeRow 把员工行写入员工仓储。R4 起已有账号路径会在用户
+// 锁内用 GetByOpenID 重读员工行判断 blocked/disabled_by_sync，未 seed 的行
+// 会被视为数据不一致。
+func yzjT06SeedEmployeeRow(
+	employees *yzjT06EmployeeRepo, employee *types.YunzhijiaEmployee,
+) {
+	employees.byOpenID[employee.OpenID] = yzjT06CloneEmployee(employee)
+}
+
 func yzjT06RequireNoMutations(
 	t *testing.T,
 	users *yzjT06UserRepo,
@@ -541,6 +593,7 @@ func TestYunzhijiaT06ApplyEmployeeExistingActiveEnsuresViewer(t *testing.T) {
 	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
 	employee := yzjT06Employee("open-existing-0001", "占位员工乙", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
@@ -562,6 +615,7 @@ func TestYunzhijiaT06ApplyEmployeeActiveWithoutMembershipAddsViewer(t *testing.T
 	yzjT06SeedActiveUser(users, userID)
 	employee := yzjT06Employee("open-no-membership-0001", "占位员工午", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
@@ -584,6 +638,7 @@ func TestYunzhijiaT06ApplyEmployeeRehireRestoresAccount(t *testing.T) {
 	employee := yzjT06Employee("open-rehire-0001", "占位员工丙", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	employee.DisabledBySync = true
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
@@ -600,6 +655,37 @@ func TestYunzhijiaT06ApplyEmployeeRehireRestoresAccount(t *testing.T) {
 	require.Equal(t, employee.OpenID, employees.setDisabledCalls[0].OpenID)
 	require.False(t, employees.setDisabledCalls[0].Disabled)
 	require.Empty(t, members.removeCalls, "同空间再入职不应移除成员")
+}
+
+// F2（R4）：再入职的写操作必须在用户级锁内完成；成员关系补写必须在
+// 释放锁之后，避免与成员服务的同一把用户锁重入死锁。
+func TestYunzhijiaT06R4RehireWritesUnderLockThenMembership(t *testing.T) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	var order []string
+	users.order = &order
+	members.order = &order
+	employees.order = &order
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(true), users, members, employees)
+
+	userID := "u-t06-r4-order"
+	yzjT06SeedActiveUser(users, userID).IsActive = false
+	employee := yzjT06Employee("open-r4-order-0001", "占位员工锁序", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+	employee.DisabledBySync = true
+	yzjT06SeedEmployeeRow(employees, employee)
+
+	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
+
+	require.Equal(t, []string{
+		"lock:" + userID,
+		"set-active:true",
+		"set-disabled:false",
+		"unlock:" + userID,
+		fmt.Sprintf("add:%d", yzjT06TenantDefault),
+	}, order,
+		"F2：状态/标记写入必须在锁内，AddMember 必须在释放锁后")
 }
 
 // M2：在职但 disabled_by_sync=true（如管理员先封禁再解封、上一轮离职停用后
@@ -646,6 +732,7 @@ func TestYunzhijiaT06ApplyEmployeeTransferMovesSpace(t *testing.T) {
 
 	employee := yzjT06Employee("open-transfer-0001", "占位员工丁", yzjT06TenantHR)
 	employee.UserID = yzjT06Ptr(userID)
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	yzjT06ApplyEmployeeOK(t, lifecycle, employee)
 
@@ -686,6 +773,7 @@ func TestYunzhijiaT06ApplyEmployeeAdminBannedNotUnbanned(t *testing.T) {
 	employee := yzjT06Employee("open-banned-0001", "占位员工己", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	employee.DisabledBySync = false
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	_, err := lifecycle.ApplyEmployee(context.Background(), employee)
 	require.ErrorIs(t, err, ErrYunzhijiaAccountBanned)
@@ -726,6 +814,7 @@ func TestYunzhijiaT06ApplyInactiveDisablesAndRevokes(t *testing.T) {
 	employee := yzjT06Employee("open-leave-0001", "占位员工辛", yzjT06TenantDefault)
 	employee.UserID = yzjT06Ptr(userID)
 	employee.Status = types.YunzhijiaEmployeeStatusInactive
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	yzjT06ApplyInactiveOK(t, lifecycle, employee)
 
@@ -775,6 +864,7 @@ func TestYunzhijiaT06ApplyInactiveAdminBannedUnchanged(t *testing.T) {
 	employee.UserID = yzjT06Ptr(userID)
 	employee.Status = types.YunzhijiaEmployeeStatusInactive
 	employee.DisabledBySync = false
+	yzjT06SeedEmployeeRow(employees, employee)
 
 	yzjT06ApplyInactiveOK(t, lifecycle, employee)
 	require.Empty(t, users.setActiveCalls, "已封禁账号不应重复停用")
@@ -816,7 +906,10 @@ func TestYunzhijiaT06MarkAdminDisabled(t *testing.T) {
 	employee.DisabledBySync = true
 	employees.byOpenID[employee.OpenID] = yzjT06CloneEmployee(employee)
 
-	require.NoError(t, lifecycle.MarkAdminDisabled(context.Background(), userID))
+	wasDisabled, err := lifecycle.MarkAdminDisabled(context.Background(), userID)
+	require.NoError(t, err)
+	require.True(t, wasDisabled,
+		"MarkAdminDisabled 必须返回清除前的 disabled_by_sync，供封禁失败补偿")
 	require.Len(t, employees.setDisabledCalls, 1)
 	require.Equal(t, employee.OpenID, employees.setDisabledCalls[0].OpenID)
 	require.False(t, employees.setDisabledCalls[0].Disabled, "管理员封禁必须把 disabled_by_sync 置 false")
@@ -828,8 +921,46 @@ func TestYunzhijiaT06MarkAdminDisabledUnknownUserIsNoop(t *testing.T) {
 	employees := newYZJT06EmployeeRepo()
 	lifecycle := yzjT06NewLifecycle(yzjT06Config(false), users, members, employees)
 
-	require.NoError(t, lifecycle.MarkAdminDisabled(context.Background(), "u-not-employee"))
+	wasDisabled, err := lifecycle.MarkAdminDisabled(context.Background(), "u-not-employee")
+	require.NoError(t, err)
+	require.False(t, wasDisabled, "员工目录没有该用户时按未标记处理")
 	require.Empty(t, employees.setDisabledCalls, "非员工账号不应触碰员工表")
+}
+
+// F2：封禁事务失败后把 disabled_by_sync 恢复为清除前的值。
+func TestYunzhijiaT06RestoreAdminDisabled(t *testing.T) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(false), users, members, employees)
+
+	userID := "u-t06-restore"
+	employee := yzjT06Employee("open-restore-0001", "占位员工补偿", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+	employee.DisabledBySync = false
+	yzjT06SeedEmployeeRow(employees, employee)
+
+	require.NoError(t, lifecycle.RestoreAdminDisabled(context.Background(), userID, true))
+	require.Len(t, employees.setDisabledCalls, 1)
+	require.Equal(t, employee.OpenID, employees.setDisabledCalls[0].OpenID)
+	require.True(t, employees.setDisabledCalls[0].Disabled,
+		"补偿必须把 disabled_by_sync 恢复为 true")
+}
+
+func TestYunzhijiaT06RestoreAdminDisabledFalseIsNoop(t *testing.T) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	lifecycle := yzjT06NewLifecycle(yzjT06Config(false), users, members, employees)
+
+	userID := "u-t06-restore-noop"
+	employee := yzjT06Employee("open-restore-noop-0001", "占位员工空补偿", yzjT06TenantDefault)
+	employee.UserID = yzjT06Ptr(userID)
+	yzjT06SeedEmployeeRow(employees, employee)
+
+	require.NoError(t, lifecycle.RestoreAdminDisabled(context.Background(), userID, false))
+	require.Empty(t, employees.setDisabledCalls,
+		"清除前标记为 false 时补偿必须是空操作")
 }
 
 func TestYunzhijiaT06MarkBlockedAfterPurge(t *testing.T) {
@@ -872,8 +1003,54 @@ func TestYunzhijiaT06StateHookErrorsPropagate(t *testing.T) {
 
 	boom := errors.New("employee repo unavailable")
 	employees.setDisabledErr = boom
-	require.ErrorIs(t, lifecycle.MarkAdminDisabled(context.Background(), userID), boom)
+	_, err := lifecycle.MarkAdminDisabled(context.Background(), userID)
+	require.ErrorIs(t, err, boom)
 
 	employees.markBlockedErr = boom
 	require.ErrorIs(t, lifecycle.MarkBlockedAfterPurge(context.Background(), userID, "actor"), boom)
+
+	require.ErrorIs(t, lifecycle.RestoreAdminDisabled(context.Background(), userID, true), boom)
+}
+
+// ---------------------------------------------------------------------------
+// F3（R4）：ensureViewerMembership 只把 active 行当成已补齐
+// ---------------------------------------------------------------------------
+
+func TestYunzhijiaT06R4EnsureViewerMembershipReactivatesSuspended(t *testing.T) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	provisioner := NewYunzhijiaProvisioner(
+		yzjT06Config(true), users, members, employees, &yzjT06Remover{})
+
+	userID := "u-t06-suspended"
+	members.members = append(members.members, &types.TenantMember{
+		UserID:   userID,
+		TenantID: yzjT06TenantDefault,
+		Role:     types.TenantRoleViewer,
+		Status:   types.TenantMemberStatusSuspended,
+	})
+
+	require.NoError(t, provisioner.ensureViewerMembership(
+		context.Background(), userID, yzjT06TenantDefault))
+	require.Len(t, members.addCalls, 1,
+		"F3：suspended 成员不能提前返回，必须调用 AddMember 走 ReactivateSuspended")
+	require.Equal(t, userID, members.addCalls[0].UserID)
+	require.Equal(t, yzjT06TenantDefault, members.addCalls[0].TenantID)
+	require.Equal(t, types.TenantRoleViewer, members.addCalls[0].Role)
+}
+
+func TestYunzhijiaT06R4EnsureViewerMembershipKeepsActiveMember(t *testing.T) {
+	users := newYZJT06UserRepo()
+	members := newYZJT06MemberService()
+	employees := newYZJT06EmployeeRepo()
+	provisioner := NewYunzhijiaProvisioner(
+		yzjT06Config(true), users, members, employees, &yzjT06Remover{})
+
+	userID := "u-t06-active-member"
+	yzjT06SeedMembership(members, userID, yzjT06TenantDefault, types.TenantRoleViewer)
+
+	require.NoError(t, provisioner.ensureViewerMembership(
+		context.Background(), userID, yzjT06TenantDefault))
+	require.Empty(t, members.addCalls, "active 成员已是 viewer，不应重复 AddMember")
 }
