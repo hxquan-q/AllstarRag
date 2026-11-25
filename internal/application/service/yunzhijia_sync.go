@@ -309,6 +309,14 @@ func (s *YunzhijiaSyncService) applyMissingActive(
 		if _, seen := fetchedSeen[row.OpenID]; seen {
 			continue
 		}
+		// blocked 行状态不变，不参与缺席收敛，也不记 local_active_missing：
+		// 直接交给 applyInactive 记一条 blocked_skipped，避免每轮重复两条异常。
+		if row.Blocked {
+			anomalies = append(
+				anomalies, s.applyInactive(ctx, yzjEmployeeFromRow(row), now, counters)...,
+			)
+			continue
+		}
 		anomalies = append(anomalies, types.YunzhijiaSyncAnomaly{
 			Kind:   types.YunzhijiaAnomalyLocalActiveMissing,
 			OpenID: row.OpenID,
@@ -454,4 +462,18 @@ func marshalAnomalies(anomalies []types.YunzhijiaSyncAnomaly) (types.JSON, error
 		return nil, fmt.Errorf("yunzhijia: 序列化同步异常失败: %w", err)
 	}
 	return types.JSON(data), nil
+}
+
+// logYunzhijiaSyncCompleted 记录一轮同步完成（AC-20）：触发方式、运行 id、
+// 计数与耗时；不打印姓名、名单或 ticket。调度器与手动同步共用同一格式。
+func logYunzhijiaSyncCompleted(ctx context.Context, run *types.YunzhijiaSyncRun) {
+	if run == nil {
+		return
+	}
+	logger.Infof(ctx,
+		"[Yunzhijia] 同步完成（trigger=%s, run=%d）：active=%d inactive=%d created=%d "+
+			"updated=%d disabled=%d migrated=%d anomalies=%d 耗时=%s",
+		run.Trigger, run.ID, run.ActiveCount, run.InactiveCount, run.CreatedCount,
+		run.UpdatedCount, run.DisabledCount, run.MigratedCount, run.AnomalyCount,
+		yunzhijiaRunDuration(run))
 }

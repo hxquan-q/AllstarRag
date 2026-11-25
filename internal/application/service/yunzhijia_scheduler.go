@@ -255,12 +255,7 @@ func (s *YunzhijiaScheduler) trigger(ctx context.Context, trigger types.Yunzhiji
 			logger.Warnf(ctx, "[Yunzhijia] 同步失败（trigger=%s）: %v", trigger, err)
 		default:
 			// AC-20：完成日志带计数与耗时，排障不必再翻运行记录。
-			logger.Infof(ctx,
-				"[Yunzhijia] 同步完成（trigger=%s, run=%d）：active=%d inactive=%d created=%d "+
-					"updated=%d disabled=%d migrated=%d anomalies=%d 耗时=%s",
-				trigger, run.ID, run.ActiveCount, run.InactiveCount, run.CreatedCount,
-				run.UpdatedCount, run.DisabledCount, run.MigratedCount, run.AnomalyCount,
-				yunzhijiaRunDuration(run))
+			logYunzhijiaSyncCompleted(ctx, run)
 		}
 	}()
 }

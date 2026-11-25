@@ -143,6 +143,10 @@ func (s *YunzhijiaAdminService) ManualSync(
 	if run != nil {
 		s.emitSyncAudit(ctx, run)
 	}
+	// AC-20：手动同步与调度器共用完成日志格式；失败由调用方/handler 记录。
+	if err == nil {
+		logYunzhijiaSyncCompleted(ctx, run)
+	}
 	return run, err
 }
 

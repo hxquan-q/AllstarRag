@@ -28,6 +28,14 @@ const (
 	yunzhijiaCreateAttempts = 3
 )
 
+// ErrYunzhijiaEmployeeMarkerMissing 表示员工已绑定的 users 行缺少员工标记。
+//
+// 员工标记是密码守卫与管理钩子的唯一判据（AC-7）；缺失时无法确认账号
+// 保护仍然生效，开号流程必须 fail-closed：不补成员、不回填 user_id、
+// 不写任何数据，由部署巡检/管理员按员工表回填标记后恢复。
+var ErrYunzhijiaEmployeeMarkerMissing = errors.New(
+	"yunzhijia: 关联账号缺少员工标记，拒绝复用")
+
 // YunzhijiaProvisioner 负责“员工目录行 → 本地 viewer 账号”的开号与修复。
 //
 // 它只创建 users 行与目标空间的 viewer 成员关系，不建租户、不调
@@ -89,6 +97,10 @@ func (p *YunzhijiaProvisioner) ensureExistingAccount(
 	if err != nil {
 		return nil, err
 	}
+	// 先确认标记与密码闸，再决定是否修复/复用；任何一项失败都零写入。
+	if err := checkReusableEmployeeAccount(user); err != nil {
+		return nil, err
+	}
 	// 账号已停用时不得做任何修复写入，由登录侧 fail-closed 拒绝。
 	if !user.IsActive {
 		return user, nil
@@ -125,8 +137,9 @@ func (p *YunzhijiaProvisioner) ensureNewAccount(
 		IsActive:            true,
 		IsSystemAdmin:       false,
 		CanAccessAllTenants: false,
-		// 员工标记只由服务端写入：前端据此隐藏改密入口（AC-7），
-		// 密码守卫与 purge 钩子走员工目录，不依赖它。
+		// 员工标记只由服务端写入：前端据此隐藏改密入口（AC-7），密码守卫
+		// 与封禁/删除钩子也只看这一标记，是员工身份的唯一判据；复用/收编
+		// 已有账号时必须先确认标记存在（fail-closed）。
 		Preferences: types.UserPreferences{YunzhijiaEmployee: &isEmployee},
 	}
 	if err := p.createWithUniqueUsername(ctx, user, employee); err != nil {
@@ -152,14 +165,14 @@ func (p *YunzhijiaProvisioner) ensureNewAccount(
 // reuseExistingAccount 复用按合成邮箱命中的账号：停用时原样返回（不写
 // 成员关系，由登录侧拒绝），否则补齐成员关系并回填 user_id。
 //
-// 安全闸：只有从未设置过密码的账号才允许收编。合成邮箱可被猜到，注册
-// 模式开放时有人可能抢先用它注册；把有密码的账号拉进员工空间会绕过
-// AC-15「不按邮箱匹配已有密码账号」。命中时按开号失败返回。
+// 复用前先过统一闸门：必须有员工标记、且不得设置过密码。合成邮箱可被
+// 猜到，注册模式开放时有人可能抢先用它注册；把有密码的账号拉进员工空间
+// 会绕过 AC-15「不按邮箱匹配已有密码账号」。命中时按开号失败返回。
 func (p *YunzhijiaProvisioner) reuseExistingAccount(
 	ctx context.Context, user *types.User, employee *types.YunzhijiaEmployee,
 ) (*types.User, error) {
-	if user.PasswordHash != "" {
-		return nil, fmt.Errorf("yunzhijia: 合成邮箱已被有密码账号占用，拒绝收编")
+	if err := checkReusableEmployeeAccount(user); err != nil {
+		return nil, err
 	}
 	if !user.IsActive {
 		return user, nil
@@ -171,6 +184,19 @@ func (p *YunzhijiaProvisioner) reuseExistingAccount(
 		return nil, err
 	}
 	return user, nil
+}
+
+// checkReusableEmployeeAccount 是复用已有 users 行前的统一闸门：
+// 先确认员工标记（AC-7 唯一判据），再拒绝有密码的账号（L3）。
+// 任一失败时调用方必须零写入，由登录/同步按错误暴露。
+func checkReusableEmployeeAccount(user *types.User) error {
+	if !isYunzhijiaEmployeeUser(user) {
+		return fmt.Errorf("%w（user_id=%s）", ErrYunzhijiaEmployeeMarkerMissing, user.ID)
+	}
+	if user.PasswordHash != "" {
+		return fmt.Errorf("yunzhijia: 账号 %s 已设置密码，拒绝收编", user.ID)
+	}
+	return nil
 }
 
 // createWithUniqueUsername 插入用户；用户名冲突时追加 open_id 短后缀重试。
