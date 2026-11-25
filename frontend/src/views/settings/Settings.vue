@@ -205,6 +205,8 @@
         <!-- 用户管理：owner / 系统管理员的角色目录 + 账号操作主入口 -->
         <div v-if="currentSection === 'user-management'" class="section">
           <UserManagement />
+          <!-- 云之家同步区块：仅系统管理员可见；不新增菜单（C6 例外）。 -->
+          <YunzhijiaSyncPanel v-if="authStore.isSystemAdmin" />
         </div>
 
         <!-- 发布集成 -->
@@ -254,6 +256,7 @@ import SandboxSettings from './SandboxSettings.vue'
 import WeKnoraCloudSettings from './WeKnoraCloudSettings.vue'
 import TenantMembers from './TenantMembers.vue'
 import UserManagement from '@/views/user-management/UserManagement.vue'
+import YunzhijiaSyncPanel from '@/views/system/YunzhijiaSyncPanel.vue'
 import SystemSettings from '@/views/system/SystemSettings.vue'
 import RuntimeQueues from '@/views/system/RuntimeQueues.vue'
 import PlatformAPIKeys from '@/views/system/PlatformAPIKeys.vue'
