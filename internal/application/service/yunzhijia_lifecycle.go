@@ -105,6 +105,12 @@ func (l *YunzhijiaLifecycle) lockActiveUser(
 	if err != nil {
 		return nil, nil, false, err
 	}
+	// 已绑定账号必须与开号/登录走同一道闸门（AC-7 / §10.3）：标记缺失或
+	// 已设密码的账号不得被同步补成员、恢复或改状态。失败零写入，由同步
+	// 记 provision_failed，部署巡检回填标记后可恢复。
+	if err := checkReusableEmployeeAccount(user); err != nil {
+		return nil, nil, false, err
+	}
 	if employee.Blocked {
 		return nil, nil, false, nil
 	}
@@ -168,6 +174,11 @@ func (l *YunzhijiaLifecycle) lockInactiveUser(
 	}
 	employee, err := l.reloadEmployee(ctx, openID)
 	if err != nil {
+		return nil, false, err
+	}
+	// 同在职路径：标记缺失或有密码的已绑定账号不得被同步停用/移除成员，
+	// 失败零写入，由同步记异常。
+	if err := checkReusableEmployeeAccount(user); err != nil {
 		return nil, false, err
 	}
 	if employee.Blocked {
