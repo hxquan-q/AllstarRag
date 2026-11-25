@@ -471,7 +471,7 @@ onMounted(loadStatus)
   }
 }
 .yzj-sync__mono {
-  font-family: var(--td-font-family-mono, monospace);
+  font-family: var(--td-font-family-mono);
   font-size: var(--app-text-xs);
 }
 @media (max-width: 860px) {

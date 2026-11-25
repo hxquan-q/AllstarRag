@@ -33,6 +33,15 @@ func provideUserService(
 	return svc
 }
 
+// provideYunzhijiaAccountLifecycle 把具体生命周期服务暴露为同步服务需要的
+// 窄接口。具体类型 *service.YunzhijiaLifecycle 仍单独提供：用户管理侧的
+// 封禁/停用/删除钩子注入的是具体类型，不能用 dig.As 顶掉。
+func provideYunzhijiaAccountLifecycle(
+	lifecycle *service.YunzhijiaLifecycle,
+) interfaces.YunzhijiaAccountLifecycle {
+	return lifecycle
+}
+
 // initYunzhijiaSSOConfig 暴露 config.Config 里的云之家配置段。
 // 配置段缺失时返回 nil，登录入口按未启用 fail-closed。
 func initYunzhijiaSSOConfig(cfg *config.Config) *config.YunzhijiaSSOConfig {

@@ -367,6 +367,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewYunzhijiaUserRemover))
 	must(container.Provide(service.NewYunzhijiaProvisioner))
 	must(container.Provide(service.NewYunzhijiaLifecycle))
+	must(container.Provide(provideYunzhijiaAccountLifecycle))
 	must(container.Provide(service.NewYunzhijiaSyncService))
 	must(container.Provide(service.NewYunzhijiaAdminService))
 	must(container.Provide(initYunzhijiaScheduler))
