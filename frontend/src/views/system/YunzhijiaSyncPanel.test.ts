@@ -4,7 +4,7 @@
  * H2 按「操作记录/邀请管理」的 TDesign 规范重做视觉后，覆盖：
  * - 顶部状态 tag + 最近一次摘要（时间 · 触发 · 状态 · 耗时）与失败摘要；
  * - 预检 / 立即同步 / 刷新三个工具栏按钮；
- * - 一排统计项；异常 / 禁止重建用 t-radio-group 切换，两张表都用 t-table，
+ * - 一排统计项；异常 / 禁止重建用下划线 Tab 切换，两张表都用 t-table，
  *   空态用 t-empty；
  * - 预检结果放进 t-dialog（单独的 YunzhijiaPreviewDialog 组件）；
  * - enabled=false 的 info 提示；加载态、错误态（内联 alert + 重试）；
@@ -230,13 +230,20 @@ function tablePagination(root: T46Node): Array<Record<string, unknown>> {
   )
 }
 
-/** 切换异常 / 禁止重建分段。 */
+/** 切换异常 / 禁止重建分段（下划线 Tab）。 */
 async function setTableMode(root: T46Node, mode: 'anomalies' | 'blocked'): Promise<void> {
-  const group = findByTag(root, 't-radio-group')[0]
-  assert.ok(group, '分段切换必须存在')
-  const update = group.props['onUpdate:modelValue'] as ((value: string) => void) | undefined
-  assert.equal(typeof update, 'function', 't-radio-group 必须支持 v-model')
-  update!(mode)
+  const testId = mode === 'anomalies' ? 'yzj-sync-mode-anomalies' : 'yzj-sync-mode-blocked'
+  const label = mode === 'anomalies' ? `${NS}.anomaliesTitle` : `${NS}.blockedTitle`
+  const tab = findByTag(root, 'button').find(
+    (node) =>
+      node.props['data-testid'] === testId
+      || node.props.dataTestid === testId
+      || textOf(node).includes(label),
+  )
+  assert.ok(tab, '异常/禁止重建 Tab 必须存在')
+  const handler = tab!.props.onClick as (() => unknown) | undefined
+  assert.equal(typeof handler, 'function', 'Tab 必须有 click 处理器')
+  await handler!()
   await settle(2)
 }
 
@@ -315,7 +322,7 @@ test('renders the status tag, latest summary, stats and the anomalies table by d
   assert.ok(text.includes('张三') && text.includes('同名 2 人'))
 })
 
-test('the radio group switches between the anomalies and blocked tables', async (t) => {
+test('the mode tabs switch between the anomalies and blocked tables', async (t) => {
   const { root } = mountPanel(t)
   await settle()
 

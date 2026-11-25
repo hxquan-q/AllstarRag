@@ -83,14 +83,30 @@
 
       <!-- 异常 / 禁止重建 分段切换，同一时间只展示一张表。 -->
       <div class="yzj-sync__section">
-        <t-radio-group v-model="tableMode" variant="default-filled" size="small">
-          <t-radio-button value="anomalies">
+        <div class="yzj-sync__mode" role="tablist" :aria-label="t('system.globalSettings.yunzhijiaSync.title')">
+          <button
+            type="button"
+            role="tab"
+            class="yzj-sync__mode-tab"
+            :class="{ 'is-active': tableMode === 'anomalies' }"
+            :aria-selected="tableMode === 'anomalies'"
+            data-testid="yzj-sync-mode-anomalies"
+            @click="tableMode = 'anomalies'"
+          >
             {{ t('system.globalSettings.yunzhijiaSync.anomaliesTitle') }}（{{ anomalies.length }}）
-          </t-radio-button>
-          <t-radio-button value="blocked">
+          </button>
+          <button
+            type="button"
+            role="tab"
+            class="yzj-sync__mode-tab"
+            :class="{ 'is-active': tableMode === 'blocked' }"
+            :aria-selected="tableMode === 'blocked'"
+            data-testid="yzj-sync-mode-blocked"
+            @click="tableMode = 'blocked'"
+          >
             {{ t('system.globalSettings.yunzhijiaSync.blockedTitle') }}（{{ blocked.length }}）
-          </t-radio-button>
-        </t-radio-group>
+          </button>
+        </div>
 
         <template v-if="tableMode === 'anomalies'">
           <t-table
@@ -447,6 +463,43 @@ onMounted(loadStatus)
   flex-direction: column;
   gap: var(--app-space-3);
   min-width: 0;
+}
+
+/* 与成员列表的 Tab 一致：文字 + 蓝色下划线，不用填充胶囊/白底方块。 */
+.yzj-sync__mode {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.yzj-sync__mode-tab {
+  appearance: none;
+  margin: 0 0 -1px;
+  padding: 8px 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  font: inherit;
+  font-size: var(--app-text-sm);
+  color: var(--td-text-color-secondary);
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+
+  &:hover {
+    color: var(--td-text-color-primary);
+  }
+
+  &.is-active {
+    color: var(--td-brand-color);
+    border-bottom-color: var(--td-brand-color);
+    font-weight: 500;
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--td-brand-color);
+    outline-offset: 2px;
+  }
 }
 
 .yzj-sync__table {
