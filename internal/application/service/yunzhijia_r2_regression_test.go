@@ -283,6 +283,8 @@ func TestYunzhijiaR2MembershipConflictDoesNotRecordProvisionFailed(t *testing.T)
 	// 模拟登录侧已并发完成入组：同步这轮 AddMember 撞唯一约束。
 	members.addErr = ErrMembershipAlreadyExists
 	employees := newYZJT06EmployeeRepo()
+	// R4 起生命周期会在锁内用 GetByOpenID 重读员工行，须与本轮仓储一致。
+	yzjT06SeedEmployeeRow(employees, repo.snapshot("open-r2-n2"))
 	life := yzjT06NewLifecycle(cfg, users, members, employees)
 	runs := &yzjT05RunRepo{}
 	svc := NewYunzhijiaSyncService(cfg, client, repo, runs, life)
