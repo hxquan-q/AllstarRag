@@ -132,7 +132,7 @@
             </template>
             <template #department="{ row }">{{ row.department || '—' }}</template>
             <template #blocked_at="{ row }">{{ formatTime(row.blocked_at) }}</template>
-            <template #blocked_by="{ row }">{{ row.blocked_by || '—' }}</template>
+            <template #blocked_by="{ row }">{{ displayUser(row.blocked_by) }}</template>
             <template #actions="{ row }">
               <t-popconfirm
                 :content="t('system.globalSettings.yunzhijiaSync.unblockConfirm', { name: row.name })"
@@ -167,9 +167,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MessagePlugin } from 'tdesign-vue-next'
+import { listUsers } from '@/api/user-management'
 import {
   getYunzhijiaSyncStatus,
   previewYunzhijiaSync,
@@ -182,9 +183,12 @@ import {
 } from '@/api/system/yunzhijia'
 import YunzhijiaPreviewDialog from './YunzhijiaPreviewDialog.vue'
 
+const props = defineProps<{ tenantId?: number | null }>()
+
 const { t, te, locale } = useI18n()
 
 const status = ref<YunzhijiaAdminStatus | null>(null)
+const userNames = ref<Record<string, string>>({})
 const previewResult = ref<YunzhijiaPreviewResult | null>(null)
 const loading = ref(false)
 const previewing = ref(false)
@@ -235,6 +239,34 @@ function enumLabel(group: 'triggers' | 'statuses' | 'anomalyKinds', value: strin
   const path = `system.globalSettings.yunzhijiaSync.${group}.${value}`
   return te(path) ? (t(path) as string) : value
 }
+
+// 操作人只回传 user_id；照「操作记录」用本空间成员列表回填邮箱/用户名，
+// 查不到的显示原始 id，不回退成空。
+async function loadUserNames(tenantId: number) {
+  try {
+    const resp = await listUsers(tenantId, { page: 1, page_size: 100 })
+    const map: Record<string, string> = {}
+    for (const item of resp.data?.items ?? []) {
+      map[item.user_id] = item.email || item.username || item.user_id
+    }
+    userNames.value = map
+  } catch {
+    // 回填失败不影响记录本身展示。
+  }
+}
+
+function displayUser(userId?: string): string {
+  if (!userId) return '—'
+  return userNames.value[userId] || userId
+}
+
+watch(
+  () => props.tenantId,
+  (tenantId) => {
+    if (tenantId) void loadUserNames(tenantId)
+  },
+  { immediate: true },
+)
 
 // 时间格式与「操作记录」一致，避免同一页出现两种时间样式。
 function formatTime(value?: string | null): string {

@@ -103,6 +103,7 @@
       <KeepAlive>
         <YunzhijiaSyncPanel
           v-if="isSystemAdmin && activeTab === 'sync'"
+          :tenant-id="tenantId"
           class="user-management__sync"
         />
       </KeepAlive>
