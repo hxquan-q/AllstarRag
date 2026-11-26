@@ -154,6 +154,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(docparser.NewImageResolver))
 	must(container.Provide(initOllamaService))
 	must(container.Provide(initNeo4jClient))
+	must(container.Provide(initYunzhijiaSSOConfig))
+	must(container.Provide(initYunzhijiaClient))
 	must(container.Provide(stream.NewStreamManager))
 	logger.Debugf(ctx, "[Container] Initializing DuckDB...")
 	must(container.Provide(NewDuckDB))
@@ -177,6 +179,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(repository.NewModelRepository))
 	must(container.Provide(repository.NewUserRepository))
 	must(container.Provide(repository.NewAuthTokenRepository))
+	must(container.Provide(repository.NewYunzhijiaEmployeeRepository))
+	must(container.Provide(repository.NewYunzhijiaSyncRunRepository))
 	must(container.Provide(repository.NewSystemSettingRepository))
 	must(container.Provide(repository.NewModelCatalogRepository))
 	must(container.Provide(neo4jRepo.NewNeo4jRepository))
@@ -268,6 +272,7 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		memberService interfaces.TenantMemberService,
 		invitationService interfaces.TenantInvitationService,
 		userService interfaces.UserService,
+		yzjLifecycle *service.YunzhijiaLifecycle,
 	) interfaces.UserManagementService {
 		svc := service.NewUserManagementService(userRepo, memberRepo, audit)
 		if lookup, ok := audit.(interfaces.LatestBanAuditLookup); ok {
@@ -289,6 +294,12 @@ func BuildContainer(container *dig.Container) *dig.Container {
 		}); ok {
 			aware.SetOwnerManagementDeps(tenantService, memberService, invitationService, userService)
 		}
+		// T06 管理端封禁/删除反向标记云之家员工目录；未启用同步时也生效，
+		// 否则下一轮同步会把人工封禁/删除的账号自动恢复或重建。接线不对
+		// 时启动直接 panic，避免安全钩子静默失效。
+		svc.(interface {
+			WithYunzhijiaEmployeeState(interfaces.YunzhijiaEmployeeState)
+		}).WithYunzhijiaEmployeeState(yzjLifecycle)
 		return svc
 	}))
 	must(container.Provide(service.NewTenantInvitationService))
@@ -352,7 +363,18 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(service.NewModelService))
 	must(container.Provide(service.NewDatasetService))
 	must(container.Provide(service.NewEvaluationService))
-	must(container.Provide(service.NewUserService))
+	must(container.Provide(provideUserService))
+	must(container.Provide(service.NewYunzhijiaUserRemover))
+	must(container.Provide(service.NewYunzhijiaProvisioner))
+	must(container.Provide(service.NewYunzhijiaLifecycle))
+	must(container.Provide(provideYunzhijiaAccountLifecycle))
+	must(container.Provide(service.NewYunzhijiaSyncService))
+	must(container.Provide(service.NewYunzhijiaAdminService))
+	must(container.Provide(initYunzhijiaScheduler))
+	must(container.Provide(
+		service.NewYunzhijiaLoginService,
+		dig.As(new(interfaces.YunzhijiaLoginService)),
+	))
 	must(container.Provide(service.NewSystemSettingService))
 	must(container.Provide(service.NewModelCatalogService))
 	must(container.Provide(func(
@@ -814,6 +836,8 @@ func BuildContainer(container *dig.Container) *dig.Container {
 	must(container.Provide(handler.NewEvaluationHandler))
 	must(container.Provide(handler.NewInitializationHandler))
 	must(container.Provide(handler.NewAuthHandler))
+	must(container.Provide(handler.NewYunzhijiaAuthHandler))
+	must(container.Provide(handler.NewYunzhijiaAdminHandler))
 	must(container.Provide(handler.NewSystemHandler))
 	// Dig resolves exact types; adapt the registered service to the handler's
 	// narrower SharedAgentLookup interface at the composition boundary.

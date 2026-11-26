@@ -71,13 +71,15 @@
         <div class="setting-info">
           <label>{{ $t('userProfile.changePassword.label') }}</label>
           <p class="desc">
-            {{ oidcOnlyLogin
-              ? $t('userProfile.changePassword.oidcOnlyDescription')
-              : $t('userProfile.changePassword.description') }}
+            {{ yunzhijiaEmployee
+              ? $t('userProfile.changePassword.yunzhijiaEmployeeDescription')
+              : oidcOnlyLogin
+                ? $t('userProfile.changePassword.oidcOnlyDescription')
+                : $t('userProfile.changePassword.description') }}
           </p>
         </div>
         <div class="setting-control">
-          <template v-if="oidcOnlyLogin">
+          <template v-if="yunzhijiaEmployee || oidcOnlyLogin">
             <span class="info-value info-value--muted">—</span>
           </template>
           <template v-else>
@@ -214,6 +216,12 @@ const loadPasswordPolicy = async () => {
 
 const oidcOnlyLogin = computed(
   () => userInfo.value?.preferences?.oidc_only_login === true,
+)
+
+// 云之家员工账号（服务端在开号时写入 per-user 标记）：只按这个标记隐藏
+// 改密入口，不按角色/全局 enabled/OIDC 判断，避免误伤普通 viewer/owner。
+const yunzhijiaEmployee = computed(
+  () => userInfo.value?.preferences?.yunzhijia_employee === true,
 )
 
 watch(passwordPopupVisible, (open) => {

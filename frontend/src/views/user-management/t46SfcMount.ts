@@ -105,14 +105,18 @@ function createStructRenderer(root: T46Node) {
       const index = parent.children.indexOf(n)
       return index >= 0 ? (parent.children[index + 1] ?? null) : null
     },
-    insert: (child: T46Node, parent: T46Node | null) => {
+    insert: (child: T46Node, parent: T46Node | null, anchor?: T46Node | null) => {
       const container = parent ?? root
       if (child.parent) {
         const old = child.parent.children.indexOf(child)
         if (old >= 0) child.parent.children.splice(old, 1)
       }
       child.parent = container
-      container.children.push(child)
+      // 片段（v-if/v-else 的 <template>）依赖 anchor 定位；不按 anchor 插入
+      // 会让旧分支残留、新分支追加在末尾，导致分支切换断言误判。
+      const before = anchor ? container.children.indexOf(anchor) : -1
+      if (before >= 0) container.children.splice(before, 0, child)
+      else container.children.push(child)
     },
     remove: (child: T46Node) => {
       if (!child.parent) return
@@ -129,7 +133,13 @@ function createStructRenderer(root: T46Node) {
 interface MountOptions {
   component: URL
   dependencies: Record<string, unknown>
+  /** 相对 import 的 SFC（如子组件）先编译，再按原 import 说明符注入。 */
+  componentFiles?: Record<string, URL>
   props?: Record<string, unknown>
+  /** 全局注册的组件；用于替换 t-table 等只在模板里按名解析的组件。 */
+  components?: Record<string, vue.Component>
+  /** 模板用 $t 的组件（未把 t 暴露到 setup 返回值）需要在这里注入。 */
+  globalProperties?: Record<string, unknown>
 }
 
 /** 卸载前先排干调度队列：避免断言失败提前结束后，残留的微任务在卸载后继续 patch。 */
@@ -146,9 +156,15 @@ async function unmountQuietly(app: { unmount: () => void }): Promise<void> {
 /** 直接挂载单个 SFC（完整渲染），返回根 host 树与组件实例。 */
 export function mountRendered(t: TestContext, options: MountOptions) {
   const f = fixture(t)
-  const comp = compileSfcComponent(f, options.component, options.dependencies)
+  const dependencies = { ...options.dependencies }
+  for (const [specifier, file] of Object.entries(options.componentFiles ?? {})) {
+    dependencies[specifier] = compileSfcComponent(f, file, dependencies)
+  }
+  const comp = compileSfcComponent(f, options.component, dependencies)
   const root = node('root')
   const app = createStructRenderer(root).createApp(comp, options.props ?? {})
+  for (const [name, component] of Object.entries(options.components ?? {})) app.component(name, component)
+  Object.assign(app.config.globalProperties, options.globalProperties ?? {})
   app.config.warnHandler = () => {}
   const vm = app.mount(root)
   t.after(() => unmountQuietly(app))

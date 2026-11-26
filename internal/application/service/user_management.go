@@ -47,6 +47,9 @@ type userManagementService struct {
 	memberService     interfaces.TenantMemberService
 	invitationService interfaces.TenantInvitationService
 	userService       interfaces.UserService
+
+	// yunzhijiaState 可选：封禁/删除后反向标记员工目录。nil 时保持旧行为。
+	yunzhijiaState interfaces.YunzhijiaEmployeeState
 }
 
 // NewUserManagementService 构造用户管理服务。三个依赖都是既有仓储/服务；
@@ -141,6 +144,23 @@ func (s *userManagementService) BanUser(
 	if err := s.authorize(ctx, target); err != nil {
 		return nil, err
 	}
+	// 与同步生命周期共享按用户串行锁：锁内重读 users 行后再看员工标记，
+	// 锁覆盖「读标记 → 清 disabled_by_sync → BanUserTx」。
+	release, err := acquireUserProvisionLock(ctx, s.userRepo, target.user.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	target.user, err = s.reloadUser(ctx, target.user.ID)
+	if err != nil {
+		return nil, err
+	}
+	// 先清 disabled_by_sync 再封禁：标记失败就不封禁，避免留下「已封禁、
+	// 标记仍为 true」的账号被下次同步当成同步停用自动解封（INV-4）。
+	wasSyncDisabled, err := notifyYunzhijiaAdminDisabled(ctx, s.yunzhijiaState, target.user)
+	if err != nil {
+		return nil, err
+	}
 
 	// 生产路径：状态变更与 ban 审计在同一事务内提交，解封事务读到的
 	// “最近一次 ban”因此一定是完整、已提交的记录。
@@ -155,6 +175,7 @@ func (s *userManagementService) BanUser(
 		user, err := s.banRepo.BanUserTx(
 			ctx, tenantID, target.user.ID, auditActor(ctx), target.member.Role, audit)
 		if err != nil {
+			restoreYunzhijiaAdminDisabled(ctx, s.yunzhijiaState, target.user.ID, wasSyncDisabled)
 			return nil, mapUserStatusError(err)
 		}
 		return user, nil
@@ -164,6 +185,7 @@ func (s *userManagementService) BanUser(
 	wasActive := target.user.IsActive
 	user, err := s.userRepo.SetUserActive(ctx, target.user.ID, auditActor(ctx), false)
 	if err != nil {
+		restoreYunzhijiaAdminDisabled(ctx, s.yunzhijiaState, target.user.ID, wasSyncDisabled)
 		return nil, mapUserStatusError(err)
 	}
 
@@ -191,6 +213,11 @@ func (s *userManagementService) UnbanUser(
 	if err := s.authorize(ctx, target); err != nil {
 		return nil, err
 	}
+	release, err := acquireUserProvisionLock(ctx, s.userRepo, target.user.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	isSystemAdmin := types.IsSystemAdminFromContext(ctx)
 
@@ -265,6 +292,21 @@ func (s *userManagementService) loadTarget(
 		return nil, err
 	}
 	return &managedTarget{user: user, member: member}, nil
+}
+
+// reloadUser 在按用户锁内重读 users 行，作为员工标记与 IsActive 的
+// 唯一判定来源。行已被墓碑化时按 404 处理。
+func (s *userManagementService) reloadUser(
+	ctx context.Context, userID string,
+) (*types.User, error) {
+	user, err := s.userRepo.GetUserByID(ctx, userID)
+	if err != nil {
+		if errors.Is(err, apprepo.ErrUserNotFound) {
+			return nil, apperrors.NewNotFoundError("user not found")
+		}
+		return nil, err
+	}
+	return user, nil
 }
 
 // authorize 实现 T06 的目标保护矩阵：

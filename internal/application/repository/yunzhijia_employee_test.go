@@ -1,0 +1,164 @@
+package repository
+
+// T06 票级复跑 round2：员工目录 blocked/unblock 的真实 SQLite 仓储语义。
+//
+// 审查修复 low 项把 MarkBlocked 从「blocked + 清 user_id」改为「只置
+// blocked，保留 user_id 供审计；Unblock 时再清」。这里用真实表验证，
+// 不用替身。
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"testing"
+
+	"github.com/Tencent/WeKnora/internal/types"
+	"github.com/Tencent/WeKnora/internal/types/interfaces"
+	"gorm.io/driver/sqlite"
+	"gorm.io/gorm"
+)
+
+func newYZJT06EmployeeRepo(t *testing.T) interfaces.YunzhijiaEmployeeRepository {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "yzj-employees.db")), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("打开 sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&types.YunzhijiaEmployee{}); err != nil {
+		t.Fatalf("迁移 employees: %v", err)
+	}
+	return NewYunzhijiaEmployeeRepository(db)
+}
+
+func TestYunzhijiaT06MarkBlockedKeepsUserIDUnblockClearsIt(t *testing.T) {
+	ctx := context.Background()
+	repo := newYZJT06EmployeeRepo(t)
+
+	userID := "u-t06-audit"
+	employee := &types.YunzhijiaEmployee{
+		OpenID:     "open-audit-0001",
+		Name:       "占位员工申",
+		Department: "占位部门",
+		TenantID:   10024,
+		UserID:     &userID,
+		Status:     types.YunzhijiaEmployeeStatusInactive,
+	}
+	if err := repo.UpsertByOpenID(ctx, employee); err != nil {
+		t.Fatalf("创建员工: %v", err)
+	}
+
+	if err := repo.MarkBlocked(ctx, employee.OpenID, "actor-t06"); err != nil {
+		t.Fatalf("MarkBlocked: %v", err)
+	}
+	blocked, err := repo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		t.Fatalf("GetByOpenID(blocked): %v", err)
+	}
+	if blocked == nil || !blocked.Blocked {
+		t.Fatalf("MarkBlocked 后应为 blocked: %+v", blocked)
+	}
+	if blocked.UserID == nil || *blocked.UserID != userID {
+		t.Fatalf("MarkBlocked 必须保留 user_id 供审计，实际 %v", blocked.UserID)
+	}
+	if blocked.BlockedBy == nil || *blocked.BlockedBy != "actor-t06" {
+		t.Fatalf("MarkBlocked 必须记录操作人，实际 %v", blocked.BlockedBy)
+	}
+	if blocked.BlockedAt == nil {
+		t.Fatal("MarkBlocked 必须写入 blocked_at")
+	}
+
+	if err := repo.Unblock(ctx, employee.OpenID); err != nil {
+		t.Fatalf("Unblock: %v", err)
+	}
+	unblocked, err := repo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		t.Fatalf("GetByOpenID(unblocked): %v", err)
+	}
+	if unblocked == nil || unblocked.Blocked {
+		t.Fatalf("Unblock 后应解除 blocked: %+v", unblocked)
+	}
+	if unblocked.UserID != nil {
+		t.Fatalf("Unblock 必须清空 user_id，实际 %v", *unblocked.UserID)
+	}
+	if unblocked.BlockedBy != nil || unblocked.BlockedAt != nil {
+		t.Fatalf("Unblock 必须清空 blocked_by/blocked_at，实际 by=%v at=%v",
+			unblocked.BlockedBy, unblocked.BlockedAt)
+	}
+
+	if err := repo.Unblock(ctx, employee.OpenID); !errors.Is(err, ErrYunzhijiaEmployeeNotFound) {
+		t.Fatalf("重复 Unblock 应返回 ErrYunzhijiaEmployeeNotFound，实际 %v", err)
+	}
+}
+
+// TestYunzhijiaT08UnblockClearsDisabledBySyncAndAllowsRebuild 对应审查 H1。
+// 场景：员工离职被同步停用（disabled_by_sync=true）后账号被删除并置 blocked，
+// 管理员点「解除」。Unblock 必须同时清 disabled_by_sync，否则下一轮同步与
+// 登录仍因该标记拒绝重建。用真实 SQLite 验证，不用替身。
+func TestYunzhijiaT08UnblockClearsDisabledBySyncAndAllowsRebuild(t *testing.T) {
+	ctx := context.Background()
+	repo := newYZJT06EmployeeRepo(t)
+
+	userID := "user-t08-purged-placeholder"
+	employee := &types.YunzhijiaEmployee{
+		OpenID:         "open-t08-unblock-0001",
+		Name:           "占位员工庚",
+		Department:     "占位部门",
+		TenantID:       10024,
+		UserID:         &userID,
+		DisabledBySync: true,
+		Status:         types.YunzhijiaEmployeeStatusInactive,
+	}
+	if err := repo.UpsertByOpenID(ctx, employee); err != nil {
+		t.Fatalf("创建员工: %v", err)
+	}
+
+	// 账号被删除：MarkBlocked 保留 user_id 供审计，disabled_by_sync 仍为 true。
+	if err := repo.MarkBlocked(ctx, employee.OpenID, "actor-t08"); err != nil {
+		t.Fatalf("MarkBlocked: %v", err)
+	}
+	before, err := repo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		t.Fatalf("GetByOpenID(blocked): %v", err)
+	}
+	if before == nil || !before.Blocked || !before.DisabledBySync {
+		t.Fatalf("前置状态应为 blocked 且 disabled_by_sync=true: %+v", before)
+	}
+
+	if err := repo.Unblock(ctx, employee.OpenID); err != nil {
+		t.Fatalf("Unblock: %v", err)
+	}
+	row, err := repo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		t.Fatalf("GetByOpenID(unblocked): %v", err)
+	}
+	if row == nil {
+		t.Fatal("员工记录不应消失")
+	}
+	if row.Blocked || row.UserID != nil || row.BlockedAt != nil || row.BlockedBy != nil {
+		t.Fatalf("Unblock 后状态未清空: %+v", row)
+	}
+	if row.DisabledBySync {
+		t.Fatalf("Unblock 必须清 disabled_by_sync，否则登录仍拒绝: %+v", row)
+	}
+
+	// 下一轮同步只更新上游字段，不应回填本地状态。
+	if err := repo.UpsertByOpenID(ctx, &types.YunzhijiaEmployee{
+		OpenID:     employee.OpenID,
+		Name:       "占位员工庚",
+		Department: "占位部门",
+		TenantID:   10024,
+		Status:     types.YunzhijiaEmployeeStatusActive,
+	}); err != nil {
+		t.Fatalf("UpsertByOpenID: %v", err)
+	}
+	next, err := repo.GetByOpenID(ctx, employee.OpenID)
+	if err != nil {
+		t.Fatalf("GetByOpenID(next): %v", err)
+	}
+	if next == nil {
+		t.Fatal("下一轮同步后员工记录不应消失")
+	}
+	if next.Blocked || next.DisabledBySync || next.UserID != nil {
+		t.Fatalf("下一轮同步应可重建（ApplyEmployee 创建分支 + 登录门禁）: %+v", next)
+	}
+}

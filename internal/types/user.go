@@ -50,6 +50,14 @@ type UserPreferences struct {
 	// password via ChangePassword (which clears this flag).
 	OidcOnlyLogin *bool `json:"oidc_only_login,omitempty"`
 
+	// YunzhijiaEmployee is set server-side when the account is provisioned
+	// by the Yunzhijia employee sync. Yunzhijia employees have no local
+	// password and must sign in through Yunzhijia, so the profile UI hides
+	// the password-rotation entry for these accounts. It is never accepted
+	// from client preference updates (no merge branch in
+	// UpdateUserPreferences by design).
+	YunzhijiaEmployee *bool `json:"yunzhijia_employee,omitempty"`
+
 	// Gallery holds the user's image-gallery UI state: the search
 	// activation mode and the per-attribute search-field toggles. Written
 	// by the gallery's mode / checkbox interactions via the preferences

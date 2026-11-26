@@ -105,6 +105,9 @@ export interface UserPreferences {
   last_active_tenant_id?: number | null
   // oidc_only_login 为 true 表示账号由 OIDC 自动开通且用户尚未设置已知密码。
   oidc_only_login?: boolean
+  // yunzhijia_employee 为 true 表示账号由云之家员工同步开通：无本地密码，
+  // 只能从云之家进入。仅服务端写入，设置页据此隐藏改密入口。
+  yunzhijia_employee?: boolean
   // gallery 记录图库的个人状态：搜索激活模式与逐字段开/关（按属性 ID）。
   // 每次变更整体覆盖该块；后端会校验 mode 与 status 取值。
   gallery?: {
@@ -232,6 +235,15 @@ export async function login(data: LoginRequest): Promise<LoginResponse> {
       message: error.message || t('error.auth.loginFailed')
     }
   }
+}
+
+/**
+ * 云之家 ticket 免登录。请求体字段名固定为 `ticket`（后端 logger
+ * sanitizeBody 依赖该字段名）。失败时抛出 request 层的错误对象，
+ * 由启动入口按 400/401/503 状态展示对应提示，不在这里吞掉状态码。
+ */
+export function loginWithYunzhijia(ticket: string): Promise<LoginResponse> {
+  return post<LoginResponse>('/api/v1/auth/yunzhijia/login', { ticket })
 }
 
 /**

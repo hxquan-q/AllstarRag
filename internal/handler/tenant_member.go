@@ -569,6 +569,14 @@ func (h *TenantMemberHandler) ResetMemberPassword(c *gin.Context) {
 	// 矩阵拒绝保持同一句笼统话，不泄漏对方的特权细节。
 	// 失败分支不记录密码，只记目标 ID 与错误。
 	if err := h.userService.AdminResetPassword(ctx, targetUserID, req.NewPassword); err != nil {
+		if errors.Is(err, service.ErrYunzhijiaEmployeePasswordDisabled) {
+			logger.Warnf(ctx,
+				"ResetMemberPassword denied: yunzhijia employee user=%s tenant=%d actor_role=%s",
+				targetUserID, tenantID, actorRole)
+			_ = c.Error(apperrors.NewForbiddenError(
+				"yunzhijia employee accounts cannot use passwords"))
+			return
+		}
 		if errors.Is(err, service.ErrCannotResetPrivilegedTarget) {
 			logger.Warnf(ctx, "ResetMemberPassword denied: privileged target user=%s tenant=%d actor_role=%s",
 				targetUserID, tenantID, actorRole)

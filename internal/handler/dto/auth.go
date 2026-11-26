@@ -14,6 +14,12 @@ type AuthLoginResponse struct {
 	Capabilities *types.LoginCapabilities `json:"capabilities,omitempty"`
 }
 
+// YunzhijiaLoginRequest 是云之家 ticket 免登录的请求体。
+// ticket 只放 POST body，不出现于 URL/日志。
+type YunzhijiaLoginRequest struct {
+	Ticket string `json:"ticket" binding:"required"`
+}
+
 // AuthOIDCCallbackResponse is the HTTP-safe OIDC callback payload shape.
 type AuthOIDCCallbackResponse struct {
 	Success      bool               `json:"success"`

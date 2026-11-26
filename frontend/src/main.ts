@@ -25,10 +25,14 @@ import "vue-virtual-scroller/dist/vue-virtual-scroller.css";
 import i18n from "./i18n";
 import { initTheme } from "@/composables/useTheme";
 import { initFont } from "@/composables/useFont";
-import { brandConfig, initCustomerBrandTheme } from "@/brand";
+import { brandConfig, initCustomerBrandTheme, applyDocumentBrand } from "@/brand";
 import { installTDesignIconOfflineGuard } from "@/utils/tdesign-icon-offline";
 import { installAutofillGuard } from "@/utils/disable-autofill";
-import { useAuthStore } from "@/stores/auth";
+import { useAuthStore, persistLoginResponseToStore } from "@/stores/auth";
+import { loginWithYunzhijia } from "@/api/auth";
+import { bootstrapYunzhijiaLogin } from "@/utils/yunzhijiaLogin";
+import YunzhijiaLoginError from "@/views/auth/YunzhijiaLoginError.vue";
+import { defaultLandingPath } from "@/config/customerAccess";
 
 // 必须在 Vue 组件挂载之前执行，避免 tdesign-icons 运行时请求 tdesign.gtimg.com
 installTDesignIconOfflineGuard();
@@ -38,6 +42,15 @@ initFont();
 // 启动即写入品牌变量（所有角色），保障首帧与角色未判页面（如 onboarding）也跟随品牌色；
 // 这里不设置 data-customer，登录页与登录后的角色判定分别由 T03 / T04 决定。
 initCustomerBrandTheme();
+
+// 云之家 ticket 登录失败时不进入主应用（旧会话已清空），单独挂一个错误页。
+function mountYunzhijiaLoginError(error: unknown, pinia: ReturnType<typeof createPinia>) {
+  applyDocumentBrand({ customer: true });
+  const errorApp = createApp(YunzhijiaLoginError, { error });
+  errorApp.use(pinia);
+  errorApp.use(i18n);
+  errorApp.mount("#app");
+}
 
 async function bootstrap() {
   // 首帧标题先写成品牌名：硬刷新 / 直达 onboarding、workspace 时不再停留或闪烁 WeKnora（AC-3）。
@@ -54,10 +67,27 @@ async function bootstrap() {
   const pinia = createPinia();
   app.use(pinia);
 
+  // 云之家 ticket 登录必须先于 refreshFromAuthMe / app.use(router)：
+  // 读 ticket → 立即清理地址栏 → 清旧会话 → POST 换票。失败只展示错误页。
+  const authStore = useAuthStore();
+  const yzjBoot = await bootstrapYunzhijiaLogin({
+    login: loginWithYunzhijia,
+    persist: (response) => persistLoginResponseToStore(authStore, response),
+    clearSession: () => authStore.logout(),
+    applyLocale: (locale) => {
+      i18n.global.locale.value = locale;
+      localStorage.setItem("locale", locale);
+    },
+  });
+
+  if (yzjBoot.kind === "error") {
+    mountYunzhijiaLoginError(yzjBoot.error, pinia);
+    return;
+  }
+
   // Capabilities (can_create_tenant, auto_accept_invitation) are not cached
   // in localStorage — reconcile once before first paint when a session exists.
-  const authStore = useAuthStore();
-  if (localStorage.getItem("weknora_token")) {
+  if (yzjBoot.kind === "none" && localStorage.getItem("weknora_token")) {
     try {
       await authStore.refreshFromAuthMe();
     } catch {
@@ -67,6 +97,11 @@ async function bootstrap() {
 
   app.use(router);
   app.use(i18n);
+
+  // 云之家登录成功：云之家员工是 viewer，直接进入客户侧首页。
+  if (yzjBoot.kind === "success") {
+    await router.replace(defaultLandingPath(authStore, "/onboarding/workspace"));
+  }
 
   // 等首屏路由（含导航守卫、Lite 自动登录）完成后再挂载，避免先闪默认页再跳转
   await router.isReady();

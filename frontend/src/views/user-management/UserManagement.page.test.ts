@@ -24,6 +24,10 @@ assert.ok(PAGE_DESCRIPTOR.template)
 const { code: PAGE_RENDER_CODE } = compile(PAGE_DESCRIPTOR.template.content, {
   mode: 'function', prefixIdentifiers: true, filename: 'UserManagement.vue',
 })
+// H2：面板移入 sync Tab 后模板不再有插槽，直接执行 SFC render 函数即可。
+// 默认 activeTab 是 members，sync Tab 的 v-if 为 false，面板不会挂载，
+// 因此这里不需要给面板 API 打桩；Tab 结构与门控由
+// YunzhijiaSyncPanelMount.test.ts 的源码断言覆盖。
 const renderPage = new Function('Vue', PAGE_RENDER_CODE)(vue) as (ctx: any, cache: unknown[]) => unknown
 
 type VNode = { type: unknown; props?: Record<string, any> | null; children: unknown }

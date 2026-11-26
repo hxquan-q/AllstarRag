@@ -24,6 +24,9 @@ function setup(t: TestContext) {
       vue,
       pinia,
       '@/api/auth': { userInfoFromApi: (u: unknown) => u },
+      // T09 把会话写入抽到 authPersistence.ts，auth.ts 只做 re-export；
+      // 本用例只测角色 fallback，stub 掉该依赖即可。
+      '@/stores/authPersistence': { persistLoginResponseToStore() {} },
       '@/i18n': { __esModule: true, default: { global: { t: (key: string) => key } } },
       '@/composables/useFont': { reloadFontFromStorage() {} },
       '@/composables/useTheme': { reloadThemeFromStorage() {} },
