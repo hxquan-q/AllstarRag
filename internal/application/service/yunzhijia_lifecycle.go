@@ -33,7 +33,7 @@ type YunzhijiaLifecycle struct {
 // NewYunzhijiaLifecycle 构造生命周期服务。cfg 为红阶段锁定的构造签名
 // 保留位：目标空间已由同步规划写入 employee.TenantID，这里不再读取配置。
 func NewYunzhijiaLifecycle(
-	cfg *config.YunzhijiaSSOConfig,
+	_ *config.YunzhijiaSSOConfig,
 	provisioner *YunzhijiaProvisioner,
 	userRepo interfaces.UserRepository,
 	memberService interfaces.TenantMemberService,

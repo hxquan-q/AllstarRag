@@ -52,7 +52,7 @@ type YunzhijiaProvisioner struct {
 // NewYunzhijiaProvisioner 构造开号服务。cfg 参数为红阶段锁定的
 // 构造签名保留位，开号逻辑不读取它。
 func NewYunzhijiaProvisioner(
-	cfg *config.YunzhijiaSSOConfig,
+	_ *config.YunzhijiaSSOConfig,
 	userRepo interfaces.UserRepository,
 	memberService interfaces.TenantMemberService,
 	employeeRepo interfaces.YunzhijiaEmployeeRepository,

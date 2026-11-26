@@ -14,7 +14,7 @@ import (
 
 func TestQueryUserNameEmptyDataIsInvalidTicket(t *testing.T) {
 	for _, data := range []string{"", "   "} {
-		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"code":200,"msg":"成功","data":"` + data + `"}`))
 		}))

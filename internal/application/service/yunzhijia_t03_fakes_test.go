@@ -298,7 +298,9 @@ func newYZJT03MemberService() *yzjT03MemberService {
 	return &yzjT03MemberService{rows: map[string]map[uint64]*types.TenantMember{}}
 }
 
-func (m *yzjT03MemberService) GetMembership(_ context.Context, userID string, tenantID uint64) (*types.TenantMember, error) {
+func (m *yzjT03MemberService) GetMembership(
+	_ context.Context, userID string, tenantID uint64,
+) (*types.TenantMember, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	byTenant, ok := m.rows[userID]

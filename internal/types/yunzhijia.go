@@ -25,7 +25,7 @@ const (
 type YunzhijiaEmployee struct {
 	ID uint64 `json:"id" gorm:"primaryKey;autoIncrement"`
 	// OpenID 是云之家员工唯一标识，也是本表唯一键。
-	OpenID string `json:"open_id" gorm:"column:open_id;type:varchar(64);not null;uniqueIndex:uq_yunzhijia_employees_open_id"`
+	OpenID string `json:"open_id" gorm:"column:open_id;type:varchar(64);not null;uniqueIndex:uq_yunzhijia_employees_open_id"` //nolint:lll // one-line struct tag
 	// Name 用于 ticket 姓名匹配；同名会拒绝登录，不做自动消歧。
 	Name string `json:"name" gorm:"type:varchar(255);not null;index:idx_yunzhijia_employees_name_status,priority:1"`
 	// Department 保留上游部门路径原文，用于判断是否属于人力空间。
@@ -35,9 +35,9 @@ type YunzhijiaEmployee struct {
 	// TenantID 是该员工当前应归属的本地空间（默认 10024，人力 10022）。
 	TenantID uint64 `json:"tenant_id" gorm:"not null;index:idx_yunzhijia_employees_tenant_status,priority:1"`
 	// UserID 指向本地 users.id，未开号时为空。
-	UserID *string `json:"user_id,omitempty" gorm:"column:user_id;type:varchar(36);index:idx_yunzhijia_employees_user_id"`
+	UserID *string `json:"user_id,omitempty" gorm:"column:user_id;type:varchar(36);index:idx_yunzhijia_employees_user_id"` //nolint:lll // one-line struct tag
 	// Status 记录上游在职/离职状态。禁/启用本地账号由 Service 依据它决定。
-	Status YunzhijiaEmployeeStatus `json:"status" gorm:"type:varchar(20);not null;default:'active';index:idx_yunzhijia_employees_name_status,priority:2;index:idx_yunzhijia_employees_tenant_status,priority:2"`
+	Status YunzhijiaEmployeeStatus `json:"status" gorm:"type:varchar(20);not null;default:'active';index:idx_yunzhijia_employees_name_status,priority:2;index:idx_yunzhijia_employees_tenant_status,priority:2"` //nolint:lll // one-line struct tag
 	// DisabledBySync 只表示“账号是被同步因离职停用的”。管理员封禁或
 	// 其它人工停用必须置 false；再入职自动恢复只认 true。
 	DisabledBySync bool `json:"disabled_by_sync" gorm:"not null;default:false"`
@@ -59,7 +59,9 @@ func (YunzhijiaEmployee) TableName() string { return "yunzhijia_employees" }
 // YunzhijiaSyncTrigger 是一次同步运行由谁触发。
 type YunzhijiaSyncTrigger string
 
+// 同步触发方式。
 const (
+	// YunzhijiaSyncTriggerStartup 表示服务启动时的补跑。
 	YunzhijiaSyncTriggerStartup YunzhijiaSyncTrigger = "startup"
 	YunzhijiaSyncTriggerCron    YunzhijiaSyncTrigger = "cron"
 	YunzhijiaSyncTriggerManual  YunzhijiaSyncTrigger = "manual"
@@ -71,7 +73,9 @@ const (
 // YunzhijiaSyncStatus 是一次同步运行的最终状态。
 type YunzhijiaSyncStatus string
 
+// 同步运行状态。
 const (
+	// YunzhijiaSyncStatusRunning 表示同步正在运行。
 	YunzhijiaSyncStatusRunning YunzhijiaSyncStatus = "running"
 	YunzhijiaSyncStatusSuccess YunzhijiaSyncStatus = "success"
 	YunzhijiaSyncStatusFailed  YunzhijiaSyncStatus = "failed"

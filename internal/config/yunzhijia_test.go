@@ -105,14 +105,22 @@ func TestYunzhijiaValidateRejectsEmptyOrRelativePaths(t *testing.T) {
 		mut  func(*YunzhijiaSSOConfig)
 		want string
 	}{
-		{"employee_path 为空", func(c *YunzhijiaSSOConfig) { c.EmployeePath = "" },
-			"employee_path 不能为空"},
-		{"employee_path 不以 / 开头", func(c *YunzhijiaSSOConfig) { c.EmployeePath = "employees" },
-			"employee_path 必须以 / 开头"},
-		{"ticket_user_path 为空", func(c *YunzhijiaSSOConfig) { c.TicketUserPath = "" },
-			"ticket_user_path 不能为空"},
-		{"ticket_user_path 不以 / 开头", func(c *YunzhijiaSSOConfig) { c.TicketUserPath = "ticket/user" },
-			"ticket_user_path 必须以 / 开头"},
+		{
+			"employee_path 为空", func(c *YunzhijiaSSOConfig) { c.EmployeePath = "" },
+			"employee_path 不能为空",
+		},
+		{
+			"employee_path 不以 / 开头", func(c *YunzhijiaSSOConfig) { c.EmployeePath = "employees" },
+			"employee_path 必须以 / 开头",
+		},
+		{
+			"ticket_user_path 为空", func(c *YunzhijiaSSOConfig) { c.TicketUserPath = "" },
+			"ticket_user_path 不能为空",
+		},
+		{
+			"ticket_user_path 不以 / 开头", func(c *YunzhijiaSSOConfig) { c.TicketUserPath = "ticket/user" },
+			"ticket_user_path 必须以 / 开头",
+		},
 	}
 
 	for _, tc := range cases {

@@ -66,7 +66,7 @@ func TestQueryUserNameBusinessFailureIsInvalidTicket(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				writeJSON(w, tc.body)
 			}))
 			defer srv.Close()
@@ -80,7 +80,7 @@ func TestQueryUserNameBusinessFailureIsInvalidTicket(t *testing.T) {
 }
 
 func TestQueryUserNameHTTPErrorIsUpstream(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
@@ -92,7 +92,7 @@ func TestQueryUserNameHTTPErrorIsUpstream(t *testing.T) {
 }
 
 func TestQueryUserNameMalformedJSONIsContract(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, `{"code":200,`)
 	}))
 	defer srv.Close()
@@ -105,7 +105,7 @@ func TestQueryUserNameMalformedJSONIsContract(t *testing.T) {
 
 func TestQueryUserNameTimeoutIsUpstreamAndDoesNotLeakTicket(t *testing.T) {
 	ticket := "ticket-placeholder-timeout-SECRET"
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		time.Sleep(150 * time.Millisecond)
 		writeJSON(w, `{"code":200,"msg":"成功","data":"张三"}`)
 	}))
@@ -122,7 +122,7 @@ func TestQueryUserNameTimeoutIsUpstreamAndDoesNotLeakTicket(t *testing.T) {
 }
 
 func TestQueryUserNameOversizedResponseIsContract(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, `{"code":200,"msg":"成功","data":"一大段远超上限的响应内容"}`)
 	}))
 	defer srv.Close()
@@ -166,7 +166,10 @@ func TestListEmployeesParsesPageAndEncodesQuery(t *testing.T) {
 		if got := r.URL.Query().Get("page_size"); got != "500" {
 			t.Errorf("page_size = %q, want 500", got)
 		}
-		writeJSON(w, `{"list":[{"open_id":" open-1 ","name":" 员工甲 ","department":"研发中心\\人力资源部","mobile":"13800000000"},{"open_id":"open-2","name":"员工乙","department":"","mobile":null}],"pagination":{"page":2,"page_size":500,"total":2}}`)
+		writeJSON(w, `{"list":[`+
+			`{"open_id":" open-1 ","name":" 员工甲 ","department":"研发中心\\人力资源部","mobile":"13800000000"},`+
+			`{"open_id":"open-2","name":"员工乙","department":"","mobile":null}`+
+			`],"pagination":{"page":2,"page_size":500,"total":2}}`)
 	}))
 	defer srv.Close()
 
@@ -198,12 +201,15 @@ func TestListEmployeesContractErrors(t *testing.T) {
 	}{
 		{name: "invalid pagination", body: `{"list":[],"pagination":{"page":0,"page_size":500,"total":0}}`},
 		{name: "empty list with total", body: `{"list":[],"pagination":{"page":1,"page_size":500,"total":10}}`},
-		{name: "missing open_id", body: `{"list":[{"open_id":"  ","name":"员工甲"}],"pagination":{"page":1,"page_size":500,"total":1}}`},
+		{
+			name: "missing open_id",
+			body: `{"list":[{"open_id":"  ","name":"员工甲"}],"pagination":{"page":1,"page_size":500,"total":1}}`,
+		},
 		{name: "malformed json", body: `{"list":`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				writeJSON(w, tc.body)
 			}))
 			defer srv.Close()
@@ -217,7 +223,7 @@ func TestListEmployeesContractErrors(t *testing.T) {
 }
 
 func TestListEmployeesHTTPErrorIsUpstream(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusBadGateway)
 	}))
 	defer srv.Close()
@@ -233,11 +239,26 @@ func TestNewClientRejectsInvalidOptions(t *testing.T) {
 		name string
 		opts Options
 	}{
-		{name: "empty base", opts: Options{TicketUserPath: "/t", EmployeePath: "/e"}},
-		{name: "non http scheme", opts: Options{BaseURL: "ftp://example.com", TicketUserPath: "/t", EmployeePath: "/e"}},
-		{name: "base with query", opts: Options{BaseURL: "https://example.com?x=1", TicketUserPath: "/t", EmployeePath: "/e"}},
-		{name: "empty ticket path", opts: Options{BaseURL: "https://example.com", EmployeePath: "/e"}},
-		{name: "path with query", opts: Options{BaseURL: "https://example.com", TicketUserPath: "/t?x=1", EmployeePath: "/e"}},
+		{
+			name: "empty base",
+			opts: Options{TicketUserPath: "/t", EmployeePath: "/e"},
+		},
+		{
+			name: "non http scheme",
+			opts: Options{BaseURL: "ftp://example.com", TicketUserPath: "/t", EmployeePath: "/e"},
+		},
+		{
+			name: "base with query",
+			opts: Options{BaseURL: "https://example.com?x=1", TicketUserPath: "/t", EmployeePath: "/e"},
+		},
+		{
+			name: "empty ticket path",
+			opts: Options{BaseURL: "https://example.com", EmployeePath: "/e"},
+		},
+		{
+			name: "path with query",
+			opts: Options{BaseURL: "https://example.com", TicketUserPath: "/t?x=1", EmployeePath: "/e"},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

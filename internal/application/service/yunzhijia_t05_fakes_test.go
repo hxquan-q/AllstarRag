@@ -377,18 +377,6 @@ func (r *yzjT05EmployeeRepo) snapshotAll() map[string]*types.YunzhijiaEmployee {
 	return out
 }
 
-// lastUpserted 返回最后一次传给 UpsertByOpenID 的入参，用于区分入参与库内行。
-func (r *yzjT05EmployeeRepo) lastUpserted(openID string) *types.YunzhijiaEmployee {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i := len(r.upserted) - 1; i >= 0; i-- {
-		if r.upserted[i].OpenID == openID {
-			return yzjT05CloneEmployee(r.upserted[i])
-		}
-	}
-	return nil
-}
-
 func (r *yzjT05EmployeeRepo) upsertCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
